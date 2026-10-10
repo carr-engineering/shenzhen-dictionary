@@ -1,451 +1,194 @@
 # 09 — Open Questions and Decisions
 
-**These must be reviewed by a human before implementation.** Each item states what is unclear, why it
-cannot be inferred confidently, the options, and a recommended resolution. The recommendation may be
-adopted as-is, but it is a recommendation, not a decision.
-
-Items are ordered by how much downstream work they block. Section 0 records questions that have been
-decided; their original text is kept below with a **Decided** line so the reasoning stays visible.
+Section 1 lists the questions that are still open. Section 2 is the decision log: every question that has
+been answered, with where the answer is applied. Closed questions keep their ID so references stay
+meaningful; their full discussion is in the git history of this file.
 
 ---
 
-## 0. Decision log (2026-10-10 review)
+## 1. Still open
+
+### `Q-042` — iOS share extension (confirm the v1 approach)
+**Background:** Android apps can receive shared images and text through intent filters, which open the
+app directly. On iOS the equivalent is a separate **share extension** target, with three limits:
+- it runs in its own process with a small memory budget (developers report about 120 MB), so a large
+  photo must be downsampled before anything else;
+- it cannot officially open its own containing app (the old workaround was blocked in iOS 18 and risks
+  App Review rejection);
+- it cannot use the app's in-memory state; data is handed over through a shared **App Group**
+  container.
+
+**Current spec (`SET-057`, `ARCH-147`):** one share extension accepting one image or text. It
+downsamples the image (≤ 2048 px) or keeps the text, saves it to the App Group inbox and shows
+"Saved — open Shenzhen Dictionary to continue". When the app next becomes active it consumes the inbox
+once: image → OCR review, text → Reading. No lookup inside the extension in v1.
+**Alternative:** run lookup / OCR inside the extension (more code, tighter memory).
+**Needs:** confirmation that "save, then open the app" is acceptable for v1.
+
+### `Q-092` — Minimum Android API level (advice)
+**Facts (2026):** AndroidX libraries default to minSdk 23; Compose 1.13 and CameraX 1.7 move to 24;
+`onnxruntime-android` 1.31 (voice) already requires 24. Device share (Dec 2025): API 24–25 1.6 %,
+26–27 2.3 %, 28 4.5 %.
+- **API 24** is feasible: it is the real floor set by the libraries. Costs: core-library desugaring for
+  `java.time`, no native adaptive icons / XML fonts, and the legacy photo-saving path
+  (`WRITE_EXTERNAL_STORAGE` with `maxSdkVersion="28"`, as you suggested — that covers API 24–28).
+- **API 26** (current spec) keeps about 97.6 % of devices and gives native `java.time`, adaptive icons
+  and XML fonts.
+- **API 29** would add permission-free MediaStore saving, `Typeface.CustomFallbackBuilder` (rare-character
+  fallback fonts), system dark theme and gesture-navigation insets as a baseline, and TLS 1.3 — at about
+  9 % reach.
+
+**Recommendation:** 26. Choose 24 only if the extra ~1.6 % matters; nothing in the spec breaks.
+**Blocks:** `PROD-025`, `CAM-075`.
+
+### `Q-100` — App licence and store compatibility
+**Unclear:** GPL-family licences conflict with Apple App Store terms; LGPL adds a relinking requirement
+that iOS apps cannot practically meet. Bundled data keeps its own licences (CC BY-SA 4.0 dictionaries,
+LGPL-2.1+ language model, Arphic stroke data, CC BY-SA Cantonese corpora).
+**Options:** (a) GPL-3.0-or-later with an App Store exception (needs a CLA so the exception covers all
+contributions); (b) MPL-2.0 (file-level copyleft, App Store friendly); (c) Apache-2.0.
+**Recommendation:** (b), with datasets and models as separate files under their own licences, listed
+in the attribution source (`REL-052`).
+**Blocks:** `REL-050`, `SET-041`.
+
+### `Q-105` — Fuzzy pinyin (post-v1 candidate)
+**What it means:** many speakers do not distinguish some sounds — `z`/`zh`, `c`/`ch`, `s`/`sh`, `n`/`l`,
+`an`/`ang`, `en`/`eng`, `in`/`ing` (and `n`/`l` in Cantonese). Fuzzy pinyin lets a query typed with one
+of a pair also match the other, so `zongguo` still finds 中国 (zhōngguó) and `lihao` finds 你好. It is
+cheap to add through the syllable alias data, but it makes many more queries ambiguous.
+**Recommendation:** not in v1; consider an opt-in setting later.
+
+### `Q-106` — Combinations: position and activation
+**Current spec:** the Combinations group sits after whole-query matches (EXACT / EXACT_TONELESS) and
+before PREFIX matches, and runs for every query of 2+ tokens.
+**Open:** whether that position and trigger feel right in real listening use.
+**Blocks:** `SRCH-060`…`SRCH-068`.
+
+### `Q-115` — Cantonese mode: CC-CEDICT words with no Jyutping
+**Facts:** 19,905 current CC-CEDICT headwords have no Jyutping in CC-Canto or the 2015 readings file
+(which also lacks 24,931 newer CC-CEDICT entries).
+**Options:** (a) show them in Cantonese mode with their Mandarin senses and a "no Cantonese reading"
+note; (b) generate Jyutping per character from single-reading characters and mark it as generated;
+(c) hide them in Cantonese mode.
+**Recommendation:** (a) for v1 — never show a guessed reading; (b) later, clearly marked.
+**Blocks:** `DATA-022`, `PIPE-053`, `PIPE-078`.
+
+### `Q-116` — Voice on iOS requires iOS 26+
+**Facts:** On-Demand Resources is deprecated in the iOS 27 SDK. Its successor, Background Assets with
+Apple-hosted packs, needs iOS 26+. Self-hosted Background Assets works on iOS 16.1+ but needs our own
+download server.
+**Current spec:** the voice model is an Apple-hosted Background Assets pack, so Voice is offered on
+iOS 26+ and hidden on older iOS (as on Web). The rest of the app keeps iOS 16 as the minimum.
+**Options:** keep that; raise the iOS minimum to 26; or self-host the pack on szdict.com for iOS 16–25.
+**Blocks:** `VOICE-095`, `PROD-025`.
+
+### `Q-117` — Web CJK font size
+**Facts:** Compose-Wasm draws text on a canvas and cannot use the browser's fonts; its automatic
+fallback downloads Noto subsets from a third-party server, which breaks offline use and `GLB-090`. The
+Web build therefore ships its own OFL CJK font, cut down to the dataset and UI characters (`ARCH-005`).
+**Open:** the real size per script (estimated ≤ 8 MB) and whether it can load before the first frame;
+measure at first integration. This raised the Web first-visit target (`PERF-060`) to 15 s / 30 s.
+
+### `Q-118` — Choices made while applying the decisions (confirm)
+- Shared text **replaces** the Reading draft, like `Open in Reading` (`TXT-080`, `SET-056`).
+- iOS share inbox: if several items wait, the newest wins (`SET-057`).
+- Opening a `/zh/…` or `/yue/…` link switches the app's dictionary mode, and the switch persists
+  (`GLB-110`).
+- HSK words missing from the dictionary are **no longer added as syllabus-sourced entries**; they stay
+  unlinked and show a card with headword, pinyin and part of speech but no definition (`HSK-056`,
+  `HSK-023`). The Word of the Day never picks them (`SET-063`).
+- Cantonese mode shows only Cantonese example sentences, not Mandarin ones (`MED-048`).
+- Chinese labels for definition blocks, e.g. 粤语释义（CC-Canto）/ 普通话释义 (`ENT-110`…).
+- Translate hand-off text is capped at 1,500 characters (`MED-030`).
+- CC-Canto lines "adapted from CC-CEDICT" are hidden when they repeat current CC-CEDICT text
+  (`ENT-114`). Risk: for polyphones this can remove the per-Jyutping meaning split (行 hong4 losing
+  "row; profession"); check against real entries before finalising.
+
+### `Q-119` — English search on Cantonese polyphones
+**Facts:** in Cantonese mode a single-character polyphone such as 行 has one entry per Jyutping, and
+each carries the same headword-level Mandarin block (`ENT-113`). English search indexing that block
+would return all five 行 entries for "walk".
+**Options:** (a) index the Mandarin block once per headword (on the most frequent Jyutping entry);
+(b) index it on every entry; (c) index only Cantonese senses for polyphones.
+**Recommendation:** (a).
+**Blocks:** `SRCH-047`, `DATA-076`.
+
+---
+
+## 2. Decision log
 
 | Item | Decision | Applied in |
 |------|----------|-----------|
-| `Q-030` Cantonese HSK | HSK is shown in **both** modes; Cantonese mode joins HSK words to the Cantonese dataset and shows Jyutping | `HSK-002`, `HSK-090`…, `DATA-187`, `PROD-051` |
-| `Q-040` Flash persistence | Session only (as recommended) | `CAM-038` |
-| `Q-041` Saved photo resolution | Save the original capture; analysis uses the capped working image | `CAM-026`, `CAM-073`, `CAM-074` |
-| `Q-050` OCR cards on Reading | Moot: OCR is a primary destination; access cards are removed everywhere (not clear i didn't understand) | `CAM-006`…`CAM-009`, `SRCH-110` |
-| `Q-070` Licence review | Reframed: choose the app's own open-source licence (`Q-100`); character origins deferred, which removes CJKVI IDS, chinese-lexicon and the glyph sources | `SET-040`, `SET-041` |
-| `Q-072` Screen assistant | Deferred to post-v1 | `PROD-030`, `SET-070`…`SET-077` (Deferred list) |
-| `Q-080` Provenance labels | Every Mandarin-sourced sense shown in Cantonese mode is labelled | `PROD-045`, `DATA-022` |
-| `Q-090` Bundled vs downloaded (i had agreed that have a downloadable bundle for the voice model is okay, since it's so large, when the user downloads via play store) | Mobile installs **everything** with the app (Play install-time asset packs, direct APK, iOS bundle); no runtime downloads; no INTERNET permission. Web lazily fetches large assets | `PROD-070`, `DATA-170`…, `ARCH-140`…`ARCH-143` |
-| `Q-093` Stroke quiz | Kept as specified | `MED-060`…`MED-071` |
-| Normalisation | The matching key uses NFKC (not NFC); dataset keys use the same form | `SRCH-010`, `GLB-001`, `DATA-071` |
-| Navigation | Search · OCR · Voice · Reading · HSK (Web: Search · Reading · HSK); Settings is a card on the empty Search screen | `PROD-050`…, `SRCH-115`, `SRCH-116`, `SET-001`, `SET-005` |
-| Pronunciation visibility | One global persisted toggle; hidden readings keep their space; tone colours unaffected | `GLB-120`…`GLB-122`, `SET-017` |
-| Handwriting | In-app pad (bottom sheet) on Search and Reading, all platforms; ML Kit Digital Ink model bundled on mobile, repackaged and lazily loaded on Web | `HW-001`…, `ARCH-093` |
-| Voice | Mobile-only destination; sherpa-onnx streaming Paraformer trilingual model installed with the app | `VOICE-001`…, `ARCH-094`, `ARCH-095` |
-| Abbreviated pinyin | Any mix of full and abbreviated syllables; no separate "initials" class or group — each abbreviated syllable costs a score penalty | `SRCH-040`, `SRCH-050`…`SRCH-054` |
-| Combinations | Pipeline-built bigram model (libime ARPA for Mandarin, KenLM-built for Cantonese) decoded by a shared pure-Kotlin lattice decoder | `SRCH-060`…, `TXT-026`, `DATA-150`…`DATA-155`, `PIPE-070`… |
-| Repository | Single repository: app, pipeline and pinned data sources (incl. HSK word list); CI regenerates the dataset | `PIPE-160`…`PIPE-166`, `REL-*` |
-| Versioning & branches | `YYYY.MM.DD-X`; trunk-based `main` | `REL-001`…`REL-020` |
-| UI languages | en, zh-Hans, zh-Hant only | `GLB-100`…`GLB-103` |
-| Routes | szdict.com; same routes in app and web; App Links / Universal Links | `GLB-110`…`GLB-112` |
-| Deferred | Screen-assistant integration; character origins | `PROD-030` |
+| `Q-012` No-result copy | Keep current behaviour: each page shows its own `No matches`; no offer-to-switch message | `SRCH-114` |
+| `Q-013` Search history | Only the single restored query. Early iterations store **no user-curated data** (no history, favourites, saved words, notes), so the app carries no responsibility for keeping user data safe; data features come once the app is consolidated | `SRCH-143`, `PROD-030` |
+| `Q-020` Note labels | Data-driven label table (en / zh-Hans / zh-Hant) for structural conventions (classifier, see, see also, variant / old / erhua / contracted variant, abbreviation, also pronounced, Taiwan pronunciation, also written, used in, surname, radical) plus about 60 allow-listed domain / register tags; catalogue from a full pass over CC-CEDICT and CC-Canto | `DATA-060`, `PIPE-079`, `ENT-057`, `ENT-058` |
+| `Q-030` Cantonese HSK | HSK shown in both modes, joined to the Cantonese dataset, ordered by Jyutping | `HSK-002`, `HSK-090`…, `DATA-187` |
+| `Q-031` HSK syllabus reading | Not shown anywhere (it would add inconsistency) | `HSK-054` removed |
+| `Q-032` HSK syllabus glosses | Not kept or shown; CC-CEDICT / CC-Canto are the source of truth | `HSK-055`, `DATA-12x` |
+| `Q-040` Flash persistence | Session only | `CAM-038` |
+| `Q-041` Saved photo resolution | Save the original capture; analysis uses the capped working image | `CAM-073` |
+| `Q-050` OCR on Reading | No OCR entry point on the Reading screen. OCR is reached only through its own destination (plus the launcher shortcut and share intent) | `CAM-006`…`CAM-009` |
+| `Q-060` TTS fallback | TTS speaks words without a recording, with no visual distinction | `MED-011` |
+| `Q-061` Translate hand-off | Android: Google Translate (web URL if not installed). iOS: Apple Translation (iOS 17.4+), else the Google Translate web URL. Web: new tab to Google Translate. Other translators post-v1 | `MED-030`…`MED-033` |
+| `Q-062` Example ordering | Ranked in the pipeline (headword as a standalone word first, then shorter) | `MED-047` |
+| `Q-070` Licence review | Character origins deferred (removes CJKVI IDS, chinese-lexicon and the glyph sources); the remaining question is the app licence (`Q-100`) | `SET-040`, `SET-041` |
+| `Q-071` iOS widget | Android widget in v1; daily pick and projection live in shared code so an iOS widget is cheap later | `SET-068`, `SET-063`, `DATA-130` |
+| `Q-072` Screen assistant | **Removed** (not deferred). Instead the app receives shared **images → OCR** and shared **text → Reading** | `SET-054`, `SET-056`, `SET-057` |
+| `Q-080` Provenance labels | Decided from the dictionary analysis (73 % of Cantonese-mode headwords have only CC-CEDICT definitions): label per **block** — "Cantonese (CC-Canto)" first, then "Mandarin senses (CC-CEDICT) · pinyin", collapsed when a Cantonese block exists | `DATA-022`, `ENT-052`, `PROD-045` |
+| `Q-081` Cantonese frequency | Custom Cantonese table: rime-cantonese essay (CC BY 4.0) as the base, counts from HKCanCor, Common Voice yue, Tatoeba yue, UD_Cantonese-HK, zh-yue Wikipedia; words.hk and Leipzig excluded | `DATA-114`, `DATA-189`, `PIPE-077` |
+| `Q-082` Mandarin senses on Cantonese entries | (a) carry all Mandarin senses, refined by the analysis: join on (traditional, pinyin) for single-reading words; single-character polyphones use CC-Canto's per-Jyutping split, with the Mandarin senses as one headword-level block | `DATA-022`, `PIPE-053` |
+| `Q-090` Delivery | Everything installed with the app **except the voice model**: Play on-demand asset pack, iOS Background Assets pack, bundled in the direct APK. Web keeps only the dataset offline | `PROD-070`, `DATA-170`…, `ARCH-140`…, `VOICE-095` |
+| `Q-091` Web | PWA keeps only the dataset offline (OPFS) and self-updates through per-release row-level changesets; other Web assets fetched when needed. Per-word SEO pages rendered at the edge at the same URLs, linking into the app | `ARCH-145`, `ARCH-146`, `DATA-216`, `PIPE-167`, `GLB-113` |
+| `Q-093` Stroke quiz | Kept | `MED-060`…`MED-071` |
+| `Q-094` Pronunciation scoring | Completely out of v1, including any placeholder interface | `PROD-030` |
+| `Q-101` Voice model licence | Apache-2.0 ([ModelScope](https://modelscope.cn/models/dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online/files)) | `SET-040` |
+| `Q-102` HSK word list | Including the file in the repository is fine; only word → level / part-of-speech tags are used | `PIPE-161`, `SET-040` |
+| `Q-103` Mandarin language model | libime `lm_sc.arpa` (LGPL-2.1+) accepted | `PIPE-070` |
+| `Q-104` Cantonese bigrams | Same corpora as `Q-081`; derived tables published CC BY-SA 4.0; quality gate with Mandarin fallback | `PIPE-074`, `PIPE-075`, `PIPE-077` |
+| `Q-107` Routes | Dictionary mode is a path prefix: `/zh/…` and `/yue/…`. Simplified / Traditional is a viewer preference, not in the path. Passages never go in URLs | `GLB-110`…`GLB-113` |
+| `Q-108` CC-Canto references | CC-Canto uses Pleco-style references (`同tóng [同]`) only in lines adapted from CC-CEDICT; resolved on hanzi + pinyin. Bare hanzi linked only on an exact headword match | `GLB-014`, `PIPE-079` |
+| `Q-109` CJK font | Text tagged by script (zh-Hans / zh-Hant / zh-HK); bundled OFL fallback font for rare characters | `GLB-*`, `PERF-070` |
+| `Q-110` HSK edition | 2025 HSK syllabus (CTI, effective 2025-11-18): cumulative 300 / 500 / 1,000 / 2,000 / 3,600 / 5,400 / 11,000 words | `HSK-003`, `DATA-200` |
+| `Q-111` Web media | Fetched when needed, not part of the offline set; TTS stands in while a clip loads | `MED-084` |
+| `Q-112` iOS photo saving | Kept (`NSPhotoLibraryAddUsageDescription`) | `ARCH-106`, `CAM-017` |
+| `Q-113` Signing keys | Same key for Play and the direct APK, listed in `assetlinks.json` | `REL-041`, `GLB-111` |
+| `Q-114` Design choices | Accepted. Handwriting has Delete and Clear buttons; ink is never auto-committed (the app never inserts a candidate on its own, after a pause or when a new character starts — the user always taps one) | `HW-*` and the rules named in the git history |
+| Cantonese example sentences | Tatoeba Cantonese (`yue`) sentences, short subset, with English through Tatoeba links | `MED-048`, `DATA-188` |
+| Normalisation | Matching key uses NFKC; dataset keys use the same form | `SRCH-010`, `DATA-071` |
+| Navigation | Search · OCR · Voice · Reading · HSK (Web: Search · Reading · HSK); Settings is a card on the empty Search screen | `PROD-050`, `SRCH-115`, `SRCH-116` |
+| Pronunciation visibility | One global toggle; hidden readings keep their space; tone colours unaffected | `GLB-120`…`GLB-122` |
+| Handwriting | Bottom-sheet pad on Search and Reading, all platforms; ML Kit Digital Ink model bundled on mobile, lazily loaded on Web | `HW-*`, `ARCH-093` |
+| Voice | Mobile-only destination; streaming Paraformer trilingual model | `VOICE-*`, `ARCH-094`, `ARCH-095` |
+| Abbreviated pinyin and combinations | Any mix of full and abbreviated syllables, scored by penalty; bigram-ranked combinations | `SRCH-050`…`SRCH-068`, `TXT-026` |
+| Repository and releases | Single repository with pipeline and sources; `YYYY.MM.DD-X`; trunk-based `main` | `PIPE-160`…, `REL-*` |
+| UI languages | en, zh-Hans, zh-Hant | `GLB-100`…`GLB-103` |
+| Deferred | Character origins | `PROD-030` |
 
 ---
 
-## Blocking: affects data pipeline design
-
-### `Q-081` — Cantonese frequency data
-**Unclear:** Segmentation quality and result ranking both depend on word frequencies. The reference app
-has Mandarin frequencies from an OpenSubtitles-derived list; no Cantonese equivalent was found in the
-repository, and licensing/quality of Cantonese corpora is not established.
-**Options:** (a) reuse Mandarin frequencies for shared surface forms; (b) source a Cantonese corpus;
-(c) ship without frequencies and use greedy longest-match segmentation.
-**Recommendation:** (a) for v1 — Cantonese and Mandarin share most written vocabulary, and greedy
-segmentation is noticeably worse (`我们研究生命科学` mis-segments as `我们/研究生/命/科学`). Mark it in
-metadata so the choice is visible, and revisit with (b).
-**Blocks:** `DATA-114`, `TXT-012`.
-
-Let's source a custom frequency table for cantonese.
-
-### `Q-082` — Which Mandarin senses to carry onto a Cantonese entry
-**Unclear:** When a headword has several Mandarin entries (different readings, different meanings) and
-one Cantonese reading, which Mandarin senses belong to the Cantonese entry? Meaning-to-reading
-correspondence between the two languages is not mechanically derivable.
-**Options:** (a) carry the senses of all Mandarin entries for that headword, in frequency order;
-(b) carry only the most frequent Mandarin entry's senses; (c) attempt a reading-correspondence mapping
-(Mandarin-to-Cantonese initial/tone correspondences).
-**Recommendation:** (a) — over-inclusive is better than wrong for a dictionary, and the provenance
-label tells the user these are Mandarin glosses. Report the count so the scale of the problem is known.
-**Blocks:** `PIPE-053`, `DATA-182`.
-
-Let's go with option a.
-
-### `Q-080` — Labelling sense provenance in Cantonese mode
-**Unclear:** Should every sense show its source, or only when an entry mixes sources? Always labelling
-is noisy; never labelling misleads (a Mandarin gloss may not be idiomatic Cantonese).
-**Options:** (a) label only when sources are mixed; (b) always label; (c) group under sub-headings
-(`Cantonese` / `Also in Mandarin`).
-**Recommendation:** (c) for entries that mix sources, (a)'s silence for single-source entries. It is
-clearer than an inline tag and costs no extra data.
-**Blocks:** `DATA-022`, `ENT-052`.
-**Decided:** every Mandarin-sourced sense shown in Cantonese mode is labelled (see §0).
-
-That's a good question and I think the we should analyse the actual dictionaries to see numbers how the overlap looks like. I included the latest documents in /refs so you can run an analysis on it
-
-### `Q-030` — Is there a Cantonese equivalent of the HSK feature?
-**Unclear:** HSK is Mandarin-specific. Cantonese mode would simply lose a whole primary destination.
-**Options:** (a) hide the destination (three destinations in Cantonese mode); (b) find a Cantonese
-graded vocabulary list and offer the same browser; (c) offer a generic frequency-band browser in both
-modes.
-**Recommendation:** (a) for v1 — a fabricated level system would be worse than none. (c) is an
-attractive follow-up because it also gives Mandarin users a non-HSK browse path.
-**Blocks:** `HSK-002`, `PROD-051`.
-**Decided:** (b)-like — HSK is shown in both modes, joined to the Cantonese dataset (see §0).
-
-Let's keep the HSK for cantonese as well.
-
-### `Q-070` — Licence review of GPL/LGPL data sources
-**Unclear:** The reference build includes CJKVI IDS (GPLv2) and Make Me a Hanzi (LGPL-3.0,
-Arphic-derived) data, and chinese-lexicon which has **no licence file** in the pinned repository. It
-also ships CC BY-SA dictionary data, whose share-alike clause reaches derived datasets.
-**This is a legal question, not a technical one.** It must be answered before the successor ships.
-**Options:** (a) legal review per source and drop what cannot be cleared; (b) drop the origins pack
-entirely; (c) obtain explicit permission for chinese-lexicon.
-**Recommendation:** (a), and treat the character-origins pack as the highest-risk item since three of
-its four sources are the problematic ones. Ship v1 without origins if the review is not complete.
-**Blocks:** `SET-041`, `PIPE-018`, whether the origins pack exists at all.
-
----
-
-## Blocking: affects product scope
-**Decided / reframed:** origins are deferred (removes the riskiest sources); the remaining question is the app licence itself, `Q-100`.
-
-### `Q-072` — Keep the Android screen-assistant integration?
-**Unclear:** Its value is real (OCR any screen) but it costs two services, a stub recognition service,
-an extra process, an always-running component, and it degrades unpredictably across OEMs and Android
-versions (screenshots return null under `FLAG_SECURE`, disabled context sharing, enterprise policy, or
-OEM gaps). No usage data exists.
-**Options:** (a) drop it from v1; (b) keep it as-is; (c) replace it with the much cheaper share-image
-path plus documentation ("share a screenshot to the app").
-**Recommendation:** (c) — the share target already covers screenshots with a fraction of the surface
-area. Revisit (b) if users ask.
-**Blocks:** `SET-070` to `SET-077`.
-**Decided:** (a) for v1 — deferred to post-v1.
-
-The app should have a share intent to receive images. as well as text -> goes to the reading screen.
-Let's remov the assistant feature.
-
-### `Q-071` — iOS home-screen widget in v1?
-**Unclear:** The Android widget is a complete, polished feature (per-instance level masks, deterministic
-daily word, audio without opening the database). Reproducing it on iOS is a meaningful chunk of work
-that duplicates none of the shared code.
-**Options:** (a) Android only in v1; (b) both; (c) neither in v1.
-**Recommendation:** (a). The widget projection dataset (`DATA-130`) is platform-neutral, so adding iOS
-later is cheap.
-**Blocks:** `SET-068`.
-
-Yeah, have a platform neautral implementation would be good for sharing implementation logic with ios.
-
-### `Q-013` — Search history
-**Unclear:** The reference app restores exactly one last query and has no history list. It is unclear
-whether that is a deliberate minimalism or simply unbuilt.
-**Options:** (a) keep one restored query; (b) add a recent-queries list on the empty screen; (c) add
-recents plus saved/starred words.
-**Recommendation:** (b) as a small, high-value addition to the empty state (recents above Popular
-words), with a clear action. (c) is a separate feature needing its own spec.
-**Blocks:** `SRCH-143`, the empty-state layout.
-
-For theese first iterantions, the app shall not have an  mechanism to save "important" data. Thus, there are no responsabilities of keeping user data safe. Goal is to first consolidate the app as is. Then add the data storage features.
-
-### `Q-050` — OCR entry points on the Reading destination
-**Unclear:** "Read this text" and "read this photo" are the same user intent, but OCR access cards exist
-only on the empty Search screen.
-**Recommendation:** add them to the Reading destination's empty state. Low risk, clearly aligned with
-the product's philosophy.
-**Blocks:** `TXT-058` (withdrawn).
-
-Why is there an OCR entry point in the Reading screen. If I said that I mispoke. Remove.
-
----
-
-## Non-blocking: behaviour details
-**Decided:** moot — OCR is now a primary destination and the access cards are removed.
-
-### `Q-012` — No-result copy when the other side has results
-**Unclear:** Today both sides show `No matches` independently; a user on the English side of a Hanzi
-query sees an empty screen while Chinese results exist behind the toggle.
-**Recommendation:** show `No Chinese matches — 12 English matches` with the count acting as the switch.
-Needs copy review.
-**Blocks:** `SRCH-114`.
-
-I don't like this. Keep current behavior.
-
-### `Q-020` — Note label wording
-**Unclear:** Notes currently render their raw source keys (`also-pr`, `tw-pr`, `cl`, `abbr-for`).
-**Recommendation:** a data-driven label table (`DATA-060`) with human copy: `classifier`,
-`also pronounced`, `Taiwan pronunciation`, `abbreviation for`, `also written`, `see`, `see also`,
-`variant of`, `old variant of`. Needs a copy pass by someone who knows the dictionary conventions.
-**Blocks:** `ENT-058`.
-
-I agree. Include that. Also, do another pass on the dictionary to identify the other conventions for "see:", etc.
-
-### `Q-031` — Show the HSK syllabus reading when it differs
-**Unclear:** For about 257 rows the syllabus teaches a tone-sandhi form (`bú kè qi`, `yíbàn`,
-`xuéshēng`) that differs from the dictionary reading. The app discards it. Learners are examined on the
-syllabus form.
-**Options:** (a) keep discarding it; (b) show it as a secondary `HSK reading` line on the entry page;
-(c) show it on HSK cards only.
-**Recommendation:** (b) — it is genuinely useful information and the data is already there. Needs a
-learner/teacher sanity check that the syllabus forms are not simply errors.
-**Blocks:** `HSK-054`.
-
-No, that would add inconsistency.
-
-### `Q-032` — Show HSK syllabus glosses for linked entries
-**Unclear:** The syllabus has its own glosses, sometimes clearer and level-appropriate, sometimes just a
-subset. Linked cards show only dictionary definitions.
-**Recommendation:** do not show them by default (duplication and noise), but keep them in the dataset so
-this can be revisited with real examples.
-**Blocks:** `HSK-055`.
-
-No, CC-CEDICT is the source of thruth, this adds too much complexity
-
-### `Q-040` — Does the flash setting persist across launches?
-**Recommendation:** no — match platform camera apps, which reset to the default each session. Persist
-only for the session (`CAM-038`).
-**Decided:** as recommended.
-I agree.
-
-### `Q-041` — Which resolution is saved to the photo library?
-**Unclear:** The capture pipeline downscales to 2560 px on the long side for OCR. A user saving a photo
-probably expects full camera resolution.
-**Options:** (a) retain the full-resolution capture separately and save that; (b) save the 2560 px
-working copy.
-**Recommendation:** (a) — memory cost is transient and a downscaled photo in someone's camera roll is a
-surprise. If (a) proves too memory-hungry on low-end devices, (b) is acceptable but must be documented
-in the UI copy.
-**Blocks:** `CAM-074`.
-**Decided:** (a) — save the original capture (`CAM-073`).
-I agree.
-
-### `Q-042` — iOS share extension for images
-**Unclear:** Android registers as a share target for `image/*`. The iOS equivalent is a share extension,
-which is a separate target with its own bundle and cannot easily share the app's dataset handle.
-**Recommendation:** defer to post-v1; the in-app picker covers the same need with less machinery.
-
-I need to better understand this limitation.
-
-### `Q-060` — TTS fallback for words with no recording
-**Unclear:** Today the play button is simply disabled, which reads as broken.
-**Recommendation:** fall back to TTS for the headword, with no visual distinction. Needs a quality check
-that platform Mandarin/Cantonese TTS pronounces isolated words acceptably (tone-3 sandhi and neutral
-tones are common failure cases).
-**Blocks:** `MED-011`.
-
-I agree.
-
-### `Q-061` — Translate hand-off mechanism
-**Unclear:** The reference implementation targets hard-coded third-party activity class names, which
-break when that app changes.
-**Recommendation:** implicit intents only; accept a chooser; drop the component names.
-**Blocks:** `MED-033`.
-
-I'm not sure. For Android it should be google translate for now. Support for additional translators can be done in the future, not now. For iOS, we need to see what makes more sense for that platform. For web, open a new tab to google translate for now.
-
-### `Q-062` — Example-sentence ordering
-**Unclear:** Examples appear in source order. Some are much better illustrations than others.
-**Recommendation:** rank by (contains the headword as a standalone segmented word, then shorter first),
-computed in the pipeline. Needs a spot check that the ranked top-5 are actually better.
-**Blocks:** `MED-047`.
-
-Ok.
-
----
-
-## Non-blocking: platform and delivery
-
-### `Q-090` — Which asset packs are bundled versus downloaded?
-**Unclear:** The specs require the core dictionary to be bundled and permit packs to be downloaded, but
-the split has product consequences (a first run with no audio at all may feel broken).
-**Options:** (a) bundle the syllable audio (13 MB, covers every word by concatenation) and download the
-rest; (b) download everything; (c) bundle nothing optional and prompt on first use.
-**Recommendation:** (a) — syllable audio alone gives every entry a usable pronunciation, and it is the
-smallest pack with the widest coverage.
-**Blocks:** `ARCH-141`, `PERF-070`.
-**Decided:** none of the options — on mobile everything is installed with the app; Web lazily fetches large assets.
-
-Include All assets. For now the only extra download will be the ASR model.
-
-### `Q-091` — Web dataset delivery and offline expectations
-**Unclear:** A 10-16 MB dataset over the network on first visit is a real cost. Is the Web target
-expected to work fully offline (PWA, installed) or is it a "try it in the browser" surface?
-**Recommendation:** treat Web as a full PWA: service worker, dataset in OPFS, visible one-time install
-step. If the product intent is a lightweight preview instead, the architecture changes materially (a
-server-side search API), so this needs an explicit answer.
-**Blocks:** `ARCH-004`, `PERF-060`.
-
-Web should download as a PWA only the dataset, and have it work offline, be cached for future uses, and self update when there's a new file (through a diff to reduce the transfer size).
-For better web performance and indexing, we might want to have generated static pages for each word, for making the website more indexable, and then from that page, users can visit the main app and download the dataset/main app info.
-
-### `Q-092` — Minimum Android API level
-**Unclear:** The reference app targets API 26+. API 26-28 costs a legacy photo-saving path
-(`CAM-075`) and misses several conveniences.
-**Recommendation:** raise the minimum to API 29 (Android 10) unless install-base data says otherwise;
-it removes the legacy storage path entirely.
-
-We can use "maxSdkVersion" for that permission issue. What conviniences are there. Also, I'm consedering reducing the min api to 24. Advise on that if that would incour into any issues.
-
-### `Q-093` — Does the successor keep the stroke-practice quiz?
-**Unclear:** It is a substantial, high-quality feature (about 1200 lines of geometry and recognition)
-that is arguably a different product from a dictionary, and its data is the largest non-audio pack.
-**Options:** (a) keep it as specified; (b) keep animation only, drop the quiz; (c) drop the tab.
-**Recommendation:** (a) — it is finished, well-specified, and differentiating. But confirm it is in
-scope, because reimplementing it is a meaningful fraction of the total build.
-**Blocks:** `MED-060` to `MED-071`, the strokes pack.
-**Decided:** (a) — kept.
-
-### `Q-094` — Pronunciation scoring boundary
-**Unclear:** The reference project documents a `PronunciationScoringPort` as a future boundary
-(Hanzi plus reference reading plus 16 kHz mono PCM in, a scoring result out) but nothing is wired.
-**Recommendation:** leave it out of v1 entirely, including the placeholder interface. Add it when the
-feature is actually specified; a port with no implementation is a comment, not architecture.
-
-Completely out of V1.
-
----
-
-## New questions from the 2026-10 review
-
-### `Q-100` — App licence and store compatibility
-**Unclear:** The project is open source and may adopt a copyleft licence. GPL-family licences conflict
-with Apple App Store terms (FSF position), and the bundled data carries its own terms (CC BY-SA 4.0
-CC-CEDICT/CC-Canto with a no-technical-restrictions clause, LGPL-2.1+ libime language model, Arphic
-Public License stroke data in hanzi-writer-data, CC BY-SA zh-yue Wikipedia).
-**Options:** (a) GPL-3.0-or-later with an explicit App Store exception; (b) MPL-2.0 (file-level copyleft,
-App Store friendly); (c) Apache-2.0 code with data under its own licences.
-**Recommendation:** (b) for code; keep datasets and models as separate files with their own licences
-listed in the attribution source (`REL-052`).
-**Blocks:** `REL-050`, `SET-041`.
-
-### `Q-101` — Voice model licence wording
-**Unclear:** The model card of the trilingual Paraformer export has no licence; the upstream base model
-is Apache-2.0, while some FunASR weights fall under the FunASR Model License. The attribution row
-(`SET-040`) needs the exact licence text.
-**Recommendation:** ask the model publisher (dengcunqin / ModelScope) which licence applies and record it.
-**Blocks:** `SET-040`.
-Model has Apache License 2.0 https://modelscope.cn/models/dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online/files
-
-### `Q-102` — HSK word list redistribution
-**Unclear:** The HSK word list file now lives in the repository (`PIPE-161`). The syllabus is a
-government standard; the redistribution terms of the specific file are not recorded.
-**Recommendation:** record the file's source and terms in its source note before the first public
-release.
-**Blocks:** `PIPE-161`, `SET-040`.
-Including the file is totatally fine.
-
-### `Q-103` — Mandarin language-model provenance
-**Unclear:** libime's `lm_sc.arpa` is LGPL-2.1+ but its training corpus is undocumented.
-**Options:** (a) accept it; (b) build our own Mandarin model from documented corpora (OpenSubtitles,
-zh Wikipedia) with the same pipeline.
-**Recommendation:** (a) for v1; the ARPA importer is source-agnostic, so (b) is a later swap.
-**Blocks:** `PIPE-070`.
-I accept it.
-
-### `Q-104` — Cantonese bigram quality
-**Unclear:** Written-Cantonese corpora are small; the quality gate (`PIPE-075`) threshold and test set
-are placeholders. words.hk example sentences have conflicting licence statements.
-**Recommendation:** measure with the golden set before release; fall back to Mandarin bigrams for shared
-written forms if below threshold; do not use words.hk until its licence is confirmed.
-**Blocks:** `PIPE-074`, `PIPE-075`.
-We should look for suitable datasets.
-
-### `Q-105` — Fuzzy pinyin
-**Unclear:** Should z/zh, c/ch, s/sh, n/l (and Cantonese n/l) be interchangeable? It is cheap through
-the alias data but increases ambiguity.
-**Recommendation:** not in v1; revisit after abbreviation search ships.
-I didn't understand what is being suggested.
-
-### `Q-106` — Combinations: position and activation
-**Unclear:** Whether the Combinations group sits where the spec currently puts it — after whole-query
-matches (EXACT / EXACT_TONELESS) and before PREFIX matches — or elsewhere, and whether it runs for every query of 2+ tokens or only when no single entry covers the
-whole query.
-**Recommendation:** keep the current position and run it for every 2+ token query; check with
-real listening use.
-**Blocks:** `SRCH-060`…`SRCH-068`.
-
-### `Q-107` — Route details
-**Unclear:** (a) dictionary mode as a path segment (`/yue/word/…`) or the `mode=` parameter
-(`GLB-110`); (b) the length above which a query counts as a passage and is kept out of the URL
-(`GLB-112`).
-**Recommendation:** query parameter; passages = any query classified as a sentence (`SRCH-035`).
-the detail page represents the 
-
-### `Q-108` — CC-Canto reference format
-**Unclear:** `GLB-014` assumes CC-Canto glosses embed references like CC-CEDICT. Verify against the
-pinned release before building the reference resolver.
-**Blocks:** `GLB-014`, `PIPE-053`.
-
-### `Q-109` — CJK font and glyph locale
-**Unclear:** Without locale tagging, devices with a Japanese locale may render Japanese glyph forms;
-Ext B+ characters may render as boxes with system fonts.
-**Recommendation:** tag text by script (zh-Hans / zh-Hant / zh-HK) and bundle an OFL fallback font for
-rare characters; measure size against `PERF-070`.
-Ok.
-
-### `Q-110` — HSK per-level counts
-**Unclear:** `HSK-003` counts may not match GF 0025-2021 (500 / 772 / 973 / 1000 / 1071 / 1140 / 5636).
-Confirm which edition the committed word list follows.
-**Blocks:** `HSK-003`, gate 8 of `DATA-200`.
-2025 update of the HSK 3.0
-
-### `Q-111` — Web media delivery
-**Unclear:** Granularity of lazy media fetches on Web (per record vs per shard) and whether TTS should
-stand in while a clip downloads.
-**Blocks:** `DATA-170`…`DATA-173`, `MED-084`.
-
-### `Q-112` — Photo saving on iOS
-**Unclear:** Saving to the photo library on iOS needs `NSPhotoLibraryAddUsageDescription`, beyond the
-"camera + microphone only" goal. Keep photo saving on iOS?
-**Recommendation:** keep it; it is add-only and requested only when the user saves.
-**Blocks:** `ARCH-106`, `CAM-017`.
-Yes keep it
-
-### `Q-113` — Signing keys for Play and direct APK
-**Unclear:** If the direct APK is signed with a different key than Play's app-signing key, users cannot
-switch install source without uninstalling.
-**Recommendation:** use the same upload/app-signing key for both (Play App Signing with your own key),
-and list it in `assetlinks.json`.
-**Blocks:** `REL-041`, `GLB-111`.
-Makes sense.
-
-### `Q-114` — Design choices made while writing the spec (confirm)
-- Handwriting sheet has a Delete (backspace) button and clear button; ink is never auto-committed (`HW-011`, `HW-014`,
-  `HW-016`). what do you mean by "auto-committed"?
-- Cantonese mode with Simplified script uses the simplified handwriting model (`HW-031`).
-- Voice `Open in Reading` replaces the Reading draft (`VOICE-050`).
-- HSK in Cantonese mode is ordered by Jyutping (`HSK-093`).
-- The widget follows the dictionary mode (`SET-062`).
-- `PERF-025` p50 20 ms and ceiling 200 ms (only p95 80 ms was specified).
-- Back from the OCR live feed or from Voice goes to the platform default, not to Search (`PROD-056`).
-- Romanisation (including abbreviations) switches to the Chinese page only when the English page has
-  no match, so typing English words like `ca` or `stu` does not flip pages; full pinyin such as `nihao`
-  still lands on Chinese (`SRCH-024`).
-- A single-token query never uses abbreviation, so `x` keeps its current results (`SRCH-050`…).
-- Literal Latin tokens (T恤) cost the same as an abbreviation and never mix with abbreviations.
-- The 12-token limit applies only to paths with abbreviated or literal tokens.
-- A combination identical to a whole-query single entry is dropped (`nh` shows 你好, not 你 + 好), and
-  combinations are not counted in the page's result count.
-
----
-
-## Flagged by the review, not changed
-
-These were raised by the complexity and coherence reviews. They were **not** approved for change and
-remain as specified; listed here so they can be revisited.
-
-**Complexity (possible simplifications):** custom binary encodings inside SQLite (`DATA-141`…`DATA-144`,
-`DATA-171`); substring index and `within` table alongside cheaper runtime lookups (`DATA-074`,
-`DATA-075`, `DATA-100`…`DATA-104`); variant merge-group machinery (`SRCH-080`…`SRCH-086`); generation
-counters and storage-level cancellation (`GLB-040`…`GLB-045`, `ARCH-036`); about 40 CI-enforced
-performance budgets on reference devices; pixel and animation values written as MUSTs; Web via
-Compose-Wasm; dataset N/N-1 versioning; pipeline diff gates; several ranking comparators; fully ranking
-both search sides on every keystroke; result-list chips and expanders; a custom entry-detail stack;
-HSK browser chrome; the "Read clipboard" launcher shortcut; audio-plan rules; the 4-value provenance
-enum.
-
-**Spirit of the project:**
-- Google Translate is hard-coded in the translate hand-off (`MED-031`); a generic chooser fits better
-  (see `Q-061`). For now ok.
-- Compose-Wasm renders to a canvas, which weakens screen readers, native text selection, find-in-page
-  and browser translation on Web. For now ok, in the future, switch to something more web-friendly.
-- hanzi-writer-data stroke data is under the Arphic Public License, not MIT; Make Me a Hanzi's
-  LGPL/Arphic split should be verified per file; audio-cmn's CC BY-SA version is unstated.
-- Readings are still missing in some places: example sentences (`MED-041`), the ellipsised reading in
-  result cards (`SRCH-094`).
-- Cantonese gaps: example sentences are Mandarin Tatoeba (`MED-040`); there is no Cantonese recorded
-  audio (`DATA-186`); the proper-noun flag comes from Pinyin capitalisation. I included in refs a table,
+## 3. Flagged by the review, not changed
+
+Raised by the complexity and coherence reviews; not approved for change, listed for later.
+
+**Complexity:** custom binary encodings inside SQLite (`DATA-141`…`DATA-144`, `DATA-171`); substring
+index and `within` table alongside cheaper runtime lookups (`DATA-074`, `DATA-075`,
+`DATA-100`…`DATA-104`); variant merge-group machinery (`SRCH-080`…`SRCH-086`); generation counters and
+storage-level cancellation (`GLB-040`…`GLB-045`, `ARCH-036`); about 40 CI-enforced performance budgets;
+pixel and animation values written as MUSTs; dataset N/N-1 versioning; pipeline diff gates; several
+ranking comparators; fully ranking both search sides on every keystroke; result-list chips and
+expanders; a custom entry-detail stack; HSK browser chrome; the "Read clipboard" launcher shortcut;
+audio-plan rules.
+
+**Accepted for now, revisit later:**
+- Google Translate is the translate target on Android and Web (`MED-031`); a generic chooser later.
+- Compose-Wasm renders Web to a canvas (weaker screen-reader support, text selection, find-in-page,
+  browser translation); consider a more web-friendly front end after v1.
+
+**Data licences to verify:** hanzi-writer-data stroke data is under the Arphic Public License (not
+MIT); Make Me a Hanzi's LGPL/Arphic split per file; audio-cmn's CC BY-SA version.
+
+**Readings still missing:** example sentences have no reading line (`MED-041`); the reading in result
+cards may be ellipsised (`SRCH-094`).
+
+**Cantonese gaps:** no Cantonese recorded audio (`DATA-186`); the proper-noun flag comes from Pinyin
+capitalisation.

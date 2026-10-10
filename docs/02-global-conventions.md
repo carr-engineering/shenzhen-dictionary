@@ -43,6 +43,25 @@ via NFKC for matching: `Ｔ恤` matches `t恤`. Precomputed (`DATA-071`).
 dataset — the app must **not** enumerate case permutations at query time (doing so multiplies
 storage reads per keystroke).
 
+`GLB-008` `[MUST]` **Glyph locale and fallback font** (decided: `Q-109`). Chinese text is rendered with
+an explicit language tag so that a device whose locale is Japanese or Korean never shows Japanese or
+Korean glyph forms:
+- dictionary content (headwords, alternate forms, definitions' Hanzi, examples, passages, HSK cards) is
+  tagged by dictionary mode and script: Mandarin + Simplified → `zh-Hans`; Mandarin + Traditional →
+  `zh-Hant`; Cantonese + Traditional → `zh-HK`; Cantonese + Simplified → `zh-Hans`. The alternate form
+  beside a headword (`GLB-003`) is tagged by its own script with the same mode rule;
+- text the user supplies (Reading draft, search field, OCR and voice text) is tagged like dictionary
+  content for the current mode and script;
+- UI strings are tagged with the active UI language (`GLB-100`).
+
+The tag is set in shared UI code through the text style's locale list, and through `lang` attributes on
+HTML pages (`GLB-113`). Because platform fonts do not cover every Hanzi of `GLB-001` (notably Ext B
+and beyond), the app bundles one **OFL-licensed CJK fallback font**, used only after the platform's
+fonts and subset to the Hanzi that occur in the dataset and are not reliably covered by the platform
+fonts; on Web it is fetched when needed (`GLB-035`). A build check confirms that every Hanzi in the
+dataset maps to a glyph in either the baseline platform fonts or the fallback font. Its size is a line
+item of `PERF-070`; its licence is credited in `SET-040`.
+
 ---
 
 ## 2. Pronunciation and romanisation
@@ -81,14 +100,32 @@ Mandarin.** CEDICT prose contains bracketed romanisations for Cantonese (Jyutpin
 pipeline has classified it as Pinyin (`DATA-053`); provenance is resolved in the pipeline rather than
 re-derived from prose at runtime, and the app renders what the dataset labels. In **Cantonese mode**
 (definitions from CC-Canto, with CC-CEDICT senses carried over per `PROD-045`):
-1. readings inside CC-Canto senses are Jyutping and are shown verbatim with tone digits;
-2. inside carried-over CC-CEDICT senses, a reference that resolves to exactly one Cantonese entry
-   shows that entry's Jyutping; an unresolved reference keeps its Pinyin tone marks with a
-   `Mandarin` label;
+1. Jyutping readings inside CC-Canto senses are shown verbatim with tone digits;
+2. a reference — a CC-CEDICT reference inside a carried-over CC-CEDICT sense, or a Pleco-style
+   reference inside a CC-Canto sense (below) — that resolves to exactly one Cantonese entry shows that
+   entry's Jyutping; an unresolved or ambiguous reference keeps its Pinyin tone marks with a
+   `Mandarin` label and opens the disambiguation sheet when tapped (`DATA-054`, `ENT-054`);
 3. a bare bracketed reading inside a carried-over CC-CEDICT sense stays Pinyin, labelled `Mandarin`.
 
-The pipeline performs the resolution; the app only renders the labelled segments. The exact
-reference format in the pinned CC-Canto release is an open question (`09-open-questions.md`).
+**CC-Canto reference format** (decided: `Q-108`, from analysis of the pinned release). CC-Canto has no
+pipe form, no CEDICT `[pin1]` form and no `{jyutping}` form. The pipeline handles exactly these shapes:
+- **Pleco-style references** `H+pīnyīn [H+]` (e.g. `variant of 同tóng [同]`, `M: 个gè [个]`), which occur
+  only in lines tagged `# adapted from cc-cedict`. They are matched case-insensitively by
+  `(H+)([a-züāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ']+) \[(H+)\]` (`H` = a Hanzi per `GLB-001`). The Hanzi are given in
+  simplified form even under traditional headwords, so the pipeline maps them to traditional through
+  CC-CEDICT and resolves the reference on (Hanzi, toneless Pinyin) against the Mandarin senses carried
+  in the Cantonese dataset; the result is a `REF` with `romanization = pinyin` rendered by rule 2.
+- **Bare Hanzi runs** in CC-Canto's own (non-adapted) senses, quoted or not, become a `REF` only when the
+  run exactly equals a headword of the Cantonese dataset in either script; otherwise they stay plain
+  `TEXT`. This is narrower than the CC-CEDICT rule (`DATA-052`) because CC-Canto prose uses Hanzi
+  freely. A Jyutping in parentheses after such a run is shown verbatim (rule 1).
+- **Register brackets** at the end of a CC-Canto definition (`[colloquial]`, `[written and
+  colloquial]`, `[written]`) are stripped **before** reference scanning, so they are never read as a
+  `[H+]` part, and are stored as register tags whose labels come from the label table (`DATA-060`,
+  `PIPE-079`).
+
+The pipeline performs the resolution and reports unresolved counts (`DATA-054`); the app only renders
+the labelled segments.
 
 `GLB-015` `[MUST]` **Tone-mark placement** for numbered→marked Pinyin conversion. Conversion is done
 mainly by the pipeline (`PIPE-021`, precomputed forms `DATA-010`); the app converts only if it must
@@ -136,12 +173,24 @@ underlying failure has a message, it is appended after a colon. A failed feature
 in a **recoverable, non-busy** state — retrying the same gesture must be possible with no restart.
 
 `GLB-035` `[MUST]` **Graceful asset absence.** On mobile every asset family is installed with the app
-(`PROD-070`), so "absent" only means that no data exists for this item (no recording, no stroke
-order, no examples): the corresponding control is disabled or the section is omitted. Missing data
-never produces an error message, never blocks the entry from rendering, and never removes the
-entry's core content. Only Web has a **lazy-loading state**: assets fetched on first use (handwriting
-model, abbreviation/combination data, `PROD-070`) show an inline loading state on the feature that
-needs them while everything else keeps working; a failed fetch follows `GLB-034`.
+(`PROD-070`) **except the voice model**, so for those families "absent" only means that no data exists
+for this item (no recording, no stroke order, no examples): the corresponding control is disabled or
+the section is omitted. Missing data never produces an error message, never blocks the entry from
+rendering, and never removes the entry's core content.
+
+Two cases have a **download or loading state** instead:
+- **Voice model on mobile** (`VOICE-095`). Play builds receive it as an on-demand Play Asset Delivery
+  pack and iOS as a Background Assets pack (iOS 26+); the direct APK bundles it. While the pack is
+  missing, the Voice destination shows its download state (size, progress, retry) in place of the
+  transcript; every other destination works normally.
+- **Web.** The Web PWA stores only the app shell (code) and the dataset for offline use; the dataset is
+  kept current by changesets (`ARCH-145`). Every other Web asset (handwriting model,
+  abbreviation/combination data, audio, strokes, examples, the fallback font of `GLB-008`) is fetched
+  when needed, kept in the browser cache, and not guaranteed offline. A feature that needs a fetched
+  model (handwriting, combinations) shows an inline loading state on that feature while everything else
+  keeps working, and a failed fetch follows `GLB-034`. Per-item media (a recording, stroke order,
+  examples) behave as absent while pending or unavailable, without an error; a missing recording is
+  spoken by TTS (`MED-011`).
 
 `GLB-036` `[MUST]` **Empty vs no-result are different.** "Empty" = no query yet, and shows guidance
 plus discovery content (`SRCH-110`). "No result" = a query that matched nothing, and shows a single
@@ -183,12 +232,14 @@ low-end device tuning:
 - traced as `dict.coalescing` (`PERF-100`);
 - with W = 0, conflation (`GLB-041`) still guarantees that only the latest search completes.
 
-`GLB-044` `[MUST]` **Data-context generation.** Replacing or reloading the dataset (mode switch, or a
-dataset reload on Web) bumps a data generation counter that invalidates every outstanding request,
-every cached derived model, and every identifier that is only meaningful within one dataset (notably
-passage ids and entry ids). Stale identifiers must never be dereferenced against a new dataset.
-Auxiliary data becoming available later on Web (handwriting model, abbreviation/combination data)
-does not bump the generation; it re-runs the current request so the new results appear.
+`GLB-044` `[MUST]` **Data-context generation.** Replacing or reloading the dataset (mode switch, or the
+Web PWA swapping in a dataset updated by a changeset, `ARCH-145`) bumps a data generation counter that
+invalidates every outstanding request, every cached derived model, and every identifier that is only
+meaningful within one dataset (notably passage ids and entry ids). Stale identifiers must never be
+dereferenced against a new dataset; anything that must survive the swap keys on the natural key
+(`DATA-212`). Auxiliary data becoming available later (on Web the handwriting model or
+abbreviation/combination data; on mobile the voice pack, `VOICE-095`) does not bump the generation; it
+re-runs the current request so the new results appear.
 
 `GLB-045` `[MUST]` Long-running queries must be **cancellable at the storage layer**, not merely at
 the coroutine/promise layer, so that abandoning a query stops the underlying scan.
@@ -371,8 +422,15 @@ must meet AA.
 `GLB-090` `[MUST]` **No telemetry.** The app contains no analytics, telemetry or crash-reporting SDK
 of its own and makes no network request except those listed in `PROD-071`. Nothing may transmit
 queries, OCR text, clipboard content, images, audio, transcripts or handwriting. Performance traces
-(`GLB-091`, `ARCH-170`, `PERF-100`) are local only. Mobile builds declare no `INTERNET` permission
-(`ARCH-104`…`ARCH-106`), so third-party SDK telemetry cannot leave the device either.
+(`GLB-091`, `ARCH-170`, `PERF-100`) are local only. Network use per platform:
+- **Android:** no build declares the `INTERNET` permission (`ARCH-104`…`ARCH-107`), so third-party SDK
+  telemetry cannot leave the device either. In Play builds the voice pack is downloaded by the Play
+  Store (Play Asset Delivery), not by the app; the Play flavour carries only the foreground-service
+  permissions that delivery library merges (`ARCH-107`). The direct APK bundles the voice model.
+- **iOS:** the app makes no network request of its own; the voice pack is a Background Assets pack that
+  the operating system downloads from Apple's servers (`VOICE-095`).
+- **Web:** the app fetches only from `szdict.com` — the app shell, the dataset manifest and changesets
+  (`ARCH-145`), and assets fetched when needed (`GLB-035`); never from a third-party host.
 
 `GLB-091` `[SHOULD]` Structured, named performance trace sections must be emitted around: query
 classification, storage read, hydration, ranking, variant grouping, combination decoding,
@@ -391,8 +449,10 @@ subtag: English (`en`), Simplified Chinese (`zh-Hans`) and Traditional Chinese (
 live in Android `values/`, `values-b+zh+Hans/`, `values-b+zh+Hant/`; iOS `en.lproj`, `zh-Hans.lproj`,
 `zh-Hant.lproj`; on Web the document's `lang` attribute is set to the active UI language. Quoted UI
 copy in these specifications is the English source text of a string key; every user-visible label
-(navigation labels, HSK part-of-speech and note labels, error texts, accessibility labels) has all
-three translations. The UI language is **independent** of dictionary mode, script mode and dictionary
+(navigation labels, HSK part-of-speech labels, error texts, accessibility labels) has all three
+translations. Note-kind and domain/register-tag labels are data, not string keys: they come from the
+dataset's label table (`DATA-060`, built by `PIPE-079`), which carries the `en`, `zh-Hans` and
+`zh-Hant` copy for each label and is selected by the active UI language. The UI language is **independent** of dictionary mode, script mode and dictionary
 content: it never changes definitions, readings or which form is the headword.
 
 `GLB-101` `[MUST]` **Locale mapping and fallback.** With the `System` setting (`GLB-102`) the app
@@ -418,43 +478,99 @@ ships only these three string tables. CI checks the shipped locale list of each 
 
 ## 12. Routes and deep links
 
-`GLB-110` `[MUST]` **One route table** is shared by the apps and the Web build at `https://szdict.com`.
-The app's in-app navigation, Web URLs, widget and shortcut deep links all resolve through it:
+`GLB-110` `[MUST]` **One route table** is shared by the apps and the Web build at `https://szdict.com`
+(decided: `Q-107`). The app's in-app navigation, Web URLs, widget and shortcut deep links all resolve
+through it. `{mode}` is the dictionary mode as a path segment: `zh` (Mandarin) or `yue` (Cantonese).
 
 | Route | Opens | Platforms |
 |-------|-------|-----------|
-| `/` | Search, empty state (`SRCH-110`) | all |
-| `/search?q=…&side=en\|zh` | Search with that query and side | all |
-| `/word/{natural-key}` | Search with that entry pushed on the detail stack; natural key per `DATA-014` / `DATA-212` | all |
-| `/hsk`, `/hsk/{level}` | HSK, optionally at level 1–7 | all |
+| `/{mode}` | Search, empty state (`SRCH-110`), in that mode | all |
+| `/{mode}/search?q=…&side=en\|zh` | Search with that query and side, in that mode | all |
+| `/{mode}/word/{natural-key}` | Search with that entry pushed on the detail stack; natural key per `DATA-014` / `DATA-212`, from that mode's dataset. On Web, also the indexable word page (`GLB-113`) | all |
+| `/{mode}/hsk`, `/{mode}/hsk/{level}` | HSK, optionally at level 1–7, in that mode | all |
+| `/` | Search, empty state, in the current mode | all |
 | `/reading` | Reading (empty draft) | all |
 | `/ocr` | OCR destination, live feed (`CAM-006`) | mobile |
-| `/voice` | Voice destination | mobile |
+| `/voice` | Voice destination | Android; iOS 26+ (`VOICE-095`) |
 | `/settings` | Settings (pushed from Search, `SET-005`) | all |
 
-Every route accepts an optional `mode=cmn|yue` query parameter selecting the dictionary mode; when
-absent the current mode is kept. Whether mode should become a path segment instead is an open question
-(`09-open-questions.md`). On Web, browser history mirrors the destination, the query and the
-entry-detail stack: switching destination and pushing an entry add history entries, query edits
-replace the current entry (no entry per keystroke), and browser back follows `PROD-056`.
+**Mode rule.** A route carries the mode segment **if and only if the URL itself names dictionary
+content** — a query, an entry or an HSK level, plus the empty Search screen that shows mode-specific
+discovery content. Routes that name only a destination (`/`, `/reading`, `/ocr`, `/voice`, `/settings`)
+carry no mode segment and keep the current mode; their content (a draft, a capture, a transcript) is
+never in the URL (`GLB-112`). Consequences:
+- opening a mode-prefixed route whose mode differs from the current one switches the dictionary mode
+  exactly as the in-app switch does (`PROD-043`, persisted per `SET-010`), then opens the content;
+- the app writes only canonical URLs: on a mode-scoped screen the URL always carries the current mode,
+  `/` is replaced by `/{mode}` once Search is shown, and a mode switch on a mode-scoped screen replaces
+  the current history entry with the same route under the new mode;
+- `/zh/word/…` and `/yue/word/…` are different entries in different datasets; a natural key is looked
+  up only in the dataset of the route's mode.
+
+**Script is not in the URL.** Simplified/Traditional is a viewer preference (`PROD-044`, `SET-011`):
+the same link shows the headword in each viewer's own script mode (`GLB-003`), and opening a link never
+changes the viewer's script mode.
+
+On Web, browser history mirrors the destination, the query and the entry-detail stack: switching
+destination and pushing an entry add history entries, query edits replace the current entry (no entry
+per keystroke), and browser back follows `PROD-056`.
 
 `GLB-111` `[MUST]` **App Links and Universal Links.** The installed app opens `https://szdict.com`
-links for every route in `GLB-110`. Android: an intent filter with `android:autoVerify="true"` for the
-host, verified by `/.well-known/assetlinks.json` listing the signing certificate fingerprints of the
-Play app-signing key and the direct-APK key. iOS: the Associated Domains entitlement
-`applinks:szdict.com`, verified by `/.well-known/apple-app-site-association`, served as JSON over
-HTTPS without redirects. Verification is done by the operating system, so it needs no `INTERNET`
-permission in the app. Both files are deployed with the Web build (`REL-040`). Without the app
-installed, the same link opens the Web build.
+links for every route in `GLB-110` that the platform offers, and for no other path, so the
+`/.well-known/` files, `robots.txt`, sitemaps and static assets always stay on the web.
+- **Android:** an intent filter with `android:autoVerify="true"` for the host, with
+  `android:pathPrefix="/zh/"`, `android:pathPrefix="/yue/"` and `android:path` entries for `/`, `/zh`,
+  `/yue`, `/reading`, `/ocr`, `/voice` and `/settings`; verified by `/.well-known/assetlinks.json`
+  listing the certificate fingerprint of the single signing key shared by the Play and direct-APK
+  builds (decided: `Q-113`).
+- **iOS:** the Associated Domains entitlement `applinks:szdict.com`, verified by
+  `/.well-known/apple-app-site-association`, served as JSON over HTTPS without redirects, whose
+  `components` list the same patterns (`/`, `/zh`, `/zh/*`, `/yue`, `/yue/*`, `/reading`, `/ocr`,
+  `/voice`, `/settings`).
+
+Verification is done by the operating system, so it needs no `INTERNET` permission in the app. Both
+files are deployed with the Web build (`REL-040`). Without the app installed, the same link opens the
+Web build — for a word route, the word page of `GLB-113`.
 
 `GLB-112` `[MUST]` **Fallback and no content in URLs.** An unknown route, a malformed parameter, an
-unknown natural key, or a mobile-only route opened on Web (`/ocr`, `/voice`) falls back to Search
-(`/`) without an error page. Passage text, the reading draft, OCR text, voice transcripts, handwriting
-and clipboard content are **never** placed in a URL; `q` is written only for a query typed by
-keyboard or handwriting, and is omitted when the query is pasted or is long enough to be treated as a
-passage. The Web build changes the URL through the History API only (no request is made), and
-`szdict.com` hosting serves the same app shell for every route and does not log query strings
-(`GLB-090`).
+unknown natural key, or a route to a destination the platform does not offer (`/ocr` and `/voice` on
+Web; `/voice` on iOS below 26, `VOICE-095`) falls back to Search without an error page; an unknown
+path under a valid mode segment falls back to that mode's Search (`/{mode}`), anything else to `/`.
+Passage text, the reading draft, OCR text, voice transcripts, handwriting and clipboard content are
+**never** placed in a URL; `q` is written only for a query typed by keyboard or handwriting, and is
+omitted when the query is pasted or is classified as a passage (`isSentence`, `SRCH-035`). Inside the
+running Web app the URL changes through the History API only (no request is made). `szdict.com`
+hosting serves the app shell for every route except a word page requested outside the running app
+(`GLB-113`), and does not log query strings (`GLB-090`).
+
+`GLB-113` `[MUST]` **Indexable word pages (Web, SEO).** Every entry of each mode's dataset has a public,
+indexable page at the same URL as its in-app route, `/{mode}/word/{natural-key}` (`GLB-110`), so a
+search-engine result, a shared link and the app all use one address. Architecture: `ARCH-146`.
+- **Edge-rendered.** The page is rendered at the edge from the published dataset (not one static
+  file per entry, which hosting file-count limits rule out) and served with long-lived caching keyed to
+  the dataset version. When the Web app's service worker already controls the browser, it answers
+  navigations to word routes with the app shell like any other route; otherwise the edge returns the
+  word page. An unknown natural key returns HTTP 404 with a link to that mode's Search, never an empty
+  `200`.
+- **Content.** Headword in both scripts (Simplified first on `/zh/`, Traditional first on `/yue/`, the
+  defaults of `PROD-044`), the mode's reading, senses with notes and labels, and links to the word
+  pages of referenced entries; dataset attribution as in `SET-040`. No third-party requests, cookies or
+  analytics (`GLB-090`).
+- **Language and canonical.** The `html` element's `lang` is `zh-Hans` on `/zh/` pages and `yue` on
+  `/yue/` pages; Chinese spans are tagged per `GLB-008` (a Traditional form on a `/zh/` page is
+  `zh-Hant`) and English definitions `en`. Each page declares itself canonical
+  (`<link rel="canonical">` to its own `/{mode}/word/{natural-key}` URL); one entry has one canonical
+  URL per mode, and the `/zh/` and `/yue/` pages of a headword are separate canonicals.
+- **Structured data.** Each page carries schema.org `DefinedTerm` JSON-LD (term name, description from
+  the first senses, `inDefinedTermSet` naming the source dictionary).
+- **Sitemaps.** `/sitemap.xml` is a sitemap index generated per release, listing per-mode sitemaps of
+  at most 50,000 URLs each, with `lastmod` taken from the release that last changed the entry
+  (`PIPE-167`). `robots.txt` lists the sitemap index.
+- **Not indexed.** Search routes and every other app-shell response are not indexable
+  (`X-Robots-Tag: noindex`; `robots.txt` disallows `/zh/search` and `/yue/search`).
+- **Into the app.** Each page has a prominent link that opens the same route in the Web app (which then
+  stores the dataset for offline use, `ARCH-145`). Where the native app is installed, the link opens it
+  through App Links / Universal Links (`GLB-111`).
 
 ---
 

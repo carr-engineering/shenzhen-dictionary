@@ -70,7 +70,8 @@ drawn, matching the real header.
    `titleMedium` medium-weight accent, tone-coloured, allowed to wrap, and the **pronunciation
    toggle** button (`GLB-120`) at the trailing end. When pronunciation is hidden, the reading is not
    shown but its space is reserved (the row is measured as if it were shown) so the header does not
-   reflow; the play button stays available (`MED-001`) and the headword keeps its tone colours.
+   reflow; the play button stays available (`MED-001`) and the headword keeps its tone colours. A
+   Cantonese entry with no Jyutping shows `No Cantonese reading` here instead (`ENT-116`).
 4. A wrapping row of **HSK badges**, one per level, each reading `HSK n` — or `HSK 7-9` for level 7 —
    and, when a part of speech is known for that level, `HSK n • Noun` (`HSK-040`).
 5. Optional inline status text (e.g. a failed word-candidate lookup message).
@@ -124,9 +125,11 @@ provider. Key the pager subtree on the immutable tab list.
 `ENT-040` `[MUST]` Content order:
 1. optional **redirect header** (`ENT-045`), muted, with tappable Chinese references;
 2. the **numbered sense list** — one paragraph per sense, numbered from 1, bold `fg` numbers,
-   `bodyLarge` body, each sense selectable and with tappable Chinese references;
-3. **structured notes** joined by ` • `, muted, also with tappable references;
-4. **Examples** section (`MED-040`).
+   `bodyLarge` body, each sense selectable and with tappable Chinese references; domain and register
+   tags lead the sense (`ENT-058`). In Cantonese mode the list is split into source blocks
+   (`ENT-110`);
+3. **structured notes** joined by ` • `, muted, also with tappable references (`ENT-057`);
+4. **Examples** section (`MED-040`; Cantonese mode `MED-048`).
 
 `ENT-041` `[MUST]` Senses are never truncated in the DICT tab.
 
@@ -141,7 +144,8 @@ senses 4-5).
 
 `ENT-044` `[MUST]` Each member's structured notes stay with that member's section, not collected at
 the bottom. Members are ordered by direct-definition count descending, original order breaking ties.
-De-duplication and redirect suppression rules are `SRCH-082`.
+De-duplication and redirect suppression rules are `SRCH-082`. In Cantonese mode each member section
+contains that member's own source blocks (`ENT-110`).
 
 #### 4.3 Redirects and variant expansion
 
@@ -191,7 +195,8 @@ successor must read a resolved `redirect_target_id` (nullable) and the target's 
 `ENT-052` `[MUST]` A bracketed reading is only rendered as Mandarin tone marks when the dataset says
 it is Mandarin. Non-Mandarin romanisations (Jyutping, Tâi-lô, POJ, Teochew, Wade-Giles) are shown
 verbatim. Provenance is resolved in the pipeline (`DATA-053`), not by scanning surrounding prose at
-runtime.
+runtime. In Cantonese mode the rules of `GLB-014` apply per source block (`ENT-110`): readings in the
+Cantonese block are Jyutping; readings in the Mandarin block follow `GLB-014` items 2 and 3.
 
 Every reading rendered inside definitions and notes — the parenthesised reading after a structured
 reference, a pronunciation-only bracket, a verbatim non-Mandarin romanisation, and a note's own reading
@@ -217,18 +222,97 @@ Surrogate-pair characters keep their full range.
 `ENT-056` `[MUST]` Selecting an entry from that sheet pushes a **nested** route, so Back returns to
 the referring word with its tab and scroll intact.
 
-#### 4.5 Notes
+#### 4.5 Notes, labels and tags
 
-`ENT-057` `[MUST]` Structured note kinds (spelled as in `DATA-060`) and their rendering: `see`,
-`variant_of`, `old_variant_of`, `classifier` (classifier/measure word), `taiwan_pr` (Taiwan
-pronunciation), `abbr_for`, `also_written`, `also_pr`, `see_also`. A note renders as its label (the
-kind with underscores replaced by spaces, lowercased, unless `ENT-058` applies), then `: ` and its
-details: references (form + parenthesised reading), then the
-note's own reading, then any extra text, space-joined. Multiple notes are joined by ` • `.
+`ENT-057` `[MUST]` Structural conventions (note kinds as spelled in `DATA-060`) are rendered from the
+dataset's **label table** (`DATA-060`, built by `PIPE-079`; decided: `Q-020`). The app never derives a
+label from a source key or from prose. A convention renders as its label in the active UI language
+(`GLB-100`), then `: ` and its details: references (form + parenthesised reading, tap targets per
+`ENT-053`), then the note's own reading, then any extra text, space-joined. Multiple notes are joined
+by ` • `. Whether a convention becomes an entry note (notes row) or stays inside its sense is the
+pipeline's decision (`PIPE-079`); either way the label replaces the source phrase. Label copy:
 
-`ENT-058` `[SHOULD]` Note kind labels should be replaced by human phrasing in the successor
-(`classifier:`, `also pronounced:`, `Taiwan pronunciation:`, `abbreviation for:`, `see also:`) rather
-than the raw source keys (the dataset's `display_label`, `DATA-060`). *(Improvement — `Q-020`.)*
+| Source convention (CC-CEDICT / CC-Canto) | `en` | `zh-Hans` | `zh-Hant` |
+|---|---|---|---|
+| `CL:`, `M:`, `[measure word]`, `classifier for` | Classifier | 量词 | 量詞 |
+| `see` | See | 见 | 見 |
+| `see also` | See also | 参见 | 參見 |
+| `variant of` | Variant of | 异体 | 異體 |
+| `old variant of` | Old variant of | 旧异体 | 舊異體 |
+| `erhua variant of` | Erhua form of | 儿化 | 兒化 |
+| `contracted variant of` | Contracted form | 合文 | 合文 |
+| `abbr. for`, `(abbr.)` | Abbreviation for | 简称 | 簡稱 |
+| `also pr.` | Also pronounced | 又读 | 又讀 |
+| `Taiwan pr.` | Taiwan pronunciation | 台湾读音 | 台灣讀音 |
+| `also written` | Also written | 也作 | 也作 |
+| `used in` | Used in | 用于 | 用於 |
+| `surname` | Surname | 姓 | 姓 |
+| `Kangxi radical N` | Radical | 部首 | 部首 |
+
+`ENT-058` `[MUST]` **Domain and register tags.** A leading parenthesised tag on the pipeline's
+allow-list (about 60 tags, `PIPE-079`; e.g. `(idiom)`, `(fig.)`, `(literary)`, `(coll.)`, `(Tw)`,
+`(slang)`, `(Cantonese)`, `(TCM)`) and CC-Canto's trailing register brackets (`[colloquial]`,
+`[written]`, `[written and colloquial]`) are carried as tags on the sense (`DATA-060`) and rendered
+as **small tags** before the sense text: `labelSmall`, muted text inside a 1 dp `border` outline, the
+label in the active UI language from the label table (e.g. `idiom` / `成语` / `成語`). Several tags keep
+source order. Tags are not tap targets and are not part of the selectable sense text. Parenthesised
+text that is not on the allow-list (the long tail of leading tags) and scope notes such as
+`(of sb/sth)` stay **inline** as plain text, verbatim.
+
+#### 4.6 Cantonese mode: source blocks
+
+`ENT-110` `[MUST]` In Cantonese mode the DICT tab groups an entry's senses into **source blocks**,
+labelled per block, never per sense (decided: `Q-080`, `Q-082`). Order:
+1. **Cantonese block** — the CC-Canto senses for this entry's Jyutping reading, labelled
+   `Cantonese (CC-Canto)` (`粤语释义（CC-Canto）` / `粵語釋義（CC-Canto）`);
+2. **Mandarin block** — the carried-over CC-CEDICT senses (`PROD-045`), labelled
+   `Mandarin senses (CC-CEDICT)` (`普通话释义（CC-CEDICT）` / `普通話釋義（CC-CEDICT）`), followed on the
+   same row by the Mandarin entry's Pinyin (tone marks, tone-coloured, subject to `GLB-120`).
+
+Block labels use the small-caps style of `ENT-042` and are shown whenever the entry is displayed in
+Cantonese mode, even when only one block exists. Sense numbering is continuous across blocks
+(`ENT-043`). Which senses go into each block is decided by the pipeline (`DATA-182`, `PIPE-052`,
+`PIPE-053`); the app renders the blocks as stored.
+
+`ENT-111` `[MUST]` When a Cantonese block exists, the Mandarin block is **collapsed** by default: only
+its label row (label, Pinyin, sense count, expand chevron) is shown. Tapping the row expands or
+collapses it (180 ms size animation); collapsed senses are not focusable. The expanded flag is
+route-scoped saved state (`GLB-050`). When there is no Cantonese block, the Mandarin block is shown
+expanded and is not collapsible.
+
+`ENT-112` `[MUST]` For a headword with one Mandarin reading (almost all multi-character words) the
+Mandarin block holds the senses of the CC-CEDICT entry joined on (traditional, normalised Pinyin), and
+its label row shows that Pinyin. When several Mandarin entries are carried over (correspondence not
+determinable, `PIPE-053`), the block lists them in frequency order, each introduced by its own Pinyin
+as a sub-label with its senses beneath.
+
+`ENT-113` `[MUST]` **Single-character polyphones.** The Cantonese senses are split per Jyutping
+reading: each reading is its own entry (`DATA-184`) whose Cantonese block holds the CC-Canto senses for
+that reading. The Mandarin senses of **all** Mandarin entries for the character are attached to the
+headword as **one** Mandarin block, identical on every Cantonese entry of that character, each Mandarin
+entry introduced by its Pinyin (`ENT-112`). The app never presents a Mandarin reading or sense as
+belonging to a particular Jyutping reading. Example: 行 has entries `hang4`, `haang4`, `hang6`, `hong4`
+and `hong2`, each with its own Cantonese block; all five show the same Mandarin block listing `xíng`,
+`háng` and the other Mandarin readings.
+
+`ENT-114` `[MUST]` CC-Canto lines marked `adapted from cc-cedict` are treated as Cantonese reading
+splits: their senses form a Cantonese block labelled `Cantonese (CC-Canto, adapted from CC-CEDICT)`
+(`粤语释义（CC-Canto，改编自 CC-CEDICT）` / `粵語釋義（CC-Canto，改編自 CC-CEDICT）`), placed directly after
+an original `Cantonese (CC-Canto)` block when the entry has both. An adapted sense whose normalised
+text duplicates a sense of the current CC-CEDICT release in the Mandarin block is suppressed by the
+pipeline (`PIPE-052`); when every adapted sense is suppressed and no original CC-Canto sense exists,
+the entry has no Cantonese block and `ENT-111`'s expanded case applies.
+
+`ENT-115` `[SHOULD]` When the Mandarin block nearly duplicates the Cantonese block (at least 90% of
+its normalised sense text already present there), the pipeline should omit the Mandarin block.
+*(Decided from the source analysis — confirm with real entries.)*
+
+`ENT-116` `[MUST]` **No Cantonese reading** (pending `Q-115`; this rule implements the recommended
+option (a)). A CC-CEDICT headword with no Jyutping in any Cantonese source is shown in Cantonese mode
+with the muted note `No Cantonese reading` (`无粤语读音` / `無粵語讀音`) in the header's pronunciation
+slot (`ENT-020`) and only the Mandarin block, expanded, with its Pinyin. No reading is ever guessed or
+generated. The note is not a reading, so it stays visible when readings are hidden (`GLB-120`). Tone
+colouring is off for the headword; the play button follows `MED-001` (TTS may still speak it).
 
 ---
 
@@ -282,7 +366,8 @@ embedded-variant stripping, note visibility) is the merge logic of `SRCH-082` an
 once and shared.
 
 `ENT-072` `[MUST]` A disabled card is visually identical but not tappable and has no play affordance
-(used for HSK rows that failed to link — `HSK-023`).
+(used for HSK rows that failed to link — `HSK-023`). Such a row shows only the headword, the
+word list's Pinyin and part of speech; it never shows a gloss.
 
 ---
 
@@ -290,7 +375,9 @@ once and shared.
 
 `ENT-080` `[MUST]` To render an entry page the app needs, in **one** read:
 entry id; traditional and simplified forms; display reading and canonical numbered reading; syllable
-and tone arrays; ordered senses (with provenance in Cantonese mode); structured notes; resolved
+and tone arrays; ordered senses with their tags (`ENT-058`) and, in Cantonese mode, their source
+blocks with each Mandarin block's Pinyin (`ENT-110`…`ENT-116`); structured notes with labels from
+the label table (`ENT-057`); resolved
 redirect (kind, header text, target id, target senses); frequency rank; HSK levels with per-level part
 of speech; merge-group id and member ids; and the *first page* of each related-word section.
 
@@ -359,7 +446,8 @@ strokes or recorded audio (`GLB-035`).
 ## Pronunciation, Audio, Sentences and Strokes
 
 Asset families beyond the core dictionary: recorded audio, example sentences and stroke data. Delivery
-is `MED-084`: on mobile they are installed with the app; on Web they may be fetched when first needed.
+is `MED-084`: on mobile they are installed with the app; on Web they are fetched when needed and are
+not part of the offline set.
 Any family can still be absent or incomplete, so all are subject to `GLB-035` (graceful absence).
 Character origins are deferred (see the Deferred list at the end of this part).
 
@@ -408,11 +496,15 @@ dataset changes.
 
 `MED-010` `[MUST]` Recorded audio (word and syllable clips; sizes in `DATA-170` and `PERF-070`) is
 delivered per `MED-084`: installed with the app on mobile, so every recording is playable offline from
-first launch. On Web, until a needed clip has been fetched, the play button falls back to TTS
-(`MED-011`).
+first launch. On Web clips are fetched when needed and are not available offline; until a needed clip
+has been fetched, the play button uses TTS (`MED-011`).
 
-`MED-011` `[SHOULD]` When no recording exists for an entry, the play button should speak the headword
-via platform TTS instead of being disabled. *(New behaviour — `Q-060`.)*
+`MED-011` `[MUST]` When no recording exists for an entry (always the case for Cantonese entries,
+`DATA-186`), or on Web while its clip is not yet fetched or the fetch failed, the play button speaks
+the headword in the active script via platform TTS (language per `MED-022`) instead of being disabled.
+There is **no visual distinction** between recorded and TTS playback: same button, same pulse
+(`MED-001`), same single-playback rule (`MED-002`). On Web, a tap that falls back to TTS also starts
+fetching the clip so later taps play the recording. *(Decided: `Q-060`.)*
 
 `MED-012` `[MUST]` Ambiguous legacy recordings (a clip that cannot be attributed to exactly one
 reading) must be excluded from the catalogue rather than guessed.
@@ -436,7 +528,8 @@ speak error must leave the UI consistent (button back to play) with no error dia
 `MED-024` `[MUST]` TTS is stopped and released when the owning state holder is destroyed and when the
 dataset is replaced.
 
-`MED-025` `[MUST]` Sentence action rows appear on: the Search sentence card, the Reading passage, the
+`MED-025` `[MUST]` Sentence action rows appear on: the Search sentence card, the Reading passage
+(including text shared into the app from another app, `TXT-080`), the
 Camera `All text` card, each Camera line card, and each Voice transcript line (`VOICE-040`). Play/stop on a transcript line follows the
 recording rule of `MED-002` (unavailable while recording).
 
@@ -445,21 +538,32 @@ recording rule of `MED-002` (unavailable while recording).
 ### 3. Translate hand-off
 
 `MED-030` `[MUST]` The translate action hands the text to an **external** translator; the app never
-translates sentences itself.
+translates sentences itself and itself makes no network request (`PROD-070`). The translate action is
+available on every platform (decided: `Q-061`). The shared fallback is the **Google Translate web
+URL**:
+`https://translate.google.com/?sl={source}&tl=en&text={URL-encoded text}&op=translate`, where
+`{source}` is `zh-CN` for Simplified Mandarin, `zh-TW` for Traditional Mandarin and `yue` in
+Cantonese mode. The text is trimmed and capped (recommended 1,500 code points, cut at a sentence
+boundary where possible) so the URL stays within server limits. The text appears only in this
+outbound URL, never in the app's own routes (`GLB-110`).
 
-`MED-031` `[MUST]` Android: try, in order, a floating "tap to translate" activity via
-`ACTION_TRANSLATE`, then `ACTION_PROCESS_TEXT`, then `ACTION_SEND` to the translator app, each with
-source `zh` and target `en` hints. If none resolves, show a brief toast
-`Google Translate isn't installed`. The translator package must be declared in the manifest's
-`queries` block so it is visible.
+`MED-031` `[MUST]` **Android:** send `ACTION_PROCESS_TEXT` with `EXTRA_PROCESS_TEXT` (and
+`EXTRA_PROCESS_TEXT_READONLY = true`) targeted at the package `com.google.android.apps.translate`,
+declared in the manifest's `<queries>` block so it is visible. No activity class names are hard-coded.
+If Google Translate is not installed or the intent does not resolve, open the web URL of `MED-030` in
+the default browser (`ACTION_VIEW`). If that fails too, show a brief toast
+`No app available to translate`.
 
-`MED-032` `[MUST]` iOS: present the system translation sheet from Apple's Translation framework
-(`translationPresentation` / `TranslationSession`), available from iOS 17.4; below iOS 17.4 the
-translate action is omitted. Web: no translate action (the browser provides its own). Omitting the
-button is preferred over a dead affordance.
+`MED-032` `[MUST]` **iOS:** on iOS 17.4+ present the system translation sheet of Apple's Translation
+framework (`.translationPresentation`) with the text. In Cantonese mode the sheet is used only when
+`LanguageAvailability` reports `yue-Hant` → `en` as supported; otherwise, and below iOS 17.4, open the
+web URL of `MED-030` (system browser).
 
-`MED-033` `[SHOULD]` The hard-coded activity class names of a third-party app are fragile; prefer
-implicit intents and drop the component names. *(Improvement — `Q-061`.)*
+`MED-033` `[MUST]` **Web:** open the web URL of `MED-030` in a **new tab** (`noopener`), directly
+from the click handler so popup blockers allow it.
+
+*Post-v1 note:* letting the user pick another translator (a generic chooser or a translator setting)
+is out of scope for v1; the Google Translate target is hard-coded.
 
 ---
 
@@ -473,7 +577,7 @@ confirmation is required on platforms that show their own.
 ### 5. Example sentences
 
 `MED-040` `[MUST]` The entry-detail DICT tab shows an `Examples` section with a count when example
-sentences exist for the entry's **simplified** headword.
+sentences exist for the entry's **simplified** headword (Mandarin mode; Cantonese mode: `MED-048`).
 
 `MED-041` `[MUST]` Each example shows the Chinese sentence (in the active script) at 20 sp with 33 sp
 line height, then its English translation in muted body text.
@@ -496,8 +600,25 @@ example count) while the route lives.
 `MED-046` `[MUST]` Examples are looked up by exact simplified headword and capped (20) at the data
 layer.
 
-`MED-047` `[SHOULD]` Examples should be ranked (shortest-first, or by containing the headword as a
-standalone word) rather than by source order. *(Improvement — `Q-062`.)*
+`MED-047` `[MUST]` Examples are **ranked in the pipeline**, not by source order: sentences in which
+the headword is a standalone word of the segmented sentence come first, then the others; within each
+group shorter sentences come first, sentence id breaking ties. The cap of `MED-046` keeps the top 20.
+The app renders the stored order. *(Decided: `Q-062`.)*
+
+`MED-048` `[MUST]` **Cantonese example sentences.** In Cantonese mode the `Examples` section shows
+Cantonese sentences from Tatoeba `yue` (`DATA-188`, sources `PIPE-077`) instead of the Mandarin pairs:
+- only the short subset is used (sentences of at most 20 characters); long paragraph-like sentences
+  are omitted;
+- each sentence is shown with its English translation, taken from Tatoeba's translation links and
+  English sentences (pinned like the other sources); a sentence with no linked English translation is
+  not included;
+- sentences are looked up by exact **traditional** headword, ranked per `MED-047` using Cantonese
+  segmentation, and capped at 20;
+- the text is Traditional in the source and is converted to Simplified at build time for the
+  Simplified script (as `PIPE-017`);
+- `MED-041`…`MED-045` apply unchanged; taps open the Cantonese word-candidate sheet.
+
+Attribution (CC BY 2.0 FR) is listed in `SET-040`.
 
 ---
 
@@ -571,7 +692,8 @@ fully parsed to read one character (`DATA-171`).
 ### 8. Asset access patterns
 
 `MED-080` `[MUST]` Assets are addressed by content key, never by scanning: strokes by code point,
-example sentences by simplified headword (`MED-046`), recordings by canonical key
+example sentences by simplified headword (`MED-046`; traditional headword for Cantonese examples,
+`MED-048`), recordings by canonical key
 (`MED-005`, `MED-007`). Reading one character's or one headword's record must not require reading
 or parsing records for other keys. The storage layout is the data contract's concern (`DATA-170`,
 `DATA-171`).
@@ -586,10 +708,12 @@ tab does not read them again.
 containing hundreds. See `DATA-171`.
 
 `MED-084` `[MUST]` **Delivery.** On Android and iOS, recorded audio, stroke data and example sentences
-are installed with the app (bundled, or an install-time asset pack on Play): there is no pack to
-download and no network access (`PROD-070`). On Web they may be fetched lazily the first time a record
-is needed; while a fetch is pending the affected control or section behaves as absent (`GLB-035`), and
-audio falls back to TTS (`MED-010`).
+(Mandarin and Cantonese) are installed with the app (bundled, or an install-time asset pack on Play):
+there is nothing to download and no network access (`PROD-070`). On Web they are **fetched when
+needed** and cached by the browser; they are not part of the offline set (only the dataset is,
+`ARCH-145`), so offline they may be unavailable. While a fetch is pending or after it fails, the
+affected control or section behaves as absent (`GLB-035`), except audio: TTS stands in while a clip
+loads or when it cannot be fetched (`MED-010`, `MED-011`).
 
 ---
 

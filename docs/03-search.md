@@ -325,9 +325,10 @@ category chip.
 `SRCH-054` `[MUST]` **Data-driven and available everywhere.** The spelling stage knows abbreviations
 only through the abbreviation table (`DATA-150`) and the syllable inventory (`DATA-070`), so Mandarin
 and Cantonese use the same code (`GLB-010`, `GLB-012`). On mobile the data is installed with the app.
-On Web the first-letter index is part of the lazily fetched language-model file (`DATA-170`,
-`ARCH-143`): until it is present, `ABBR` paths yield no candidates, the rest of the query is served
-normally, and when it arrives the visible results refresh in place (`GLB-033`) without a skeleton.
+On Web only the dataset is kept offline (`ARCH-145`); the first-letter index is part of the
+language-model file, which is fetched when needed and browser-cached (`DATA-170`, `ARCH-143`), not
+guaranteed offline. Until it is present, `ABBR` paths yield no candidates, the rest of the query is
+served normally, and when it arrives the visible results refresh in place (`GLB-033`) without a skeleton.
 
 ### 4.7 Multi-word combinations
 
@@ -379,7 +380,8 @@ decoder for a superseded query is cancelled (`GLB-041`). A decoder failure omits
 (`DATA-170`). On Web it is fetched lazily on the first multi-syllable pinyin or Jyutping query
 (`ARCH-143`); that query's single-word results do not wait for the fetch, and the group appears for it
 once the data is present. If the fetch fails, the group is omitted and the fetch is retried on a later
-qualifying query.
+qualifying query. Like every Web asset other than the dataset, the file is browser-cached but not
+guaranteed offline; offline without it the group is omitted.
 
 `SRCH-068` `[MUST]` **Budget and tracing.** Abbreviated input and combinations are held to `PERF-025`
 (single-word results stay within `PERF-020`). The decoder stage is traced as `dict.lattice`
@@ -396,7 +398,8 @@ are collected:
 1. match-class weight ascending (`SRCH-030`);
 2. token cost ascending (`SRCH-052`; 0 for candidates not found through romanisation);
 3. frequency rank ascending (lower is more common; entries with no frequency data use a sentinel of
-   1000000);
+   1000000). The rank comes from the active mode's dataset: the Mandarin frequency table (`DATA-110`)
+   in Mandarin mode, the custom Cantonese frequency table (`DATA-189`) in Cantonese mode;
 4. headword length ascending (in code points);
 5. common reading before proper-noun reading, only when all earlier keys are equal (`GLB-013`);
 6. entry id ascending (final, stable tiebreak).
@@ -525,8 +528,8 @@ reuses the computed response and is held to the side-toggle row of `PERF-020`.
 - category chips (`SRCH-090`) and section anchors;
 - floating-header shadow, driven by that page's scroll offset (`GLB-074`), updated as the visible page
   changes;
-- no-result state (`SRCH-113`, `SRCH-114`): a page with no matches shows its own message while the
-  other page shows its results; the `SRCH-114` offer to switch animates the pager;
+- no-result state (`SRCH-113`): a page with no matches shows its own message while the other page
+  shows its results; an empty page never moves the pager by itself;
 - error state (`SRCH-172`).
 
 `SRCH-183` `[MUST]` **Gesture conflicts.** The pager claims a drag only when its direction is
@@ -633,9 +636,10 @@ pages, `SRCH-180`), top to bottom, on every platform:
 - the **Settings** card (`SRCH-116`);
 - a `Popular words` heading followed by the popular result cards (`SRCH-111`).
 
-`SRCH-111` `[MUST]` Popular words are the most frequent **multi-character** words in the dataset,
-supplied as a precomputed ordered list (`DATA-090`), 50 items. They must not require a
-frequency-sorted scan at runtime.
+`SRCH-111` `[MUST]` Popular words are the most frequent **multi-character** words in the active
+mode's dataset (Cantonese mode ranks them by the Cantonese frequency table, `DATA-189`), supplied as
+a precomputed ordered list (`DATA-090`), 50 items. They must not require a frequency-sorted scan at
+runtime.
 
 `SRCH-112` `[MUST]` The empty state and the results state use separate scroll positions and
 cross-fade into each other (about 180 ms) so returning to a blank query does not inherit result
@@ -644,8 +648,9 @@ scroll.
 `SRCH-115` `[MUST]` **Word of the Day card.** Shows one HSK word for the device-local date, picked
 with the same deterministic function and candidate rule as the widget (`SET-063`) using the full level
 mask (all levels), so the card and a widget set to all levels show the same word on the same day. It
-works in both dictionary modes, drawing from the active mode's HSK rows (`HSK-090`, `HSK-096`). The card
-shows the label `Word of the Day`, the tone-coloured headword with its alternate form, the reading
+works in both dictionary modes, drawing from the active mode's HSK rows (`HSK-090`, `HSK-096`);
+levels follow the committed word list, which uses the 2025 HSK edition (`HSK-003`). The card shows
+the label `Word of the Day`, the tone-coloured headword with its alternate form, the reading
 (following `GLB-120`, space reserved when hidden), the HSK level badge, the first definitions clamped
 as on result cards (`SRCH-095`), and a speaker button that plays the word's pronunciation (`MED-001`)
 without opening the entry. Tapping the card anywhere else opens the word's entry (`SRCH-130`). The word
@@ -660,10 +665,9 @@ the query.
 
 `SRCH-113` `[MUST]` A non-blank query with zero rendered entries on a page shows, on that page, a
 single centred `titleMedium` `muted` message: the current error text if any, otherwise `No matches`.
-
-`SRCH-114` `[SHOULD]` When a page is empty but the other side has results, the message
-should say so and offer the switch, e.g. `No Chinese matches — 12 English matches`. *(New behaviour —
-see `Q-012`.)*
+Each page shows its own message whether or not the other page has results; the message does not
+mention the other page's count and offers no switch (decided: `Q-012`). The section indicator's counts
+(`SRCH-090`) already show where the matches are.
 
 ---
 
@@ -719,7 +723,9 @@ when the app stops) and restored on next launch, then executed immediately.
 input wins — a late settings emission must not overwrite typing.
 
 `SRCH-143` `[MUST]` There is **no** search history list in v1. The single restored query is the whole
-history feature. *(Adding one is `Q-013`.)*
+history feature (decided: `Q-013`). Reason: the early iterations store no user-curated data — no
+history list, favourites, saved words or notes — so the app carries no responsibility for keeping
+user data safe; such features come after the core app is consolidated (`PROD-030`).
 
 ---
 

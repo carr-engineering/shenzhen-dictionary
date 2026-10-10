@@ -41,6 +41,7 @@ Cross-references use the ID, e.g. "see `GLB-014`".
 
 ## Non-goals for the first release
 
-Desktop-native targets, user accounts, cloud sync, SRS/flashcards, a system-wide input method,
-pronunciation scoring, the Android screen-assistant integration and character origins are out of
-scope for v1. See `PROD-030`.
+Desktop-native targets, user accounts, cloud sync, user-curated data (search history list,
+favourites, saved words, notes), SRS/flashcards, a system-wide input method and pronunciation scoring
+are out of scope for v1. The screen-assistant integration has been removed from the product;
+character origins are deferred to a later release. See `PROD-030` and `PROD-017`.

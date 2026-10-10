@@ -227,7 +227,8 @@ sheet; closing the word sheet restores it (`HW-020`).
   `Clear` (outlined, disabled when the draft is blank), and the pronunciation toggle (`GLB-120`);
 - optional status text (clipboard message, `Reading…`, or an error);
 - when analysed: the passage card (`TXT-030`, with interlinear readings `TXT-034`) and the sentence
-  action row (`MED-020`).
+  action row (`MED-020`): play/stop, translate — an external hand-off per `MED-030`…`MED-033`
+  (Google Translate on Android and Web, Apple Translation on iOS) — and copy.
 
 `TXT-051` `[MUST]` Typing, pasting or committing a handwriting candidate (`HW-015`) analyses the text
 **automatically** as soon as it is non-blank; there is no separate "Analyze" button. Each edit
@@ -256,6 +257,22 @@ changes while focused.
 `TXT-059` `[MUST]` Web platform: the clipboard read requires a user gesture and may require permission;
 the `Paste` button must be present and must surface a permission failure inline rather than appearing
 broken.
+
+`TXT-080` `[MUST]` **Shared text** (`SET-056`, `SET-057`). Text received from another app — Android
+`ACTION_SEND` `text/plain` or `ACTION_PROCESS_TEXT` from a text-selection menu; iOS through the share
+extension's inbox when the app next becomes active — selects the Reading destination and:
+- **replaces** the current draft with the received text, exactly as `Open in Reading` does from Voice
+  (`VOICE-050`); there is no merge and no prompt;
+- closes an open word-candidate sheet (`TXT-045`) and analyses the new draft automatically
+  (`TXT-051`), chunked like any long passage (`TXT-015`);
+- does not focus the field, so no keyboard or handwriting sheet appears by itself;
+- is **consumed once** (the `SET-055` pattern): the intent action is cleared or the inbox item is
+  deleted on handling, so activity recreation, rotation or a later activation never re-applies it.
+
+Text that is blank after trimming opens Reading with the draft unchanged. `ACTION_PROCESS_TEXT` is
+handled read-only: the app never returns modified text to the calling app. The clipboard is not
+touched, and the received text is never logged (`GLB-090`). Received **images** go to the OCR
+destination instead (`CAM-002`).
 
 ---
 
@@ -297,8 +314,8 @@ handled without index errors.
 
 ### Deferred (post-v1) and withdrawn
 
-- `TXT-058` — withdrawn: OCR is a primary destination (`CAM-006`), so there are no OCR access cards to
-  offer on Reading.
+- `TXT-058` — withdrawn: there is no OCR entry point on Reading; OCR is reached only through its own
+  destination, its shortcut and image sharing (`CAM-002`; decided: `Q-050`).
 
 ## Camera / OCR
 
@@ -323,11 +340,14 @@ above the bottom bar (or beside the rail).
 1. the `OCR` navigation destination;
 2. a static launcher/quick-action shortcut `Open camera` (`SET-050`), which selects the OCR
    destination in the capture phase with the live feed, discarding any retained capture;
-3. a share-image intent from another app (`SET-054`), which selects the OCR destination and shows the
-   shared image in review (`source = GALLERY`), replacing any retained capture.
+3. an image shared from another app — Android `ACTION_SEND` `image/*` (`SET-054`); iOS through the
+   share extension, which saves the image to the app's inbox and is consumed when the app next
+   becomes active (`SET-057`) — which selects the OCR destination and shows the shared image in
+   review (`source = GALLERY`), replacing any retained capture.
 
-The empty Search screen has no OCR access cards; recognising an existing image is done with the
-image-picker button (`CAM-007`).
+There are no other entry points: neither the empty Search screen nor the Reading destination has OCR
+access cards (decided: `Q-050`); recognising an existing image is done with the image-picker button
+(`CAM-007`). Shared **text** goes to Reading (`TXT-080`).
 
 `CAM-003` `[MUST]` Selecting the destination from the navigation shows the retained state (`CAM-008`):
 the review of the retained capture if one exists, otherwise the live feed. Starting a new capture
@@ -403,8 +423,8 @@ requires **no** media permission. A broad photo-library read permission must not
 - microphone — `android.permission.RECORD_AUDIO`; `NSMicrophoneUsageDescription` — used **only** by
   Voice transcription (`VOICE-010`), never by the camera;
 - saving to the gallery — Android needs no permission when writing through `MediaStore` on API 29+,
-  and `WRITE_EXTERNAL_STORAGE` scoped to `maxSdkVersion 28` if API 26-28 is supported; iOS needs
-  `NSPhotoLibraryAddUsageDescription` (add-only).
+  and `WRITE_EXTERNAL_STORAGE` scoped to `maxSdkVersion 28` below that (minimum API: `PROD-025`,
+  `Q-092`); iOS needs `NSPhotoLibraryAddUsageDescription` (add-only; decided: `Q-112`).
 
 Broad photo-library read permissions must never be declared.
 
@@ -469,8 +489,8 @@ the current state for accessibility.
 `CAM-037` `[MUST]` The control is hidden when the active camera reports no flash unit.
 
 `CAM-038` `[MUST]` The chosen state persists for the session and is re-applied when the camera is
-rebound after backgrounding or after returning to the destination. *(Whether it persists across
-launches is `Q-040`; the recommendation is that it does not, matching platform camera apps.)*
+rebound after backgrounding or after returning to the destination. It is **not** persisted across
+launches: every launch starts at `Off`, matching platform camera apps (decided: `Q-040`).
 
 `CAM-039` `[MUST]` `On` means the flash fires at capture. If a torch mode is offered for framing in
 low light it must be visually distinct from capture-flash and must be turned off whenever the camera
@@ -490,8 +510,9 @@ hardware-independent (software) allocation so the bitmap can be read by the reco
 the `Camera` action) returns to the live feed. Messages: `Could not open that image.` (picker) /
 `Could not open the shared image.` (share intent).
 
-`CAM-043` `[MUST]` A share intent is **consumed** once — the action is cleared so activity recreation
-or rotation does not re-handle the same image.
+`CAM-043` `[MUST]` A shared image is **consumed** once — on Android the intent action is cleared, on
+iOS the inbox item is deleted after it is read (`SET-057`) — so activity recreation, rotation or a
+later activation does not re-handle the same image.
 
 `CAM-044` `[MUST]` Decoding must not be tied to a composable's lifetime; it runs on a scope that
 survives the picker's own recomposition so a rotation mid-decode does not lose the image.
@@ -584,7 +605,8 @@ covered character (`GLB-058`, `TXT-033`) in reading order, crossing line boundar
 
 `CAM-069` `[MUST]` A vertical list of cards:
 - first, when any text was recognised, an `All text` card with the concatenation of all line texts
-  (newline-joined) and the sentence action row (play / translate / copy, `MED-020`);
+  (newline-joined) and the sentence action row (play / translate / copy, `MED-020`; translate is the
+  external hand-off of `MED-030`…`MED-033`);
 - then one card per line: the line rendered as an interactive segmented passage (word-boundary
   underlines, tone colours, interlinear readings, tappable characters — `TXT-030`, `TXT-034`), or
   plain muted text when the line could not be analysed; each with its own sentence action row.
@@ -685,7 +707,7 @@ discarded (`CAM-003`).
 | Image picker | Photo Picker (no permission) | PHPicker (no permission) | n/a |
 | Save to library | MediaStore (`Pictures/<App>/`) | PHPhotoLibrary add-only | n/a |
 | Save permission | none (API 29+) | add-only usage description | n/a |
-| Share-image target | `ACTION_SEND` `image/*` | Share Extension *(optional, `Q-042`)* | n/a |
+| Share-image target | `ACTION_SEND` `image/*` (`SET-054`) | share extension → App Group inbox, consumed on next activation (`SET-057`) | n/a |
 | Launcher shortcut | static shortcut | Home Screen quick action | n/a |
 
 `CAM-110` `[MUST]` The camera, picker, recogniser and photo-library writer are each behind a small
@@ -723,14 +745,6 @@ capture.
 
 `CAM-129` If the photo library is full or unavailable, the save fails with the inline message and the
 app continues normally.
-
----
-
-### Deferred (post-v1)
-
-- `CAM-094` — a screenshot handed in by the screen-assistant integration is never written to disk
-  (deferred with the assistant integration, `SET-070`…).
-- Screen-assistant entry point (formerly `CAM-002` item 5) — deferred with `SET-070`….
 
 ## Handwriting input
 
@@ -778,7 +792,9 @@ passage).
 - the **candidate row**: a horizontally scrolling row of candidates, best first, the first visually
   emphasised; empty while there is no ink; plus the close button;
 - the **writing pad**: a framed area filling the sheet width, with a faint centre guide;
-- a control row: `Undo stroke`, `Clear`, and `Delete` (deletes the character before the cursor).
+- a control row: `Undo stroke`, `Clear` (removes all ink), and `Delete` — a backspace key that
+  deletes the character before the cursor in the field (or the selection), so the user can correct
+  text without switching to the keyboard.
 
 `HW-012` `[MUST]` The pad accepts finger, stylus and mouse input and draws ink in `fg` as the pointer
 moves. A stroke ends on pointer up; each finished stroke triggers recognition of the whole current
@@ -789,15 +805,20 @@ ink.
 
 `HW-014` `[MUST]` `Undo stroke` removes the last stroke and re-recognises; `Clear` removes all ink and
 candidates. Both are disabled when the pad is empty. `Delete` is enabled when there is text before
-the cursor (or a selection).
+the cursor (or a selection); it edits the field only and leaves the ink untouched, and the edit
+triggers search or analysis like any other edit.
 
 `HW-015` `[MUST]` Tapping a candidate inserts it at the cursor (replacing any selection), clears the
 pad, keeps the field focused and the sheet open, and triggers the normal per-keystroke search
 (Search) or automatic analysis (Reading, `TXT-051`) exactly as typing would. A candidate commit is
 never subject to the coalescing window (`GLB-043`).
 
-`HW-016` `[MUST]` There is no automatic commit in v1: ink stays until a candidate is chosen, `Clear`
-is used, or the sheet is closed.
+`HW-016` `[MUST]` **Ink is never committed automatically.** The app never inserts a candidate by
+itself — not the top candidate after a pause in writing, not when the user starts writing another
+character, and not when the sheet closes. Text enters the field only when the user taps a candidate
+(`HW-015`). Strokes written after a pause are added to the same ink and recognised together, so
+writing several characters yields multi-character candidates (`HW-013`). Ink stays until a
+candidate is tapped, `Clear` is used, or the sheet is closed (which discards it, `HW-024`).
 
 ---
 
@@ -892,16 +913,18 @@ candidate is announced as its text with its position (`Candidate 1 of 8`).
 
 ## Voice transcription
 
-**Android and iOS only.** Voice is a primary destination on mobile; Web omits it entirely
-(`PROD-022`, `PROD-023`). It transcribes Mandarin, Cantonese and English speech live and turns the
+**Android and iOS (26 and later) only.** Voice is a primary destination on mobile; Web, and iOS
+versions below 26, omit it entirely (`PROD-022`, `PROD-023`, `VOICE-095`). It transcribes Mandarin, Cantonese and English speech live and turns the
 transcript into an interactive passage: segmented, tone-coloured, with readings, every Hanzi tappable.
 
 ---
 
 ### 1. Destination
 
-`VOICE-001` `[MUST]` Voice is a primary destination (`PROD-050`) on Android and iOS. On Web the
-destination, its route and any entry point are absent; its route falls back per `GLB-112`.
+`VOICE-001` `[MUST]` Voice is a primary destination (`PROD-050`) on Android and on iOS 26 and later.
+On Web, and on iOS below 26 (the voice model is delivered as an Apple-hosted Background Assets pack,
+`VOICE-095`), the destination, its route and any entry point (including the Home Screen quick
+action) are absent; its route falls back per `GLB-112`.
 
 `VOICE-002` `[MUST]` Layout, top to bottom:
 - a header with the title `Voice`, the pronunciation toggle (`GLB-120`), and the actions `Copy`,
@@ -910,6 +933,9 @@ destination, its route and any entry point are absent; its route falls back per 
   `Tap the microphone and speak Mandarin, Cantonese or English.`;
 - a status line (`Listening…`, `Preparing…`, or an error);
 - a bottom-centre 72 dp circular accent **start/stop** button.
+
+While the voice model is not yet on the device, the transcript area shows the model download panel
+instead and the start button is disabled (`VOICE-095`).
 
 `VOICE-003` `[MUST]` Opening the destination never starts listening; listening starts only when the
 user taps start. The button is labelled `Start listening` / `Stop listening` and, while listening,
@@ -942,17 +968,41 @@ device), the status line shows `The microphone is unavailable right now.` and th
 Paraformer trilingual** model (Mandarin, Cantonese, English) in its int8 form; the runtime is
 sherpa-onnx with onnxruntime, included in the mobile builds only (`ARCH-014`).
 
-`VOICE-021` `[MUST]` The model is **installed with the app**: an install-time asset pack on Google
-Play, inside the APK for direct downloads, and inside the app bundle on iOS. There is no runtime
-download and no network request. Size: `PERF-073`.
+`VOICE-021` `[MUST]` The model is the **only asset delivered after install** on mobile; every other
+asset is installed with the app (`PROD-070`). Delivery per build: an on-demand Play Asset Delivery
+pack on Google Play, inside the APK for direct downloads, and an Apple-hosted Background Assets pack
+on iOS (`VOICE-095`). The download is performed by Google Play or by the system; the app itself
+makes no network request for it, and recognition never uses the network. Size: `PERF-073`.
 
-`VOICE-022` `[MUST]` The model is loaded off the UI thread when the destination is opened, and
-released when the user leaves it (`VOICE-061`). If start is tapped before loading completes, the
-status shows `Preparing…`; captured audio is buffered in memory and recognised once the model is
-ready. Budgets: `PERF-057`.
+`VOICE-095` `[MUST]` **Voice model download state.**
+- **Google Play build:** the pack is requested through Play Asset Delivery when the user **first
+  opens** the Voice destination — never at install or app start. The download panel states the
+  download size (`Voice transcription needs a one-time download of {size}.`, with the size reported
+  by Play) and shows progress (`Downloading voice model… 45%`). When Play holds the download on
+  mobile data (packs over 200 MB wait for Wi-Fi), the panel shows `Waiting for Wi-Fi` with
+  `Download now`, which opens Play's own confirmation dialog; the app never bypasses it. Play's
+  foreground-service permissions are allowed for this flavour only (`ARCH-107`); no `INTERNET`
+  permission is added.
+- **iOS:** the pack is an Apple-hosted Background Assets pack, requested when the user first opens
+  the destination, with the same panel (size, progress, error). Background Assets packs need iOS 26,
+  so Voice requires iOS 26 or later; on older iOS it is hidden as on Web (`VOICE-001`; `Q-116`).
+- **Direct APK:** the model is inside the APK; there is no download state.
+- A failed or cancelled download shows `Could not download the voice model.` with `Retry`
+  (`GLB-034`). Leaving the destination does not cancel a download in progress; returning shows its
+  current state. If the platform later removes the pack (for example after app data is cleared), the
+  destination returns to the download panel.
+- Once the pack is installed the model loads as in `VOICE-022`. The rest of the app never waits for
+  or depends on the pack (`GLB-035`). The download carries no user data (`GLB-090`).
 
-`VOICE-023` `[MUST]` A missing or corrupt model is a **build error** (the model is bundled; CI checks
-it). If loading nevertheless fails at runtime, the destination shows
+`VOICE-022` `[MUST]` Once the model is on the device, it is loaded off the UI thread when the
+destination is opened, and released when the user leaves it (`VOICE-061`). If start is tapped
+before loading completes, the status shows `Preparing…`; captured audio is buffered in memory and
+recognised once the model is ready. Budgets: `PERF-057`.
+
+`VOICE-023` `[MUST]` A missing or corrupt model in the direct APK, or a missing or corrupt pack in
+the Play or iOS build configuration, is a **build error** (CI checks it). On Play and iOS a pack
+that is not yet on the device is the download state of `VOICE-095`, not an error. If loading an
+installed model nevertheless fails at runtime, the destination shows
 `Voice transcription is unavailable.` and the rest of the app is unaffected (`ARCH-122`).
 
 `VOICE-024` `[MUST]` Decoding uses **greedy search** only, so recognition within an utterance is
@@ -1093,7 +1143,7 @@ utterance's start.
 
 | Concern | Android | iOS | Web |
 |---------|---------|-----|-----|
-| Destination | Required | Required | **Absent** |
+| Destination | Required | Required on iOS 26+; absent below (`Q-116`) | **Absent** |
 | Audio capture | `AudioRecord` | `AVAudioEngine` | n/a |
-| Model delivery | install-time asset pack (Play) / inside APK (direct) | app bundle | n/a |
+| Model delivery | on-demand Play Asset Delivery pack, fetched on first open (Play) / inside APK (direct) | Apple-hosted Background Assets pack, fetched on first open | n/a |
 | Permission | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` | n/a |

@@ -4,8 +4,9 @@
 
 `PROD-001` `[MUST]` The product is an **offline-first Chinese–English dictionary and reading aid**.
 Its core promise: any Chinese text a learner encounters — typed, handwritten, pasted, photographed,
-spoken (Android and iOS), or found inside another dictionary definition — can be turned into
-accurate, tappable, pronounceable dictionary entries in one or two gestures, with no network access.
+shared from another app, spoken (Android; iOS 26+), or found inside another dictionary definition —
+can be turned into accurate, tappable, pronounceable dictionary entries in one or two gestures, with
+no network access.
 
 `PROD-002` `[MUST]` The product serves two primary audiences simultaneously and must not privilege
 one at the expense of the other:
@@ -16,10 +17,11 @@ one at the expense of the other:
 
 ## 2. Design philosophy
 
-`PROD-010` `[MUST]` **Offline, complete, and instant.** The entire dictionary, its indexes, HSK
-data, pronunciation assets and recognition models are installed with the app on Android and iOS, and
-downloaded once and cached on Web (`PROD-070`). No search, entry view, segmentation, or HSK browse
-operation may require the network. Nothing in the UI may block on I/O that could have been
+`PROD-010` `[MUST]` **Offline, complete, and instant.** On Android and iOS the entire dictionary,
+its indexes, HSK data, pronunciation assets and the OCR and handwriting models are installed with the
+app; the voice model is the only separate, one-time download (`PROD-070`). On Web the dataset is
+stored for offline use and other assets are fetched when needed (`PROD-070`). No search, entry view,
+segmentation, or HSK browse operation may require the network. Nothing in the UI may block on I/O that could have been
 precomputed.
 
 `PROD-011` `[MUST]` **Everything Chinese is tappable.** Any Chinese character rendered anywhere in
@@ -48,6 +50,12 @@ never produce results from a stale request. See `GLB-040`.
 `PROD-016` `[SHOULD]` **Explain provenance.** Every bundled dataset and model is credited in-app with
 its licence and source link (`SET-040`).
 
+`PROD-017` `[MUST]` **No user data is kept.** In the first iterations the app stores no user-curated
+data — no history list, favourites, saved words or notes (`PROD-030`). Only preferences and the single
+restored search query are persisted (`PROD-060`, `SRCH-143`). Reason: the app takes on no
+responsibility for keeping user data safe while the core product is consolidated; data-storage
+features may be added in a later iteration.
+
 ## 3. Supported platforms
 
 `PROD-020` `[MUST]` First-class targets: **Android** (phone + tablet), **iOS** (iPhone + iPad),
@@ -55,32 +63,44 @@ its licence and source link (`SET-040`).
 
 `PROD-021` `[MUST]` Product behaviour is identical across platforms except where recorded in a
 "Platform differences" section of a feature spec. The intentional divergences are:
-- **OCR and Voice are Android + iOS only** (`PROD-022`, `PROD-023`);
-- **asset delivery**: mobile installs everything up front, Web fetches some data lazily (`PROD-070`).
+- **OCR and Voice are mobile only**: OCR on Android and iOS; Voice on Android and on iOS 26+
+  (`PROD-022`, `PROD-023`, `Q-116`);
+- **asset delivery**: mobile installs everything up front except the voice model, which Play and iOS
+  builds download once on demand; Web keeps only the dataset offline and fetches other assets when
+  needed (`PROD-070`);
+- **share targets** exist on Android and iOS only (`PROD-103`, `PROD-111`).
 
 `PROD-022` `[MUST]` On Web, the OCR and Voice destinations are **omitted entirely** from the
-navigation (`PROD-050`), together with their launcher shortcuts and share targets. Routes to them
-fall back to Search (`GLB-112`).
+navigation (`PROD-050`), together with their launcher shortcuts and share targets. On iOS versions
+below 26, the Voice destination is omitted in the same way (`Q-116`). Routes to an omitted
+destination fall back to Search (`GLB-112`).
 
-`PROD-023` `[MUST]` No dead affordance: Web shows no disabled OCR or Voice control and no "not
-supported on web" toast. **Handwriting input is available on all platforms**; on Web its model is
-downloaded the first time handwriting is opened, with a loading state, and cached for offline use
-(`HW-001`…, `PROD-070`).
+`PROD-023` `[MUST]` No dead affordance: no platform shows a disabled OCR or Voice control or a "not
+supported" toast for an omitted destination. **Handwriting input is available on all platforms**; on
+Web its model is fetched the first time handwriting is opened, with a loading state, and kept in the
+browser cache, but it is not guaranteed to be available offline (`HW-001`…, `PROD-070`, `GLB-035`).
 
 `PROD-024` `[MUST]` Desktop (macOS/Windows/Linux native) is **out of scope**. Wide-viewport web is
 the desktop story.
 
-`PROD-025` `[SHOULD]` Minimum platform versions: Android 8.0 (API 26); iOS 16; Web = last two
-versions of Chrome/Edge/Safari/Firefox. *(Raising the Android minimum is `Q-092`.)*
+`PROD-025` `[SHOULD]` Minimum platform versions: Android 8.0 (API 26) for now (API 24 is feasible
+with core-library desugaring; the trade-off is recorded in `Q-092`); iOS 16, with Voice requiring
+iOS 26+ (`PROD-022`, `Q-116`); Web = last two versions of Chrome/Edge/Safari/Firefox.
 
-`PROD-030` `[MUST]` Explicit non-goals for v1: desktop-native apps (`PROD-024`), accounts, cloud
-sync, spaced repetition, note-taking, a system-wide input method (handwriting is an in-app input
-method only), pronunciation scoring, and translation of full sentences by the app itself (it may hand
-off to an external translator — `MED-030`).
+`PROD-030` `[MUST]` Explicit non-goals for v1:
+- desktop-native apps (`PROD-024`);
+- accounts and cloud sync;
+- **user-curated data** in the early iterations: no search history list, favourites, saved or
+  starred words, or notes (`PROD-017`; the single restored query of `SRCH-143` is not a history);
+- spaced repetition;
+- a system-wide input method (handwriting is an in-app input method only);
+- **pronunciation scoring**, completely: no scoring feature and no placeholder interface, port or
+  stub for one;
+- a screen-assistant integration (removed from the product, not deferred);
+- translation of full sentences by the app itself — it hands off to an external translator: Google
+  Translate on Android and Web, Apple Translation on iOS (`MED-030`).
 
 **Deferred (post-v1)**
-- Android screen-assistant integration (see the Deferred list in
-  [06 — HSK and settings](06-hsk-and-settings.md)).
 - Character origins (see the Deferred list in [04 — Entry and media](04-entry-and-media.md)).
 
 ## 4. Dictionary modes (Mandarin / Cantonese)
@@ -110,9 +130,11 @@ to both. Cantonese defaults to Traditional; Mandarin defaults to Simplified. The
 either (`SET-011`).
 
 `PROD-045` `[MUST]` Where a Cantonese entry has no Cantonese-sourced definition, Mandarin
-definitions are shown. In Cantonese mode, every Mandarin-sourced definition is labelled as such,
-whether or not the entry also has Cantonese-sourced senses (`DATA-022`). The app must never present
-an empty entry merely because one source lacked a gloss.
+definitions are shown. In Cantonese mode, definitions are labelled **per source block, not per
+sense**: the Cantonese (CC-Canto) block comes first; the Mandarin (CC-CEDICT) senses follow as one
+labelled block showing their pinyin, collapsed when a Cantonese block exists (`ENT-110`…`ENT-116`, `DATA-022`; decided:
+`Q-080`). The app must never present an empty entry merely because one source lacked a gloss.
+Headwords with no Cantonese reading at all are covered by `Q-115`.
 
 ## 5. Major features
 
@@ -121,18 +143,19 @@ an empty entry merely because one source lacked a gloss.
 | Search (Chinese / pronunciation / English) | [03 — Search](03-search.md) | The primary surface and home; abbreviated pinyin, combinations, Word of the Day and Settings cards |
 | Entry detail (word page) | [04 — Entry and media](04-entry-and-media.md) | Definitions, related words, strokes, examples |
 | Pronunciation playback & TTS | [04 — Entry and media](04-entry-and-media.md) | Recorded audio for words/syllables, TTS for sentences |
-| Text analysis / Reading | [05 — Reading and input](05-reading-and-input.md) | Paste or receive a passage, tap through it |
+| Text analysis / Reading | [05 — Reading and input](05-reading-and-input.md) | Paste, type or receive shared text, tap through it |
 | OCR | [05 — Reading and input](05-reading-and-input.md) | Primary destination; Android + iOS |
-| Voice transcription | [05 — Reading and input](05-reading-and-input.md) | Primary destination; Android + iOS |
+| Voice transcription | [05 — Reading and input](05-reading-and-input.md) | Primary destination; Android + iOS 26+; model downloaded on first use in Play and iOS builds |
 | Handwriting input | [05 — Reading and input](05-reading-and-input.md) | Search and Reading fields; all platforms |
 | HSK browser | [06 — HSK and settings](06-hsk-and-settings.md) | Both dictionary modes |
 | Settings & attribution | [06 — HSK and settings](06-hsk-and-settings.md) | Script, mode, theme, tone colour, pronunciation visibility, app language, boundaries, auto-save, credits |
-| Platform integrations | [06 — HSK and settings](06-hsk-and-settings.md) | Share-image target, launcher shortcuts, home-screen widget |
+| Platform integrations | [06 — HSK and settings](06-hsk-and-settings.md) | Share targets (image → OCR, text → Reading), launcher shortcuts, Android home-screen widget |
 
 ## 6. Navigation model
 
 `PROD-050` `[MUST]` A **flat primary navigation**, in this order:
-- Android and iOS — five destinations: `Search`, `OCR`, `Voice`, `Reading`, `HSK`;
+- Android and iOS 26+ — five destinations: `Search`, `OCR`, `Voice`, `Reading`, `HSK`;
+- iOS below 26 — four destinations: `Search`, `OCR`, `Reading`, `HSK` (`PROD-022`, `Q-116`);
 - Web — three destinations: `Search`, `Reading`, `HSK` (`PROD-022`).
 
 Compact widths (< 600 dp / < 600 px) use a bottom navigation bar; medium and expanded widths use a
@@ -148,7 +171,8 @@ Cantonese mode too (`HSK-090`…).
 straight into the live camera feed (or the permission rationale when camera access is not granted —
 `CAM-010`…`CAM-015`), offers an image-picker button for recognising an existing image, and keeps the
 primary navigation visible. The camera is released when the user leaves the destination. The
-launcher shortcut and the share-image intent select the OCR destination (`SET-050`, `SET-054`).
+launcher shortcut and a shared image select the OCR destination (`SET-050`, `SET-054`; on iOS via the
+share extension, `SET-057`).
 
 `PROD-053` `[MUST]` Tapping the already-selected primary destination scrolls that destination's
 list/grid to the top (animated). OCR and Voice have no list to scroll: re-tapping OCR while a
@@ -172,8 +196,12 @@ open word-candidate sheet, and closes the handwriting sheet.
 
 `PROD-057` `[SHOULD]` The app and szdict.com share one route table (`GLB-110`): the same routes
 address the same screens in the app and on the web, browser back/forward and deep links work on Web,
-and the installed app opens szdict.com links (`GLB-111`). Reading text, OCR and voice content are
-never placed in URLs (`GLB-112`).
+and the installed app opens szdict.com links (`GLB-111`). The dictionary mode is the first path
+segment — `/zh/…` for Mandarin, `/yue/…` for Cantonese (e.g. `/zh/word/{natural-key}`,
+`/yue/search?q=`); the script preference is a viewer setting and never part of the path (decided:
+`Q-107`). Each word route is also an indexable, edge-rendered word page on szdict.com that links into
+the app (`GLB-113`). Reading text, OCR and voice content, and queries classified as passages
+(`SRCH-035`), are never placed in URLs (`GLB-112`).
 
 ## 7. Global behaviour and persistence
 
@@ -195,26 +223,39 @@ position, and the OCR capture with its recognition result are preserved. Normati
 
 ## 8. Offline expectations
 
-`PROD-070` `[MUST]` On **Android and iOS**, everything the app uses — the dictionary dataset and
-indexes, recorded audio, stroke data, example sentences, the OCR model, the handwriting model, the
-voice model and the language model for combinations — is installed with the app (Play: install-time
-asset packs; direct APK and iOS: inside the package). There are no runtime downloads, and mobile
-builds declare no `INTERNET` permission (`ARCH-104`…`ARCH-106`). A freshly installed app with the
-network permanently disabled supports every feature: search in all input modes (including
-abbreviated pinyin and combinations), entry detail with definitions, related words, strokes and
-examples, pronunciation playback, HSK browsing, OCR, voice transcription, handwriting, text analysis
-and settings.
+`PROD-070` `[MUST]` On **Android and iOS**, everything the app uses except the voice model — the
+dictionary dataset and indexes, recorded audio, stroke data, example sentences, the OCR model, the
+handwriting model, the language model for combinations and the bundled fonts — is installed with the
+app. The **voice (ASR) model is the only separate download** (`VOICE-095`):
+- Play builds: an on-demand Play Asset Delivery pack, downloaded by the Play Store when the user
+  first opens Voice, with its size disclosed before the download;
+- iOS: an Apple-hosted Background Assets pack, which is why Voice needs iOS 26+ (`Q-116`);
+- direct APK: bundled inside the package, so there is no download at all.
 
-On **Web**, the app and its dataset are stored for offline use on first visit (`PERF-060`). The
-handwriting model and the abbreviation/combination data are fetched lazily on first use (opening
-handwriting; the first multi-syllable pinyin query), without delaying single-word results, and
-cached for offline use thereafter.
+While the pack is missing, the Voice destination shows a download state instead of the microphone
+(`GLB-035`, `VOICE-095`). Android builds declare no `INTERNET` permission — Play asset delivery
+downloads through the Play Store — and each flavour's permissions are fixed by an allow-list
+(`ARCH-104`…`ARCH-107`). A freshly installed app with the network permanently disabled supports every
+feature: search in all input modes (including abbreviated pinyin and combinations), entry detail
+with definitions, related words, strokes and examples, pronunciation playback, HSK browsing, OCR,
+handwriting, text analysis and settings — and voice transcription once the voice model is present
+(always, in the direct APK).
+
+On **Web**, the app is a PWA that keeps **only the dataset** offline: the app shell (including its CJK
+font, `ARCH-005`) and dataset are stored on first visit (`PERF-060`, `ARCH-145`), and when a new dataset is published the app updates
+itself by applying a per-release changeset rather than downloading the whole dataset again
+(`DATA-216`, `PIPE-167`). All other Web assets — the handwriting model, the abbreviation/combination
+language-model data, recorded audio and stroke data — are fetched when first needed, without
+delaying single-word results, and kept in the browser cache, but are not guaranteed to be available
+offline (`GLB-035`); while a recording loads or is unavailable, TTS stands in (`MED-011`).
 
 `PROD-071` `[MUST]` The app never requires the network for correctness. Network use is limited to:
-- Android and iOS: none from the app itself. Attribution links open in the system browser, and text
-  handed to an external translator (`MED-030`) is processed by that app.
-- Web: loading the app and dataset, the lazy fetches in `PROD-070`, and opening attribution links
-  and translator hand-offs in a new browser tab.
+- Android and iOS: none from the app itself. The voice-model download is performed by the platform
+  (Play Store, Background Assets). Attribution links open in the system browser. Text handed to the
+  translator (`MED-030`) is processed by that app: Google Translate on Android, Apple Translation on
+  iOS (each falling back to the Google Translate web page in the browser when unavailable).
+- Web: loading the app and dataset, dataset update checks and changesets, the on-demand fetches in
+  `PROD-070`, and opening attribution links and the Google Translate hand-off in a new browser tab.
 
 ## 9. Performance goals (summary)
 
@@ -280,8 +321,9 @@ position, longest and most likely first.
 existing image with the image-picker button → the photo is shown with recognised text boxed →
 optionally the original photo is saved to the user's gallery → tap a character in the photo → the
 word sheet opens → tap a word → entry detail. A `Text` view lists the recognised lines as tappable,
-segmented passages. Re-tapping `OCR` returns to the live feed. Sharing an image to the app, or the
-launcher shortcut, lands in the same destination.
+segmented passages. Re-tapping `OCR` returns to the live feed. The launcher shortcut lands in the
+same destination, and sharing an image to the app from another app opens it there for review
+(`SET-054`; on iOS through the share extension, `SET-057`).
 
 `PROD-104` **Browse HSK.** HSK destination, in either dictionary mode → level chips → a level-tinted
 masonry grid of word cards in pronunciation order (Jyutping in Cantonese mode) → tap a card → the
@@ -301,8 +343,9 @@ drawn from the levels the user selected for that widget instance; tapping it ope
 and a speaker button plays its pronunciation. Card and widget use the same deterministic daily pick
 (`SET-063`).
 
-`PROD-108` **Transcribe speech** (Android, iOS). Tap the `Voice` destination (first time:
-microphone permission rationale, then grant) → speak Mandarin, Cantonese or English → live text
+`PROD-108` **Transcribe speech** (Android; iOS 26+). Tap the `Voice` destination (first time, in
+Play and iOS builds: the voice model downloads, with its size shown first — `VOICE-095`; then the
+microphone permission rationale and grant) → speak Mandarin, Cantonese or English → live text
 appears already segmented and tone-coloured and updates as words arrive; each finished utterance is
 committed on its own line and never moves → tap any hanzi → the word sheet opens, keeping its
 selection while the live text grows → tap a word → entry detail. The pronunciation toggle shows or
@@ -321,3 +364,9 @@ app, their space kept and tone colours unchanged → open the HSK destination an
 recalling each reading → tap a card; the entry's reading stays hidden but the play button still
 plays it → tap the toggle again to check. The setting persists across launches (`GLB-120`,
 `SET-017`).
+
+`PROD-111` **Read shared text** (Android, iOS). In another app, select Chinese text → Share to the
+app (on Android also the text-selection menu entry) → the Reading destination opens with the text in
+its field, already analysed → tap through it as in Reading. On iOS the share extension saves the text
+(or an image) and says to open the app; the next time the app becomes active it opens Reading with
+that text (or OCR with that image) once (`SET-056`, `SET-057`).
