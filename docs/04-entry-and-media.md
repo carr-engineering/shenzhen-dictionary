@@ -11,9 +11,12 @@ data model.
 
 ### 1. Route model
 
-`ENT-010` `[MUST]` Entry detail is a **stack of routes**. Each route has: an entry id, a unique
-per-visit route key, the data-generation it was created in, a request generation, and a content state
-of `Loading | Ready | Error`.
+`ENT-010` `[MUST]` Entry detail is a **stack of routes**. Each route has: an entry id, the
+**dictionary mode** it renders in, a unique per-visit route key, the data-generation it was created
+in, a request generation, and a content state of `Loading | Ready | Error`. A route's mode decides
+which dataset its entry id, reads and nested lookups belong to (`GLB-044`). A route opened from the
+app's own UI takes the user's persisted mode (`SET-010`); a route opened from a link takes the link's
+mode (`GLB-110`, `ENT-093`); a route pushed from another route inherits that route's mode.
 
 `ENT-011` `[MUST]` Selecting an entry pushes a route **immediately** in `Loading` state so the
 transition starts on the same frame as the tap. When the data arrives, the route's content is
@@ -298,19 +301,23 @@ and `hong2`, each with its own Cantonese block; all five show the same Mandarin 
 `ENT-114` `[MUST]` CC-Canto lines marked `adapted from cc-cedict` are treated as Cantonese reading
 splits: their senses form a Cantonese block labelled `Cantonese (CC-Canto, adapted from CC-CEDICT)`
 (`粤语释义（CC-Canto，改编自 CC-CEDICT）` / `粵語釋義（CC-Canto，改編自 CC-CEDICT）`), placed directly after
-an original `Cantonese (CC-Canto)` block when the entry has both. An adapted sense whose normalised
-text duplicates a sense of the current CC-CEDICT release in the Mandarin block is suppressed by the
-pipeline (`PIPE-052`); when every adapted sense is suppressed and no original CC-Canto sense exists,
-the entry has no Cantonese block and `ENT-111`'s expanded case applies.
+an original `Cantonese (CC-Canto)` block when the entry has both.
+- **Single-character polyphones** (`ENT-113`): adapted lines are **never** suppressed. They are the
+  only per-Jyutping split of the meaning (e.g. 行 `hong4` "row; profession" vs `hang4` "to walk"),
+  so every Jyutping entry keeps its adapted Cantonese block even when its text repeats the shared
+  Mandarin block.
+- **Monophones** (headwords with one Jyutping reading): an adapted sense whose normalised text
+  duplicates a sense of the current CC-CEDICT release in the Mandarin block is suppressed by the
+  pipeline (`PIPE-052`); when every adapted sense is suppressed and no original CC-Canto sense
+  exists, the entry has no Cantonese block and `ENT-111`'s expanded case applies.
 
 `ENT-115` `[SHOULD]` When the Mandarin block nearly duplicates the Cantonese block (at least 90% of
 its normalised sense text already present there), the pipeline should omit the Mandarin block.
 *(Decided from the source analysis — confirm with real entries.)*
 
-`ENT-116` `[MUST]` **No Cantonese reading** (pending `Q-115`; this rule implements the recommended
-option (a)). A CC-CEDICT headword with no Jyutping in any Cantonese source is shown in Cantonese mode
-with the muted note `No Cantonese reading` (`无粤语读音` / `無粵語讀音`) in the header's pronunciation
-slot (`ENT-020`) and only the Mandarin block, expanded, with its Pinyin. No reading is ever guessed or
+`ENT-116` `[MUST]` **No Cantonese reading** (decided: `Q-115`, option (a)). A CC-CEDICT
+headword with no Jyutping in any Cantonese source is shown in Cantonese mode with the muted note
+`No Cantonese reading` (`无粤语读音` / `無粵語讀音`) in the header's pronunciation slot (`ENT-020`) and only the Mandarin block, expanded, with its Pinyin. No reading is ever guessed or
 generated. The note is not a reading, so it stays visible when readings are hidden (`GLB-120`). Tone
 colouring is off for the headword; the play button follows `MED-001` (TTS may still speak it).
 
@@ -358,16 +365,13 @@ stroke data, laid out 1 / 2 / 3 per row at compact / medium / expanded widths. B
 `ENT-070` `[MUST]` One card component serves search results, sub-span rows, sheet rows, HSK cards and
 WORDS rows. Its inputs: the entry, the merge-group member entries, script mode, the merged variant
 list, selected flag, tone-colour flag, pronunciation-visible flag (`GLB-120`), compact flag,
-container colour override, enabled flag, audio availability (tri-state: unknown / unavailable /
+container colour override, audio availability (tri-state: unknown / unavailable /
 available), playing flag, and callbacks for tap and play.
 
 `ENT-071` `[MUST]` Its content derivation (definition concatenation, redirect header suppression,
 embedded-variant stripping, note visibility) is the merge logic of `SRCH-082` and must be implemented
-once and shared.
-
-`ENT-072` `[MUST]` A disabled card is visually identical but not tappable and has no play affordance
-(used for HSK rows that failed to link — `HSK-023`). Such a row shows only the headword, the
-word list's Pinyin and part of speech; it never shows a gloss.
+once and shared. Every card is backed by a dictionary entry — HSK cards included, since every HSK
+word links to an entry (`HSK-050`, `HSK-056`) — so there is no disabled or entry-less card variant.
 
 ---
 
@@ -405,8 +409,12 @@ refetching, each route keeps showing its previous content and is refreshed in pl
 arrives (`GLB-030`, progress per `GLB-033`); only a route that had no content yet shows its skeleton. A
 failure marks the affected routes with the error state.
 
-`ENT-093` `[MUST]` Changing dictionary mode **clears** the stack (entry ids are dataset-scoped —
-`GLB-044`).
+`ENT-093` `[MUST]` A real change of the user's dictionary mode (`PROD-043`) **clears** the stack
+(entry ids are dataset-scoped — `GLB-044`). Opening a link whose mode differs from the user's
+(App Links / Universal Links, Web URLs, the widget — `GLB-110`) is **not** a mode change: the
+persisted mode is untouched, the link's entry route records the link's mode (`ENT-010`) and routes
+pushed from it carry the same mode, and once the stack is left (popped past its root or closed) the
+app is back in the user's own mode. Each route's Web URL uses its own route's mode segment.
 
 `ENT-094` `[MUST]` Any pending word-candidate lookup is cancelled and cleared when: the detail is
 closed, a route is popped, the script changes, the dataset changes, or the destination changes.
@@ -529,7 +537,7 @@ speak error must leave the UI consistent (button back to play) with no error dia
 dataset is replaced.
 
 `MED-025` `[MUST]` Sentence action rows appear on: the Search sentence card, the Reading passage
-(including text shared into the app from another app, `TXT-080`), the
+(including text shared into the app from another app on Android, `TXT-080`), the
 Camera `All text` card, each Camera line card, and each Voice transcript line (`VOICE-040`). Play/stop on a transcript line follows the
 recording rule of `MED-002` (unavailable while recording).
 
@@ -539,13 +547,20 @@ recording rule of `MED-002` (unavailable while recording).
 
 `MED-030` `[MUST]` The translate action hands the text to an **external** translator; the app never
 translates sentences itself and itself makes no network request (`PROD-070`). The translate action is
-available on every platform (decided: `Q-061`). The shared fallback is the **Google Translate web
-URL**:
+available on every platform (decided: `Q-061`): the Google Translate app on Android (`MED-031`),
+Apple Translation on iOS (`MED-032`), Google Translate in a new tab on Web (`MED-033`). Where a
+platform target cannot take the text, the shared fallback is the **Google Translate web URL**:
 `https://translate.google.com/?sl={source}&tl=en&text={URL-encoded text}&op=translate`, where
 `{source}` is `zh-CN` for Simplified Mandarin, `zh-TW` for Traditional Mandarin and `yue` in
-Cantonese mode. The text is trimmed and capped (recommended 1,500 code points, cut at a sentence
-boundary where possible) so the URL stays within server limits. The text appears only in this
-outbound URL, never in the app's own routes (`GLB-110`).
+Cantonese mode. The text appears only in this outbound URL, never in the app's own routes
+(`GLB-110`).
+
+**Length cap (decided: `Q-118`).** The text is trimmed and capped at **1,500 code points** on every
+platform. The cap exists because Google Translate limits how much text a URL (and its input box)
+accepts; URL-encoding Chinese triples its byte length, so longer text would be truncated or rejected
+by the server. Longer text is cut at the last sentence boundary (`。！？!?` or a line break) before the
+cap — or at the cap itself when there is none — and a brief note `Only the first part was sent to
+translate.` is shown.
 
 `MED-031` `[MUST]` **Android:** send `ACTION_PROCESS_TEXT` with `EXTRA_PROCESS_TEXT` (and
 `EXTRA_PROCESS_TEXT_READONLY = true`) targeted at the package `com.google.android.apps.translate`,
@@ -554,10 +569,11 @@ If Google Translate is not installed or the intent does not resolve, open the we
 the default browser (`ACTION_VIEW`). If that fails too, show a brief toast
 `No app available to translate`.
 
-`MED-032` `[MUST]` **iOS:** on iOS 17.4+ present the system translation sheet of Apple's Translation
-framework (`.translationPresentation`) with the text. In Cantonese mode the sheet is used only when
-`LanguageAvailability` reports `yue-Hant` → `en` as supported; otherwise, and below iOS 17.4, open the
-web URL of `MED-030` (system browser).
+`MED-032` `[MUST]` **iOS:** present the system translation sheet of Apple's Translation framework
+(`.translationPresentation`) with the text. The framework (iOS 17.4+) is always present because the
+iOS minimum is 26 (decided: `Q-116`). The sheet is used whenever `LanguageAvailability` reports the
+source language (`zh-Hans`, `zh-Hant` or, in Cantonese mode, `yue-Hant`) → `en` as supported; only
+when the pair is unsupported is the web URL of `MED-030` opened instead (system browser).
 
 `MED-033` `[MUST]` **Web:** open the web URL of `MED-030` in a **new tab** (`noopener`), directly
 from the click handler so popup blockers allow it.

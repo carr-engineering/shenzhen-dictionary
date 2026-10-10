@@ -45,3 +45,10 @@ Desktop-native targets, user accounts, cloud sync, user-curated data (search his
 favourites, saved words, notes), SRS/flashcards, a system-wide input method and pronunciation scoring
 are out of scope for v1. The screen-assistant integration has been removed from the product;
 character origins are deferred to a later release. See `PROD-030` and `PROD-017`.
+
+## Licence
+
+The application code is licensed under **Apache-2.0**. Datasets and models are shipped as separate files
+under their own licences (CC BY-SA 4.0 dictionary data and derived datasets, LGPL-2.1+ Mandarin
+language-model file, Arphic Public License stroke data, Apache-2.0 voice model, and others), all listed
+in the attribution source (`REL-052`, `SET-040`).

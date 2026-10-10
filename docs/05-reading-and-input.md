@@ -258,16 +258,16 @@ changes while focused.
 the `Paste` button must be present and must surface a permission failure inline rather than appearing
 broken.
 
-`TXT-080` `[MUST]` **Shared text** (`SET-056`, `SET-057`). Text received from another app — Android
-`ACTION_SEND` `text/plain` or `ACTION_PROCESS_TEXT` from a text-selection menu; iOS through the share
-extension's inbox when the app next becomes active — selects the Reading destination and:
+`TXT-080` `[MUST]` **Shared text** (`SET-056`; **Android only** — iOS has no share target in v1,
+decided: `Q-042`). Text received from another app — `ACTION_SEND` `text/plain` or
+`ACTION_PROCESS_TEXT` from a text-selection menu — selects the Reading destination and:
 - **replaces** the current draft with the received text, exactly as `Open in Reading` does from Voice
   (`VOICE-050`); there is no merge and no prompt;
 - closes an open word-candidate sheet (`TXT-045`) and analyses the new draft automatically
   (`TXT-051`), chunked like any long passage (`TXT-015`);
 - does not focus the field, so no keyboard or handwriting sheet appears by itself;
-- is **consumed once** (the `SET-055` pattern): the intent action is cleared or the inbox item is
-  deleted on handling, so activity recreation, rotation or a later activation never re-applies it.
+- is **consumed once** (the `SET-055` pattern): the intent action is cleared on handling, so
+  activity recreation, rotation or a later activation never re-applies it.
 
 Text that is blank after trimming opens Reading with the draft unchanged. `ACTION_PROCESS_TEXT` is
 handled read-only: the app never returns modified text to the calling app. The clipboard is not
@@ -340,10 +340,9 @@ above the bottom bar (or beside the rail).
 1. the `OCR` navigation destination;
 2. a static launcher/quick-action shortcut `Open camera` (`SET-050`), which selects the OCR
    destination in the capture phase with the live feed, discarding any retained capture;
-3. an image shared from another app — Android `ACTION_SEND` `image/*` (`SET-054`); iOS through the
-   share extension, which saves the image to the app's inbox and is consumed when the app next
-   becomes active (`SET-057`) — which selects the OCR destination and shows the shared image in
-   review (`source = GALLERY`), replacing any retained capture.
+3. **Android only:** an image shared from another app — `ACTION_SEND` `image/*` (`SET-054`) — which
+   selects the OCR destination and shows the shared image in review (`source = GALLERY`), replacing
+   any retained capture. iOS has no share target in v1 (decided: `Q-042`).
 
 There are no other entry points: neither the empty Search screen nor the Reading destination has OCR
 access cards (decided: `Q-050`); recognising an existing image is done with the image-picker button
@@ -423,8 +422,9 @@ requires **no** media permission. A broad photo-library read permission must not
 - microphone — `android.permission.RECORD_AUDIO`; `NSMicrophoneUsageDescription` — used **only** by
   Voice transcription (`VOICE-010`), never by the camera;
 - saving to the gallery — Android needs no permission when writing through `MediaStore` on API 29+,
-  and `WRITE_EXTERNAL_STORAGE` scoped to `maxSdkVersion 28` below that (minimum API: `PROD-025`,
-  `Q-092`); iOS needs `NSPhotoLibraryAddUsageDescription` (add-only; decided: `Q-112`).
+  and `WRITE_EXTERNAL_STORAGE` with `android:maxSdkVersion="28"` for API 26–28 (minimum API 26:
+  `PROD-025`; decided: `Q-092`); iOS needs `NSPhotoLibraryAddUsageDescription` (add-only; decided:
+  `Q-112`).
 
 Broad photo-library read permissions must never be declared.
 
@@ -510,9 +510,8 @@ hardware-independent (software) allocation so the bitmap can be read by the reco
 the `Camera` action) returns to the live feed. Messages: `Could not open that image.` (picker) /
 `Could not open the shared image.` (share intent).
 
-`CAM-043` `[MUST]` A shared image is **consumed** once — on Android the intent action is cleared, on
-iOS the inbox item is deleted after it is read (`SET-057`) — so activity recreation, rotation or a
-later activation does not re-handle the same image.
+`CAM-043` `[MUST]` A shared image (Android) is **consumed** once — the intent action is cleared on
+handling — so activity recreation, rotation or a later activation does not re-handle the same image.
 
 `CAM-044` `[MUST]` Decoding must not be tied to a composable's lifetime; it runs on a scope that
 survives the picker's own recomposition so a rotation mid-decode does not lose the image.
@@ -642,8 +641,9 @@ replaced, when a new capture starts, or when the process ends. It is never share
 `CAM-075` `[MUST]` Platform mechanics:
 - **Android**: insert into `MediaStore.Images` under `Pictures/<AppName>/` with `IS_PENDING` during the
   write, JPEG at quality 92 (or the platform's lossless capture format when available), a
-  timestamp-based display name, and correct `DATE_TAKEN`. No permission on API 29+; on API 26-28 use
-  the legacy path with the scoped `WRITE_EXTERNAL_STORAGE` declaration.
+  timestamp-based display name, and correct `DATE_TAKEN`. No permission on API 29+; on API 26–28
+  (the minimum is API 26, `PROD-025`) use the legacy path with the `WRITE_EXTERNAL_STORAGE`
+  declaration scoped to `maxSdkVersion 28` (`CAM-017`).
 - **iOS**: `PHPhotoLibrary` add-only request (`addOnlyAccessLevel`), creating an asset in the user's
   library; if the user has previously denied add access, show the failure message with a
   `Open Settings` affordance.
@@ -706,8 +706,8 @@ discarded (`CAM-003`).
 | Recogniser | ML Kit Chinese, bundled model (on-device) | Apple Vision | n/a |
 | Image picker | Photo Picker (no permission) | PHPicker (no permission) | n/a |
 | Save to library | MediaStore (`Pictures/<App>/`) | PHPhotoLibrary add-only | n/a |
-| Save permission | none (API 29+) | add-only usage description | n/a |
-| Share-image target | `ACTION_SEND` `image/*` (`SET-054`) | share extension → App Group inbox, consumed on next activation (`SET-057`) | n/a |
+| Save permission | none (API 29+); `WRITE_EXTERNAL_STORAGE` `maxSdkVersion 28` (API 26–28) | add-only usage description | n/a |
+| Share-image target | `ACTION_SEND` `image/*` (`SET-054`) | none in v1 (`Q-042`) | n/a |
 | Launcher shortcut | static shortcut | Home Screen quick action | n/a |
 
 `CAM-110` `[MUST]` The camera, picker, recogniser and photo-library writer are each behind a small
@@ -913,18 +913,17 @@ candidate is announced as its text with its position (`Candidate 1 of 8`).
 
 ## Voice transcription
 
-**Android and iOS (26 and later) only.** Voice is a primary destination on mobile; Web, and iOS
-versions below 26, omit it entirely (`PROD-022`, `PROD-023`, `VOICE-095`). It transcribes Mandarin, Cantonese and English speech live and turns the
+**Android and iOS only.** Voice is a primary destination on mobile; Web omits it entirely
+(`PROD-022`, `PROD-023`). It transcribes Mandarin, Cantonese and English speech live and turns the
 transcript into an interactive passage: segmented, tone-coloured, with readings, every Hanzi tappable.
 
 ---
 
 ### 1. Destination
 
-`VOICE-001` `[MUST]` Voice is a primary destination (`PROD-050`) on Android and on iOS 26 and later.
-On Web, and on iOS below 26 (the voice model is delivered as an Apple-hosted Background Assets pack,
-`VOICE-095`), the destination, its route and any entry point (including the Home Screen quick
-action) are absent; its route falls back per `GLB-112`.
+`VOICE-001` `[MUST]` Voice is a primary destination (`PROD-050`) on Android and on every supported
+iOS version (the iOS minimum is 26, `PROD-025`). On Web the destination, its route and any entry
+point are absent; its route falls back per `GLB-112`.
 
 `VOICE-002` `[MUST]` Layout, top to bottom:
 - a header with the title `Voice`, the pronunciation toggle (`GLB-120`), and the actions `Copy`,
@@ -985,7 +984,7 @@ makes no network request for it, and recognition never uses the network. Size: `
   permission is added.
 - **iOS:** the pack is an Apple-hosted Background Assets pack, requested when the user first opens
   the destination, with the same panel (size, progress, error). Background Assets packs need iOS 26,
-  so Voice requires iOS 26 or later; on older iOS it is hidden as on Web (`VOICE-001`; `Q-116`).
+  which is the iOS minimum (`PROD-025`; decided: `Q-116`).
 - **Direct APK:** the model is inside the APK; there is no download state.
 - A failed or cancelled download shows `Could not download the voice model.` with `Retry`
   (`GLB-034`). Leaving the destination does not cancel a download in progress; returning shows its
@@ -1143,7 +1142,7 @@ utterance's start.
 
 | Concern | Android | iOS | Web |
 |---------|---------|-----|-----|
-| Destination | Required | Required on iOS 26+; absent below (`Q-116`) | **Absent** |
+| Destination | Required | Required | **Absent** |
 | Audio capture | `AudioRecord` | `AVAudioEngine` | n/a |
 | Model delivery | on-demand Play Asset Delivery pack, fetched on first open (Play) / inside APK (direct) | Apple-hosted Background Assets pack, fetched on first open | n/a |
 | Permission | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` | n/a |

@@ -158,7 +158,9 @@ for:
 | 7 | `EN_ENTRY` | all query tokens occur somewhere in the entry, across senses |
 
 There is **no** separate class or group for abbreviated input: abbreviated matches fall into these
-classes and are ordered within them by token cost (`SRCH-052`, `SRCH-070`).
+classes and are ordered within them by token cost (`SRCH-052`, `SRCH-070`). In Cantonese mode,
+candidates are also split into **source groups** (CC-Canto first, then CC-CEDICT, `SRCH-076`); match
+classes order candidates within each group.
 
 `SRCH-031` `[MUST]` Both simplified and traditional forms are matched for exact, prefix and contains,
 regardless of script mode.
@@ -177,6 +179,10 @@ regardless of script mode.
 3. **Pattern matches** (`MIXED` only) — see `SRCH-036`.
 4. **Starts with** — headwords strictly longer than the query that begin with it.
 5. **Contains** — headwords containing the query at position 1 or later.
+
+In Cantonese mode, inside each of these groups and sections CC-Canto-sourced entries come before
+CC-CEDICT entries (`SRCH-076`): the exact group for 行 lists its readings that have CC-Canto senses
+first, then any reading that carries only Mandarin senses.
 
 `SRCH-034` `[MUST]` A group whose text is longer than one character also carries its **sub-spans**:
 every dictionary word contained inside the group text, excluding the full span itself, ordered
@@ -270,11 +276,16 @@ no postings, the English result set is empty.
   sense;
 - else `EN_ENTRY`.
 
+In Cantonese mode the senses considered depend on the candidate kind (`SRCH-077`): a Cantonese
+entry's CC-Canto senses (`cantonese` and `cantonese_adapted` blocks), or one CC-CEDICT entry's senses
+from a Mandarin block. The two are never combined into one `EN_ENTRY` match.
+
 `SRCH-048` `[MUST]` Single-token English queries: an exact token hit is `EN_PHRASE`; a prefix-only hit
 is `EN_SENSE`. Multi-character abbreviations present as whole tokens (`HSK`, `CD`) are exact tokens.
 
-`SRCH-049` `[MUST]` The English side never applies sub-span expansion or segmentation; it is a flat
-ranked list.
+`SRCH-049` `[MUST]` The English side never applies sub-span expansion or segmentation. In Mandarin
+mode it is one flat ranked list; in Cantonese mode it is two flat ranked lists, the CC-Canto group
+then the CC-CEDICT group (`SRCH-076`).
 
 ### 4.6 Abbreviated and mixed pronunciation
 
@@ -290,6 +301,10 @@ ranked list.
 Any mix is allowed: from one syllable to all of them may be abbreviated (`nh`, `nih`, `nhao`, `nihao`,
 `ni h`, `n hao` all reach 你好). Mandarin `i`, `u` and `v` are never abbreviations; single-letter
 syllables such as `a`, `e`, `o` (Mandarin) or `m`, `ng` (Jyutping) are `FULL` tokens.
+
+There is **no fuzzy pinyin** in v1 (decided: `Q-105`): a full syllable is never matched against a
+similar-sounding one (`zhi`/`zi`, `lan`/`nan`, `fan`/`fang`). `z` reaching `zhong` is an abbreviation
+(`DATA-150`), not a fuzzy match.
 
 `SRCH-051` `[MUST]` **Paths and limits.**
 - A path is a sequence of tokens covering the whole letter stream. A single-token path is never
@@ -360,10 +375,10 @@ query (`EXACT` or `EXACT_TONELESS`) is dropped — it is already in the list (`n
 as 你 + 好). Whole-query single-word matches stay in the normal ranked list; combinations never enter
 the ranked list or the side's result count.
 
-`SRCH-064` `[MUST]` **Combinations group.** Combinations appear as a section on the Chinese page
-labelled `Combinations` with a count chip, placed after the whole-query single-word matches (`EXACT`
-and `EXACT_TONELESS`) and before longer (`PREFIX`) matches, and with its own `Combinations` category
-chip (`SRCH-090`). The section is omitted when there are no combinations.
+`SRCH-064` `[MUST]` **Combinations group** (decided: `Q-106`). Combinations appear as a section on
+the Chinese page labelled `Combinations` with a count chip, placed after the whole-query single-word
+matches (`EXACT` and `EXACT_TONELESS`) and before longer (`PREFIX`) matches, and with its own
+`Combinations` category chip (`SRCH-090`). The section is omitted when there are no combinations.
 
 `SRCH-065` `[MUST]` **Combination card.** One card per combination shows its words in order, each with
 its tone-coloured headword (`GLB-066`) and its reading, which follows the pronunciation toggle
@@ -393,7 +408,7 @@ blocks — and no per-word reads.
 ## 5. Ranking
 
 `SRCH-070` `[MUST]` The **canonical comparator**, applied to every candidate set after all candidates
-are collected:
+are collected — in Cantonese mode, within each source group (`SRCH-076`):
 
 1. match-class weight ascending (`SRCH-030`);
 2. token cost ascending (`SRCH-052`; 0 for candidates not found through romanisation);
@@ -425,7 +440,52 @@ segmented sentence's words appear in the order they occur in the text. Ranking a
 `SRCH-075` `[MUST]` Within a group of multiple readings for one headword, readings are ordered by the
 canonical comparator (`SRCH-070`). Because frequency is per written form and length is equal within one
 headword, this places common readings before proper-noun readings (`GLB-013`), then entry id
-ascending.
+ascending. In Cantonese mode, readings with CC-Canto senses come first (`SRCH-076`).
+
+`SRCH-076` `[MUST]` **Cantonese-mode source groups** (decided: `Q-119`, following Pleco). In
+Cantonese mode every result belongs to one of two source groups:
+1. **CC-Canto** — a Cantonese entry with at least one CC-Canto block (`cantonese` or
+   `cantonese_adapted`, `DATA-022`);
+2. **CC-CEDICT** — a Cantonese entry that has only the `mandarin` block (including an entry with no
+   Cantonese reading, `DATA-182`), and every CC-CEDICT row (`SRCH-077`).
+
+The CC-Canto group is listed first, then the CC-CEDICT group; the canonical comparator (`SRCH-070`)
+ranks within each group. Where this applies:
+- **English side:** the group is the outermost key — the side is two sections, `Cantonese (CC-Canto)`
+  then `Mandarin (CC-CEDICT)`, each with a count chip and its own category chip (`SRCH-090`), so a
+  CC-Canto `EN_ENTRY` match precedes a CC-CEDICT `EN_PHRASE` match. A section with no rows is
+  omitted. The CC-Canto flag on index postings (`DATA-076`) decides the group without reading
+  entries.
+- **Chinese side:** the group orders entries **inside** each group and section of `SRCH-033` and
+  `SRCH-102` (an exact or segmented group's readings, Pattern, Starts, Contains, Related) and, in the
+  ranked list of a `ROMANISATION` query, inside each match class. Section order, match-class order
+  and the position of `Combinations` (`SRCH-064`) are unchanged: on this side both sources match the
+  same headwords and readings, so a whole-query match is never pushed below a longer one.
+
+Mandarin mode has one source and no groups; sections and labels are as before.
+
+`SRCH-077` `[MUST]` **Mandarin-block matches are listed once per CC-CEDICT entry** (decided:
+`Q-119`). In Cantonese mode the English index holds Mandarin-block senses once per CC-CEDICT entry
+(headword plus Pinyin, one reading group of `DATA-022`), not once per Cantonese entry carrying that
+block (`DATA-076`). An English match that comes only from Mandarin-block senses yields one
+**CC-CEDICT row** per matching CC-CEDICT entry, never one per Jyutping reading: `walk` lists 行 `xíng`
+once, not once for each of 行's five Cantonese entries (`ENT-113`). Rules:
+- a CC-Canto group candidate is a Cantonese entry matched through its CC-Canto senses; a CC-CEDICT row
+  is matched through that CC-CEDICT entry's senses only (`SRCH-047`);
+- when a headword already appears in the CC-Canto group, its CC-CEDICT rows for the same query are
+  dropped — the match does not come only from the Mandarin block, and opening the entry shows the
+  Mandarin senses anyway (`ENT-110`); a word whose CC-Canto and Mandarin senses both match is listed
+  once, in the CC-Canto group;
+- the row's card (`SRCH-094`) shows the headword, the CC-CEDICT entry's Pinyin in the pronunciation
+  line after a muted `Mandarin` tag (following `GLB-120`), and that entry's senses only; when the
+  headword has no Cantonese reading, the `No Cantonese reading` note follows the Pinyin;
+- ranking keys (`SRCH-070`) come from the headword's **primary Cantonese entry** (`DATA-076`) —
+  frequency rank (`DATA-189`), headword length, id — except the proper-noun key, which follows the
+  Pinyin's capitalisation (`GLB-013`); the reading groups' stored order (`DATA-022`) breaks the final
+  tie between rows of one headword;
+- tapping the row opens the primary Cantonese entry (`SRCH-130`);
+- variant merging (`SRCH-080`) applies to CC-CEDICT rows by displayed headword and Pinyin;
+- each row counts once in the side's count (`SRCH-090`).
 
 ---
 
@@ -492,7 +552,8 @@ below the status bar, above the result pages, containing:
   the bare labels); combinations are not counted (`SRCH-063`);
 - below another hairline, only when the **visible page** has more than one result category: a
   horizontally scrollable row of that page's category chips (`Exact`/`Words`, `Combinations`,
-  `Pattern`, `Starts`, `Contains`, `Related`), each showing its label and count, tapping which scrolls
+  `Pattern`, `Starts`, `Contains`, `Related`; in Cantonese mode the English page's `CC-Canto` and
+  `CC-CEDICT`, `SRCH-076`), each showing its label and count, tapping which scrolls
   that page to the section with the floating header height offset. The row is replaced by the other
   page's chips when the pager settles on it (`SRCH-182`).
 
@@ -561,7 +622,13 @@ The indicator is exposed as a tab list and each page as its tab panel, so screen
   pronunciation play button;
 - the tone-coloured pronunciation (accent colour), single line, ellipsised. It follows the
   pronunciation toggle (`GLB-120`): when hidden, the line is not shown but keeps its height, so cards
-  do not change size; the headword's tone colours and the play button are unaffected;
+  do not change size; the headword's tone colours and the play button are unaffected. In Cantonese
+  mode an entry with no Cantonese reading (`DATA-182`, decided: `Q-115`) shows the muted note
+  `No Cantonese reading` (`无粤语读音` / `無粵語讀音`) instead of a Jyutping line, as in the entry header
+  (`ENT-116`): the note is not a reading, so it stays visible when readings are hidden, and the
+  headword is not tone-coloured. Hanzi search lists such entries like any other; English search
+  reaches them through their CC-CEDICT rows (`SRCH-077`), which show a Pinyin line followed by the
+  note; Jyutping cannot reach them;
 - any redirect header notes (muted);
 - **all** definitions as one paragraph, each numbered `1. `, `2. ` and so on in bold `fg`, separated
   by two spaces, in `muted` text; readings inside definitions follow `GLB-120`;
@@ -577,7 +644,7 @@ layouts, `GLB-125`), else `border`.
 
 `SRCH-097` `[MUST]` A **compact** variant reduces the headword to title-medium and tightens padding;
 it is used for sub-span rows, entry-detail related rows, and sheet rows. Its reading follows `GLB-120`
-in the same way as `SRCH-094` (space reserved when hidden).
+in the same way as `SRCH-094` (space reserved when hidden), including the `No Cantonese reading` note.
 
 `SRCH-098` `[MUST]` **Inert rows** (unmatched text runs) render as a `bgSoft` card showing the run
 text in `muted` plus a small uppercase `NO MATCH` label. They are not tappable.
@@ -613,7 +680,8 @@ a count chip:
 - `Related matches` — everything ranked into the side that no earlier section claimed.
 
 For a `ROMANISATION` query the Chinese side is the ranked list with the `Combinations` section placed
-per `SRCH-064`.
+per `SRCH-064`. In Cantonese mode each section lists CC-Canto entries before CC-CEDICT entries, and
+the English side has its two source sections (`SRCH-076`).
 
 `SRCH-103` `[MUST]` Each matched group with sub-spans is followed by a collapsed expander pill reading
 `+ N more within 「word」`. Expanding reveals the sub-span rows as compact cards behind a 2 dp left
@@ -651,7 +719,8 @@ mask (all levels), so the card and a widget set to all levels show the same word
 works in both dictionary modes, drawing from the active mode's HSK rows (`HSK-090`, `HSK-096`);
 levels follow the committed word list, which uses the 2025 HSK edition (`HSK-003`). The card shows
 the label `Word of the Day`, the tone-coloured headword with its alternate form, the reading
-(following `GLB-120`, space reserved when hidden), the HSK level badge, the first definitions clamped
+(following `GLB-120`, space reserved when hidden; the `No Cantonese reading` note of `SRCH-094` when
+the linked Cantonese entry has none), the HSK level badge, the first definitions clamped
 as on result cards (`SRCH-095`), and a speaker button that plays the word's pronunciation (`MED-001`)
 without opening the entry. Tapping the card anywhere else opens the word's entry (`SRCH-130`). The word
 changes when the local date changes while the screen is visible.
@@ -700,8 +769,9 @@ disappears.
 ## 9. Navigation from results
 
 `SRCH-130` `[MUST]` Tapping a result card — or a word inside a combination card (`SRCH-065`) or the Word
-of the Day card (`SRCH-115`) — pushes an entry-detail route for that entry (`ENT-010`). Tapping the
-same entry that is already the top route is a no-op.
+of the Day card (`SRCH-115`) — pushes an entry-detail route for that entry (`ENT-010`); a CC-CEDICT
+row (`SRCH-077`) opens the headword's primary Cantonese entry. Tapping the same entry that is already
+the top route is a no-op.
 
 `SRCH-131` `[MUST]` Tapping a sub-span row opens the sub-span's entry, not the parent.
 
@@ -781,7 +851,8 @@ remain scrollable and must not be truncated silently — if a cap is applied it 
 user.
 
 `SRCH-169` Duplicate ids arriving from multiple match paths must never yield duplicate cards; card
-keys are section-prefix plus entry id.
+keys are section-prefix plus entry id (a CC-CEDICT row, `SRCH-077`: section prefix, primary entry id
+and reading-group index).
 
 `SRCH-170` An entry with zero definitions and zero notes still renders (headword, reading, HSK badge).
 It is never filtered out.

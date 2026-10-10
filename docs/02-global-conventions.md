@@ -43,7 +43,7 @@ via NFKC for matching: `Ｔ恤` matches `t恤`. Precomputed (`DATA-071`).
 dataset — the app must **not** enumerate case permutations at query time (doing so multiplies
 storage reads per keystroke).
 
-`GLB-008` `[MUST]` **Glyph locale and fallback font** (decided: `Q-109`). Chinese text is rendered with
+`GLB-008` `[MUST]` **Glyph locale and fallback font** (decided: `Q-109`, `Q-117`). Chinese text is rendered with
 an explicit language tag so that a device whose locale is Japanese or Korean never shows Japanese or
 Korean glyph forms:
 - dictionary content (headwords, alternate forms, definitions' Hanzi, examples, passages, HSK cards) is
@@ -55,12 +55,18 @@ Korean glyph forms:
 - UI strings are tagged with the active UI language (`GLB-100`).
 
 The tag is set in shared UI code through the text style's locale list, and through `lang` attributes on
-HTML pages (`GLB-113`). Because platform fonts do not cover every Hanzi of `GLB-001` (notably Ext B
-and beyond), the app bundles one **OFL-licensed CJK fallback font**, used only after the platform's
-fonts and subset to the Hanzi that occur in the dataset and are not reliably covered by the platform
-fonts; on Web it is fetched when needed (`GLB-035`). A build check confirms that every Hanzi in the
-dataset maps to a glyph in either the baseline platform fonts or the fallback font. Its size is a line
-item of `PERF-070`; its licence is credited in `SET-040`.
+HTML pages (`GLB-113`). Fallback fonts differ by platform:
+- **Mobile.** Because platform fonts do not cover every Hanzi of `GLB-001` (notably Ext B and beyond),
+  the Android and iOS apps bundle one **OFL-licensed rare-character fallback font**, used only after the
+  platform's fonts and subset to the Hanzi that occur in the dataset and are not reliably covered by the
+  platform fonts. A build check confirms that every Hanzi in the dataset maps to a glyph in either the
+  baseline platform fonts or the fallback font. Its size is a line item of `PERF-070`; its licence is
+  credited in `SET-040`.
+- **Web.** The Web build bundles **no** CJK font. It uses Compose Multiplatform's automatic web font
+  fallback, which downloads Noto font subsets from that feature's third-party font host when text needs
+  them (`ARCH-005`). The font is fetched when needed, is not part of the offline set (`GLB-035`), and
+  its host is allowed by `GLB-090`. Text whose glyphs have not arrived yet renders once they do; start-up
+  never waits for the font. The language tags above still select the glyph forms.
 
 ---
 
@@ -180,13 +186,14 @@ rendering, and never removes the entry's core content.
 
 Two cases have a **download or loading state** instead:
 - **Voice model on mobile** (`VOICE-095`). Play builds receive it as an on-demand Play Asset Delivery
-  pack and iOS as a Background Assets pack (iOS 26+); the direct APK bundles it. While the pack is
+  pack and iOS as an Apple-hosted Background Assets pack; the direct APK bundles it. While the pack is
   missing, the Voice destination shows its download state (size, progress, retry) in place of the
   transcript; every other destination works normally.
 - **Web.** The Web PWA stores only the app shell (code) and the dataset for offline use; the dataset is
   kept current by changesets (`ARCH-145`). Every other Web asset (handwriting model,
-  abbreviation/combination data, audio, strokes, examples, the fallback font of `GLB-008`) is fetched
-  when needed, kept in the browser cache, and not guaranteed offline. A feature that needs a fetched
+  abbreviation/combination data, audio, strokes, examples) is fetched from `szdict.com` when needed,
+  kept in the browser cache, and not guaranteed offline. The CJK font is likewise fetched when needed
+  and not guaranteed offline, but by Compose's web font fallback from its own host (`GLB-008`). A feature that needs a fetched
   model (handwriting, combinations) shows an inline loading state on that feature while everything else
   keeps working, and a failed fetch follows `GLB-034`. Per-item media (a recording, stroke order,
   examples) behave as absent while pending or unavailable, without an error; a missing recording is
@@ -237,7 +244,9 @@ Web PWA swapping in a dataset updated by a changeset, `ARCH-145`) bumps a data g
 invalidates every outstanding request, every cached derived model, and every identifier that is only
 meaningful within one dataset (notably passage ids and entry ids). Stale identifiers must never be
 dereferenced against a new dataset; anything that must survive the swap keys on the natural key
-(`DATA-212`). Auxiliary data becoming available later (on Web the handwriting model or
+(`DATA-212`). Opening a route in a mode other than the persisted one (`GLB-110`) is **not** a mode
+switch and bumps nothing: it opens that mode's dataset alongside the current one, and each route's
+identifiers are only ever dereferenced against the dataset of that route's own mode. Auxiliary data becoming available later (on Web the handwriting model or
 abbreviation/combination data; on mobile the voice pack, `VOICE-095`) does not bump the generation; it
 re-runs the current request so the new results appear.
 
@@ -256,7 +265,7 @@ diffing happen on it.
 `GLB-050` `[MUST]` Within a session (including rotation and process recreation from a saved state
 bundle), the following survive:
 - active primary destination;
-- the entry-detail stack: each route's identity, its selected tab, its header collapse fraction, and
+- the entry-detail stack: each route's identity, its dictionary mode (`GLB-110`), its selected tab, its header collapse fraction, and
   each tab's independent scroll position;
 - the search query, search side, and each result page's own scroll position (`SRCH-180`…);
 - the current input method (keyboard or handwriting, `SET-019`) and whether the handwriting sheet
@@ -429,8 +438,12 @@ queries, OCR text, clipboard content, images, audio, transcripts or handwriting.
   permissions that delivery library merges (`ARCH-107`). The direct APK bundles the voice model.
 - **iOS:** the app makes no network request of its own; the voice pack is a Background Assets pack that
   the operating system downloads from Apple's servers (`VOICE-095`).
-- **Web:** the app fetches only from `szdict.com` — the app shell, the dataset manifest and changesets
-  (`ARCH-145`), and assets fetched when needed (`GLB-035`); never from a third-party host.
+- **Web:** the app fetches from exactly two hosts: `szdict.com` — the app shell, the dataset manifest
+  and changesets (`ARCH-145`), and assets fetched when needed (`GLB-035`) — and the **third-party font
+  host** used by Compose Multiplatform's automatic web font fallback, for Noto font subsets only
+  (`GLB-008`, `ARCH-005`; decided: `Q-117`). Font requests name only font files and carry no user data,
+  though the subsets requested reflect which Unicode ranges appear on screen. No other third-party host
+  is contacted.
 
 `GLB-091` `[SHOULD]` Structured, named performance trace sections must be emitted around: query
 classification, storage read, hydration, ranking, variant grouping, combination decoding,
@@ -479,8 +492,9 @@ ships only these three string tables. CI checks the shipped locale list of each 
 ## 12. Routes and deep links
 
 `GLB-110` `[MUST]` **One route table** is shared by the apps and the Web build at `https://szdict.com`
-(decided: `Q-107`). The app's in-app navigation, Web URLs, widget and shortcut deep links all resolve
-through it. `{mode}` is the dictionary mode as a path segment: `zh` (Mandarin) or `yue` (Cantonese).
+(decided: `Q-107`, `Q-118`). The app's in-app navigation, Web URLs, App Links and Universal Links
+(`GLB-111`), widget (`SET-064`) and launcher-shortcut deep links all resolve through it. `{mode}` is the
+dictionary mode as a path segment: `zh` (Mandarin) or `yue` (Cantonese).
 
 | Route | Opens | Platforms |
 |-------|-------|-----------|
@@ -488,24 +502,46 @@ through it. `{mode}` is the dictionary mode as a path segment: `zh` (Mandarin) o
 | `/{mode}/search?q=…&side=en\|zh` | Search with that query and side, in that mode | all |
 | `/{mode}/word/{natural-key}` | Search with that entry pushed on the detail stack; natural key per `DATA-014` / `DATA-212`, from that mode's dataset. On Web, also the indexable word page (`GLB-113`) | all |
 | `/{mode}/hsk`, `/{mode}/hsk/{level}` | HSK, optionally at level 1–7, in that mode | all |
-| `/` | Search, empty state, in the current mode | all |
+| `/` | Search, empty state, in the persisted mode | all |
 | `/reading` | Reading (empty draft) | all |
 | `/ocr` | OCR destination, live feed (`CAM-006`) | mobile |
-| `/voice` | Voice destination | Android; iOS 26+ (`VOICE-095`) |
+| `/voice` | Voice destination | mobile |
 | `/settings` | Settings (pushed from Search, `SET-005`) | all |
 
 **Mode rule.** A route carries the mode segment **if and only if the URL itself names dictionary
 content** — a query, an entry or an HSK level, plus the empty Search screen that shows mode-specific
 discovery content. Routes that name only a destination (`/`, `/reading`, `/ocr`, `/voice`, `/settings`)
-carry no mode segment and keep the current mode; their content (a draft, a capture, a transcript) is
-never in the URL (`GLB-112`). Consequences:
-- opening a mode-prefixed route whose mode differs from the current one switches the dictionary mode
-  exactly as the in-app switch does (`PROD-043`, persisted per `SET-010`), then opens the content;
-- the app writes only canonical URLs: on a mode-scoped screen the URL always carries the current mode,
-  `/` is replaced by `/{mode}` once Search is shown, and a mode switch on a mode-scoped screen replaces
-  the current history entry with the same route under the new mode;
+carry no mode segment and use the user's persisted dictionary mode (`SET-010`); their content (a
+draft, a capture, a transcript) is never in the URL (`GLB-112`).
+
+**Mode links are route-scoped** (decided: `Q-118`). The mode segment selects the mode of the content
+the link opens, **never** the user's preference:
+- Opening a mode-prefixed route — from a web link, an App Link or Universal Link (`GLB-111`), the widget
+  (`SET-064`), a launcher shortcut or in-app navigation — never changes the persisted dictionary mode.
+  When the route's mode differs from the persisted one, opening it is **not** a mode switch: it does not
+  re-run the user's search, rebuild a passage analysis or clear the stack (`PROD-043`), and bumps no
+  data generation (`GLB-044`).
+- **Every route records its mode.** `/{mode}/word/{natural-key}` pushes the entry onto the Search
+  detail stack as a route in the link's mode; routes pushed from it (reference taps, entries opened from
+  its examples or its word-candidate sheets) inherit that mode. Popping back past it, or leaving the
+  stack (switching destination, `PROD-055`), returns to screens in the persisted mode.
+- `/{mode}`, `/{mode}/search?…` and `/{mode}/hsk[/{level}]` in a mode other than the persisted one show
+  Search or HSK in the link's mode. The screen keeps that mode while it stays open (further queries or
+  level changes on it use the link's mode) and indicates that it differs from the persisted mode.
+  Switching destination, going back past it (`PROD-056`) or a cold start returns that destination to
+  the persisted mode with its own saved state (`SET-013`).
+- The in-app mode switch shows and sets the **persisted** mode. Choosing a different mode is a real mode
+  change (`PROD-043`), which also ends every link-mode screen; choosing the mode that is already
+  persisted changes no setting and only returns a link-mode Search or HSK screen to that mode.
 - `/zh/word/…` and `/yue/word/…` are different entries in different datasets; a natural key is looked
-  up only in the dataset of the route's mode.
+  up only in the dataset of the route's mode. If that dataset is not yet stored (Web stores a mode's
+  dataset on its first use, `DATA-215`), it is fetched as on first use of that mode; the persisted
+  mode's dataset is fetched only when a screen in that mode needs it.
+- The app writes only canonical URLs: the URL of a mode-scoped screen always carries **that screen's**
+  mode (the link's mode on a link-mode screen, otherwise the persisted mode), `/` is replaced by
+  `/{persisted mode}` once Search is shown, and a real mode change on a mode-scoped screen replaces the
+  current history entry with the same route under the new mode. On Web each history entry keeps its
+  own mode, so back and forward show each screen in the mode of its URL.
 
 **Script is not in the URL.** Simplified/Traditional is a viewer preference (`PROD-044`, `SET-011`):
 the same link shows the headword in each viewer's own script mode (`GLB-003`), and opening a link never
@@ -528,14 +564,17 @@ links for every route in `GLB-110` that the platform offers, and for no other pa
   `components` list the same patterns (`/`, `/zh`, `/zh/*`, `/yue`, `/yue/*`, `/reading`, `/ocr`,
   `/voice`, `/settings`).
 
-Verification is done by the operating system, so it needs no `INTERNET` permission in the app. Both
+An incoming link follows the mode rule of `GLB-110`: it shows its content in the link's mode for that
+route only and never changes the persisted dictionary mode. Verification is done by the operating
+system, so it needs no `INTERNET` permission in the app. Both
 files are deployed with the Web build (`REL-040`). Without the app installed, the same link opens the
 Web build — for a word route, the word page of `GLB-113`.
 
 `GLB-112` `[MUST]` **Fallback and no content in URLs.** An unknown route, a malformed parameter, an
 unknown natural key, or a route to a destination the platform does not offer (`/ocr` and `/voice` on
-Web; `/voice` on iOS below 26, `VOICE-095`) falls back to Search without an error page; an unknown
-path under a valid mode segment falls back to that mode's Search (`/{mode}`), anything else to `/`.
+Web — the only such case; both exist on Android and iOS) falls back to Search without an error page; an unknown path under a valid
+mode segment falls back to that mode's Search (`/{mode}`, route-scoped per `GLB-110`), anything else to
+`/`.
 Passage text, the reading draft, OCR text, voice transcripts, handwriting and clipboard content are
 **never** placed in a URL; `q` is written only for a query typed by keyboard or handwriting, and is
 omitted when the query is pasted or is classified as a passage (`isSentence`, `SRCH-035`). Inside the

@@ -46,15 +46,13 @@ If measurements show Compose Wasm cannot meet `PERF-073`, a thin React/Svelte we
 shared Wasm engine is the fallback (accepting a second UI implementation for Web only).
 
 `ARCH-005` `[MUST]` **Web CJK font.** Compose Wasm draws text with Skia on a canvas and cannot use the
-browser's or the system's fonts, so Chinese renders only from fonts the app itself loads. Compose
-Multiplatform's automatic web font fallback (1.12+) downloads Noto subsets from a third-party server
-on demand, which conflicts with offline use and `GLB-090`, so it is not relied on. The Web build
-therefore ships a **self-hosted OFL CJK font** (Noto Sans CJK / Source Han Sans family), subset to the
-characters of the dataset and the UI strings, one glyph set per script preference (Simplified;
-Traditional / Hong Kong), loaded for the active script and cached with the app shell so that offline
-use renders correctly (size: `PERF-070`). Mobile builds use the platform fonts plus the rare-character
-fallback font of `PERF-070`. Re-verify at first integration whether the Compose version in use can
-preload a self-hosted font family before first frame.
+browser's or the system's fonts, so Chinese renders only from fonts the app itself loads. The Web
+build uses **Compose Multiplatform's automatic web font fallback** (1.12+), which downloads Noto
+subsets from a third-party font host when text needs them (decided: `Q-117`). The Web build bundles
+**no** CJK font; the fallback font is fetched when needed, is not part of the app shell or the offline
+set (`ARCH-143`, `ARCH-145`), and its host is on the Web network allow-list of `GLB-090`. Text whose glyphs have not arrived yet renders once they do; the app does not
+block start-up on the font. Mobile builds use the platform fonts plus the bundled OFL rare-character
+fallback font of `PERF-070` (`Q-109`).
 
 ---
 
@@ -63,8 +61,8 @@ preload a self-hosted font family before first frame.
 `ARCH-010` `[REC]` Layer as follows, with dependencies pointing downward only:
 
 ```
-app-<platform>        entry point, DI wiring, platform integrations (widget, shortcuts, share target)
-ios-share-extension   iOS Share extension target (ARCH-147); no shared Kotlin code
+app-<platform>        entry point, DI wiring, platform integrations (widget, shortcuts; Android:
+                      share and process-text intents, ARCH-090)
 web-edge              Worker rendering the SEO word pages (ARCH-146); not part of the app bundle
   feature-search      search UI + its state reducer
   feature-entry       entry detail UI + route stack
@@ -84,7 +82,7 @@ web-edge              Worker rendering the SEO word pages (ARCH-146); not part o
                       (ARCH-145) and lazy, hash-checked fetch (Web)
   data-settings       persisted settings
   platform-ports      camera, text recogniser, handwriting recogniser, audio capture, speech
-                      recogniser, voice-model pack, share inbox, picker, photo-library writer,
+                      recogniser, voice-model pack, picker, photo-library writer,
                       audio, TTS, clipboard, translate
 ```
 
@@ -210,7 +208,8 @@ the UI sends intents; the holder reduces and re-emits. No two-way binding, no mu
 
 `ARCH-041` `[REC]` Per-feature state holders (`SearchStateHolder`, `EntryStackHolder`, `HskHolder`,
 `CameraHolder`, `VoiceHolder`, `ReadingHolder`, and a `HandwritingHolder` owned by whichever field
-opened the handwriting sheet) plus a small `AppSessionHolder` owning: dictionary mode, script, theme,
+opened the handwriting sheet) plus a small `AppSessionHolder` owning: the persisted dictionary mode
+(a linked route may carry a different mode of its own, `ARCH-053`), script, theme,
 tone colours, boundaries, `show_pronunciation` (`GLB-120`, `SET-017`), `input_method` (`SET-019`),
 `ui_language` (`GLB-102`, `SET-018`), data generation, and single-playback / audio-session ownership
 (playback and TTS never overlap microphone capture, `MED-002`). `VoiceHolder` owns the transcript
@@ -235,8 +234,7 @@ expressible as `Loading(previous)`.
 ### 6. Navigation
 
 `ARCH-050` `[REC]` Primary destinations: a simple enum-driven switch, not a heavyweight navigation graph
-— five on Android and iOS (`Search`, `OCR`, `Voice`, `Reading`, `HSK`; four on iOS below 26, without
-Voice — `VOICE-001`) and three on Web (`Search`, `Reading`, `HSK`) per `PROD-050`, each holding state
+— five on Android and iOS (`Search`, `OCR`, `Voice`, `Reading`, `HSK`) and three on Web (`Search`, `Reading`, `HSK`) per `PROD-050`, each holding state
 that must survive switching. The enum is per platform build, so Web contains no OCR or Voice case
 (`ARCH-013`, `ARCH-014`). **Settings is not a destination**: it is a full-screen route pushed over
 Search from the Settings card (`SET-005`) and popped like an entry-detail route.
@@ -256,7 +254,11 @@ and iOS Universal Links (`GLB-111`) are verified against `/.well-known/assetlink
 `/.well-known/apple-app-site-association`, both served from szdict.com and deployed by the release
 workflow (`REL-040`). Every content route is `/{mode}/…` with the dictionary mode as its first path
 segment (`/zh/…` Mandarin, `/yue/…` Cantonese, `GLB-110`); script is a viewer preference and never part
-of the path. URLs carry the **natural key** (`DATA-014`), never `entry_id`, and never passage, OCR,
+of the path. **Mode is route-scoped for links:** every route value records its mode, and a route opened
+from a link (App Links / Universal Links, Web URLs, the widget) carries the link's mode — as do the
+routes pushed from it — without changing the persisted dictionary mode (`GLB-110`, `PROD-043`,
+`PROD-057`). Leaving that stack returns to the user's mode; only a real mode change by the user writes
+the preference and clears the stack. URLs carry the **natural key** (`DATA-014`), never `entry_id`, and never passage, OCR,
 voice or handwriting content (`GLB-112`). The edge-rendered word pages (`ARCH-146`, `GLB-113`) use
 exactly the in-app word URLs, so one link serves search engines, the Web app and the installed apps.
 
@@ -303,11 +305,17 @@ per platform, injected at the app layer:
 | `AudioPlayer` (sequence of clips) | MediaPlayer / ExoPlayer | AVAudioPlayer | Web Audio |
 | `Speaker` (TTS) | TextToSpeech | AVSpeechSynthesizer | SpeechSynthesis |
 | `Clipboard` (read/write, focus-gated) | ClipboardManager | UIPasteboard | Async Clipboard API |
-| `Translator` (hand-off, `MED-030`…) | `ACTION_PROCESS_TEXT` to Google Translate; web URL if not installed | Translation framework sheet (iOS 17.4+); Google Translate web URL otherwise | new tab to Google Translate |
+| `Translator` (hand-off, `MED-030`…) | `ACTION_PROCESS_TEXT` to Google Translate; web URL if not installed | Translation framework sheet (`.translationPresentation`); Google Translate web URL only when the language pair is unsupported | new tab to Google Translate |
 | `SettingsStore` | DataStore | UserDefaults | IndexedDB / localStorage |
 | `DatasetLocator` | install-time asset pack / APK assets | app bundle | OPFS (`ARCH-145`) |
-| `VoiceModelPack` (state, request, progress, path — `VOICE-095`) | Play: on-demand asset pack via `AssetPackManager`; direct APK: always present | Background Assets `AssetPackManager`, Apple-hosted pack (iOS 26+) | absent |
-| `ShareInbox` (one shared image or text, consumed once — `SET-054`…`SET-057`) | `ACTION_SEND` (`image/*`, `text/plain`), `ACTION_PROCESS_TEXT` | App Group inbox written by the share extension (`ARCH-147`) | absent |
+| `VoiceModelPack` (state, request, progress, path — `VOICE-095`) | Play: on-demand asset pack via `AssetPackManager`; direct APK: always present | Background Assets `AssetPackManager`, Apple-hosted pack | absent |
+
+Sharing into the app is **Android only** in v1 (decided: `Q-042`): the Android app layer handles the
+incoming intents itself — `ACTION_SEND image/*` → OCR capture review (`SET-054`), `ACTION_SEND
+text/plain` and `ACTION_PROCESS_TEXT` → Reading (`SET-056`, `TXT-080`), each consumed once per
+`SET-055` — and dispatches them as ordinary intents to the feature state holders. iOS has no share
+extension and Web no share target, so there is no shared share port. Shared content is never logged
+(`GLB-092`).
 
 `ARCH-091` `[MUST]` Each port has a no-op implementation used in tests and on platforms lacking the
 capability, so shared code never branches on platform (`GLB-035`).
@@ -339,7 +347,7 @@ iOS). Model: the trilingual streaming Paraformer, int8 (`PERF-070`), located thr
 `VoiceModelPack` — the Play on-demand pack, the iOS Background Assets pack, or the copy bundled in the
 direct APK (`ARCH-142`). While the pack is not present the session cannot start and Voice shows its
 download state (`VOICE-095`, `GLB-035`). The session runs on its own background thread, loads the model
-when Voice is entered and releases it when Voice is left. Absent on Web and on iOS below 26.
+when Voice is entered and releases it when Voice is left. Absent on Web.
 
 ---
 
@@ -364,9 +372,7 @@ permissions of its flavour's allow-list (`ARCH-107`). Common to all flavours:
 `android.permission.WRITE_EXTERNAL_STORAGE` with `android:maxSdkVersion="28"`, used only by the legacy
 photo-saving path on API 26–28 (`CAM-071`, `CAM-075`); API 29+ saves through `MediaStore` without a
 permission. There is no `INTERNET` permission in any flavour (`PROD-070`, `GLB-090`): the Play voice
-pack is downloaded by the Play Store, not by the app. `minSdkVersion` is **26**. API 24 is the
-realistic floor — onnxruntime-android 1.31 and Compose 1.13 require 24 — and lowering to it is
-feasible with core-library desugaring; that choice stays with `Q-092`.
+pack is downloaded by the Play Store, not by the app. `minSdkVersion` is **26** (decided: `Q-092`).
 
 `ARCH-105` `[MUST]` Every permission or component contributed by a library through manifest merging
 and not in the flavour's allow-list is removed in the app manifest with `tools:node="remove"`. Known
@@ -386,8 +392,8 @@ services, receivers and providers of each Android variant (Play AAB and direct A
 allow-list in `ARCH-107`, and fails on any difference (`REL-030`). On iOS the app's `Info.plist`
 declares exactly these usage strings: `NSCameraUsageDescription`, `NSMicrophoneUsageDescription` and
 `NSPhotoLibraryAddUsageDescription` (add-only photo saving, `CAM-071`; decided: `Q-112`), each
-translated per `GLB-100`; the share extension (`ARCH-147`) declares none. CI checks the plist keys the
-same way.
+translated per `GLB-100`. CI checks the plist keys the same way. The iOS deployment target is **iOS
+26** (decided: `Q-116`).
 
 `ARCH-107` `[MUST]` **Per-flavour allow-list** for the merged Android manifest:
 
@@ -504,9 +510,9 @@ mobile.
   so the app calls `showConfirmationDialog()` when Play reports that state.
 - **iOS:** everything except the voice model inside the app bundle. The voice model is an
   **Apple-hosted Background Assets** asset pack, downloaded through the BackgroundAssets
-  `AssetPackManager` when the user starts the download from Voice; Apple-hosted packs require iOS 26,
-  so Voice is absent below iOS 26 (`VOICE-001`; to be confirmed in `Q-116`). The system
-  asks before a cellular download above 200 MB. On-Demand Resources are not used (deprecated in the
+  `AssetPackManager` when the user starts the download from Voice. Apple-hosted packs require iOS 26,
+  which is the iOS minimum, so Voice is available on every supported iOS version (decided:
+  `Q-116`). The system asks before a cellular download above 200 MB. On-Demand Resources are not used (deprecated in the
   iOS 27 SDK).
 - **Direct APK:** everything, including the voice model, inside the APK; one APK per ABI. Voice never
   shows a download state in this flavour.
@@ -519,8 +525,8 @@ pinyin query; single-word results never wait for it), and the media families at 
 by the data contract (`DATA-170`…`DATA-173`). Every fetched file is verified against the SHA-256
 recorded in the dataset metadata or build manifest before use and discarded on mismatch. These files are
 kept in the browser (HTTP or service-worker) cache but are **not guaranteed offline**: only the app
-shell and the dataset are (`ARCH-145`), together with the Web CJK font that the shell needs to render
-Chinese at all (`ARCH-005`). A fetch that fails or cannot run offline shows the feature's loading,
+shell and the dataset are (`ARCH-145`). The Web CJK font is fetched by Compose's font fallback from its
+third-party host when text needs it and is likewise not guaranteed offline (`ARCH-005`). A fetch that fails or cannot run offline shows the feature's loading,
 absent or error state (`GLB-035`; recorded audio falls back to TTS, `MED-011`) and is retried on next
 use, never in a loop.
 
@@ -547,8 +553,8 @@ new directory adds.
   `[REC]` Also prefer the full download when the changeset is larger than half the full file.
 - A failed or interrupted update leaves the installed dataset untouched and in use; it is retried at
   the next check, never in a loop.
-- Apart from the app shell (code and the Web CJK font, `ARCH-005`), the dataset is the **only** content
-  kept offline (`ARCH-143`).
+- Apart from the app shell (code only; the CJK font is not part of it, `ARCH-005`), the dataset is the
+  **only** content kept offline (`ARCH-143`).
 
 `ARCH-146` `[MUST]` **Edge-rendered SEO word pages** (`GLB-113`):
 - A Cloudflare Worker on szdict.com answers `/zh/word/{natural-key}` and `/yue/word/{natural-key}` —
@@ -570,24 +576,6 @@ new directory adds.
   them out (Cloudflare Pages / Workers static assets 20,000 files on the free plan and 100,000 on paid;
   Netlify about 25,000; GitHub Pages a 1 GB site limit).
 
-`ARCH-147` `[MUST]` **iOS share extension** (`SET-057`). One Share extension target, sharing an **App
-Group** container with the app:
-- Activation rule: `NSExtensionActivationSupportsImageWithMaxCount = 1` and
-  `NSExtensionActivationSupportsText`; no other types.
-- The extension contains no dictionary code, no models and no Kotlin framework, so it stays well inside
-  the extension memory limit (about 120 MB). An image is **downsampled in the extension** to at most
-  2048 px on the long side with ImageIO thumbnail decoding (never a full-size decode), applying its
-  orientation, and written as JPEG; text is written as UTF-8. Either is saved to the App Group
-  **inbox**, replacing any earlier unconsumed item, and the extension shows
-  `Saved — open Shenzhen Dictionary to continue` and completes the request.
-- The extension never tries to open the containing app (no `openURL` or responder-chain workarounds,
-  which iOS blocks and App Review rejects), performs no lookup and makes no network request.
-- When the app next becomes active it reads the inbox **once** through `ShareInbox`, deletes the item,
-  and routes it: image → OCR destination capture review (as `SET-054`), text → Reading (`SET-056`).
-  Inbox content is never logged (`GLB-092`).
-On Android the same `ShareInbox` port is fed directly by the intents (`ACTION_SEND image/*` → OCR;
-`ACTION_SEND text/plain` and `ACTION_PROCESS_TEXT` → Reading), consumed once per `SET-055`.
-
 ---
 
 ### 14. Testability
@@ -596,7 +584,7 @@ On Android the same `ShareInbox` port is fed directly by the intents (`ACTION_SE
 
 | Level | What | Where |
 |-------|------|-------|
-| Unit (host) | normalisation, classification, romanisation parsing, abbreviation spelling (token DAG), lattice decoder, ranking comparator, merge logic, segment parsing, sub-span ordering, HSK sorting, audio-plan selection, stroke recognition, OCR hit-testing geometry, handwriting candidate filtering and re-ranking, transcript commit and live re-segmentation, route parsing, widget word selection, share-inbox routing, Web dataset update (changeset apply, hash check, swap, full-download fallback) | shared, no platform |
+| Unit (host) | normalisation, classification, romanisation parsing, abbreviation spelling (token DAG), lattice decoder, ranking comparator, merge logic, segment parsing, sub-span ordering, HSK sorting, audio-plan selection, stroke recognition, OCR hit-testing geometry, handwriting candidate filtering and re-ranking, transcript commit and live re-segmentation, route parsing (including route-scoped link mode, `ARCH-053`), widget word selection, Android share-intent routing, Web dataset update (changeset apply, hash check, swap, full-download fallback) | shared, no platform |
 | Engine contract (host) | the golden-query suite of `PIPE-140` (including abbreviation and combination queries) against a small fixture dataset **and** against the real dataset in CI | shared |
 | State-holder (host) | latest-only behaviour, generation guards, route stack transitions, error recovery, settings restoration, voice transcript updates from a scripted fake `SpeechRecognizer` | shared |
 | UI (instrumented) | card layout, skeletons, sheet behaviour, handwriting sheet / word sheet interplay, tappable text offsets, tab/scroll restoration, back precedence | per platform |
@@ -901,7 +889,7 @@ model fetch (`ARCH-143`) is excluded and shown as a loading state.
 | Warm start to interactive | 120 ms | 250 ms | 500 ms |
 | Dataset open (file open plus metadata read) | 10 ms | 30 ms | 80 ms |
 | Web first visit to interactive (dataset already in OPFS) | 1.5 s | 3 s | 5 s |
-| Web first-ever visit including CJK font and dataset download (assume 20 Mbit/s) | 15 s | 30 s | — |
+| Web first-ever visit including dataset download (assume 20 Mbit/s) | 12 s | 25 s | — |
 
 `PERF-061` `[MUST]` There is **no** visible "loading dictionary" phase (`ARCH-131`), and cold start
 loads none of the voice, handwriting or OCR models (`ARCH-133`).
@@ -923,11 +911,10 @@ loads none of the voice, handwriting or OCR models (`ARCH-133`).
 | Example sentences (Mandarin, and Cantonese per `MED-048`) | 6 MB | mobile; Web: lazy |
 | OCR model (ML Kit Chinese) | 20 MB | Android only (iOS uses Vision) |
 | Handwriting models (simplified, traditional, Hong Kong) | 30 MB total (estimate; re-baseline at first integration) | mobile; Web: repackaged, one model per script, lazy |
-| Voice model (trilingual streaming Paraformer, int8: encoder, decoder, tokens) | ~240 MB | Play: on-demand asset pack; iOS 26+: Background Assets pack; direct APK: bundled (`ARCH-142`) |
+| Voice model (trilingual streaming Paraformer, int8: encoder, decoder, tokens) | ~240 MB | Play: on-demand asset pack; iOS: Background Assets pack; direct APK: bundled (`ARCH-142`) |
 | sherpa-onnx + onnxruntime native libraries | 10–15 MB per ABI | mobile only |
 | Script conversion table for voice display (OpenCC) | 1 MB | mobile only |
 | Rare-character fallback font (OFL CJK, subset to dataset characters the platform fonts may lack; text tagged `zh-Hans` / `zh-Hant` / `zh-HK` — decided: `Q-109`) | ≤ 8 MB (estimate; re-baseline when the subset is built) | all mobile builds |
-| Web CJK font (OFL, subset to dataset and UI characters, one glyph set per script — `ARCH-005`) | ≤ 8 MB compressed per script (estimate) | Web: active script, with the app shell |
 
 `PERF-071` `[MUST]` The raw gzipped source bundle (6.3 MB in the reference build) must not ship.
 
@@ -943,9 +930,9 @@ loads none of the voice, handwriting or OCR models (`ARCH-133`).
 | Play AAB — on-demand voice pack (`ARCH-142`, `VOICE-095`) | voice model | 240 MB | 240 MB |
 | Direct APK (one per ABI; arm64-v8a measured) | everything, voice model included | 480 MB | 500 MB |
 | iOS (App Store, thinned for the device) | everything except the OCR model and the voice model | 230 MB | 250 MB |
-| iOS — Background Assets voice pack (iOS 26+) | voice model | 240 MB | 240 MB |
+| iOS — Background Assets voice pack | voice model | 240 MB | 240 MB |
 | Web — initial payload | code only | 4 MB compressed | — |
-| Web — first visit, one mode | code + CJK font for the active script + active-mode dataset into OPFS | 28 MB | 20 MB in OPFS |
+| Web — first visit, one mode | code + active-mode dataset into OPFS | 20 MB | 20 MB in OPFS |
 | Web — dataset update per release (`ARCH-145`) | changeset (`DATA-216`); the full dataset when the changeset would exceed half of it | ≤ 50% of the dataset line | in place in OPFS |
 | Web — on first use | LM + abbreviation data, handwriting model, media (`ARCH-143`) | per `PERF-070` line | browser cache, not guaranteed offline |
 
@@ -1072,8 +1059,8 @@ or remotely.
 ### 4. Continuous integration on pull requests
 
 `REL-030` `[MUST]` Required checks on every PR (GitHub Actions):
-1. build all targets: Play AAB, direct APK, iOS (simulator and device archive, with the share
-   extension), Web, and the word-page Worker (`ARCH-146`);
+1. build all targets: Play AAB, direct APK, iOS (simulator and device archive), Web, and the
+   word-page Worker (`ARCH-146`);
 2. unit, state-holder and engine tests (`ARCH-150`, `ARCH-151`);
 3. dataset build when its inputs changed (otherwise the cached artefact keyed by input hash), with the
    validation gates, the golden queries (`PIPE-140`) and the LM quality gate (`PIPE-070`…`PIPE-076`);
@@ -1133,8 +1120,11 @@ rebuild.
 
 ### 6. Repository hygiene
 
-`REL-050` `[MUST]` The repository contains: `LICENSE` (the app licence choice is an open question —
-`09-open-questions.md`), `README`, `CONTRIBUTING` (workflow of `REL-020`, DCO, how to run the pipeline),
+`REL-050` `[MUST]` The repository contains: `LICENSE` — the app's own code and assets under
+**Apache-2.0** (decided: `Q-100`); datasets and models are separate files under their own licences
+(CC BY-SA 4.0 dictionaries and the derived dataset, the LGPL-2.1+ language-model table as a separate
+replaceable file, the Arphic stroke data, the CC BY-SA Cantonese tables), each with its licence text
+alongside and listed in the attribution source of `REL-052` — `README`, `CONTRIBUTING` (workflow of `REL-020`, DCO, how to run the pipeline),
 `CODE_OF_CONDUCT`, `SECURITY.md` (private vulnerability reporting), issue and PR templates,
 `CODEOWNERS`, `CHANGELOG` (assembled from release notes), and REUSE licence metadata for every file
 including committed data sources.

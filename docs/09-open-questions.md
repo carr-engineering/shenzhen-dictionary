@@ -8,128 +8,8 @@ meaningful; their full discussion is in the git history of this file.
 
 ## 1. Still open
 
-### `Q-042` — iOS share extension (confirm the v1 approach)
-**Background:** Android apps can receive shared images and text through intent filters, which open the
-app directly. On iOS the equivalent is a separate **share extension** target, with three limits:
-- it runs in its own process with a small memory budget (developers report about 120 MB), so a large
-  photo must be downsampled before anything else;
-- it cannot officially open its own containing app (the old workaround was blocked in iOS 18 and risks
-  App Review rejection);
-- it cannot use the app's in-memory state; data is handed over through a shared **App Group**
-  container.
-  
-
-**Current spec (`SET-057`, `ARCH-147`):** one share extension accepting one image or text. It
-downsamples the image (≤ 2048 px) or keeps the text, saves it to the App Group inbox and shows
-"Saved — open Shenzhen Dictionary to continue". When the app next becomes active it consumes the inbox
-once: image → OCR review, text → Reading. No lookup inside the extension in v1.
-**Alternative:** run lookup / OCR inside the extension (more code, tighter memory).
-**Needs:** confirmation that "save, then open the app" is acceptable for v1.
-
-Sounds janky, let's not have this on ios for now.
-
-### `Q-092` — Minimum Android API level (advice)
-**Facts (2026):** AndroidX libraries default to minSdk 23; Compose 1.13 and CameraX 1.7 move to 24;
-`onnxruntime-android` 1.31 (voice) already requires 24. Device share (Dec 2025): API 24–25 1.6 %,
-26–27 2.3 %, 28 4.5 %.
-- **API 24** is feasible: it is the real floor set by the libraries. Costs: core-library desugaring for
-  `java.time`, no native adaptive icons / XML fonts, and the legacy photo-saving path
-  (`WRITE_EXTERNAL_STORAGE` with `maxSdkVersion="28"`, as you suggested — that covers API 24–28).
-- **API 26** (current spec) keeps about 97.6 % of devices and gives native `java.time`, adaptive icons
-  and XML fonts.
-- **API 29** would add permission-free MediaStore saving, `Typeface.CustomFallbackBuilder` (rare-character
-  fallback fonts), system dark theme and gesture-navigation insets as a baseline, and TLS 1.3 — at about
-  9 % reach.
-
-**Recommendation:** 26. Choose 24 only if the extra ~1.6 % matters; nothing in the spec breaks.
-**Blocks:** `PROD-025`, `CAM-075`.
-
-Keep 26
-
-### `Q-100` — App licence and store compatibility
-**Unclear:** GPL-family licences conflict with Apple App Store terms; LGPL adds a relinking requirement
-that iOS apps cannot practically meet. Bundled data keeps its own licences (CC BY-SA 4.0 dictionaries,
-LGPL-2.1+ language model, Arphic stroke data, CC BY-SA Cantonese corpora).
-**Options:** (a) GPL-3.0-or-later with an App Store exception (needs a CLA so the exception covers all
-contributions); (b) MPL-2.0 (file-level copyleft, App Store friendly); (c) Apache-2.0.
-**Recommendation:** (b), with datasets and models as separate files under their own licences, listed
-in the attribution source (`REL-052`).
-**Blocks:** `REL-050`, `SET-041`.
-
-Let's actually have Apache-2.0. Thus allowing for other people to build upon this work more easily.
-
-### `Q-105` — Fuzzy pinyin (post-v1 candidate)
-**What it means:** many speakers do not distinguish some sounds — `z`/`zh`, `c`/`ch`, `s`/`sh`, `n`/`l`,
-`an`/`ang`, `en`/`eng`, `in`/`ing` (and `n`/`l` in Cantonese). Fuzzy pinyin lets a query typed with one
-of a pair also match the other, so `zongguo` still finds 中国 (zhōngguó) and `lihao` finds 你好. It is
-cheap to add through the syllable alias data, but it makes many more queries ambiguous.
-**Recommendation:** not in v1; consider an opt-in setting later.
-
-Not for now.
-
-### `Q-106` — Combinations: position and activation
-**Current spec:** the Combinations group sits after whole-query matches (EXACT / EXACT_TONELESS) and
-before PREFIX matches, and runs for every query of 2+ tokens.
-**Open:** whether that position and trigger feel right in real listening use.
-**Blocks:** `SRCH-060`…`SRCH-068`.
-This is for the pinyin search right? If so, yes, i think this order makes sense.
-
-### `Q-115` — Cantonese mode: CC-CEDICT words with no Jyutping
-**Facts:** 19,905 current CC-CEDICT headwords have no Jyutping in CC-Canto or the 2015 readings file
-(which also lacks 24,931 newer CC-CEDICT entries).
-**Options:** (a) show them in Cantonese mode with their Mandarin senses and a "no Cantonese reading"
-note; (b) generate Jyutping per character from single-reading characters and mark it as generated;
-(c) hide them in Cantonese mode.
-**Recommendation:** (a) for v1 — never show a guessed reading; (b) later, clearly marked.
-**Blocks:** `DATA-022`, `PIPE-053`, `PIPE-078`.
-option a is okay.
-
-### `Q-116` — Voice on iOS requires iOS 26+
-**Facts:** On-Demand Resources is deprecated in the iOS 27 SDK. Its successor, Background Assets with
-Apple-hosted packs, needs iOS 26+. Self-hosted Background Assets works on iOS 16.1+ but needs our own
-download server.
-**Current spec:** the voice model is an Apple-hosted Background Assets pack, so Voice is offered on
-iOS 26+ and hidden on older iOS (as on Web). The rest of the app keeps iOS 16 as the minimum.
-**Options:** keep that; raise the iOS minimum to 26; or self-host the pack on szdict.com for iOS 16–25.
-**Blocks:** `VOICE-095`, `PROD-025`.
-
-Raise iOS min to 26 and use the background asset pack.
-
-### `Q-117` — Web CJK font size
-**Facts:** Compose-Wasm draws text on a canvas and cannot use the browser's fonts; its automatic
-fallback downloads Noto subsets from a third-party server, which breaks offline use and `GLB-090`. The
-Web build therefore ships its own OFL CJK font, cut down to the dataset and UI characters (`ARCH-005`).
-**Open:** the real size per script (estimated ≤ 8 MB) and whether it can load before the first frame;
-measure at first integration. This raised the Web first-visit target (`PERF-060`) to 15 s / 30 s.
-
-For web, downloading a 3rd party font is okay.
-
-### `Q-118` — Choices made while applying the decisions (confirm)
-- Shared text **replaces** the Reading draft, like `Open in Reading` (`TXT-080`, `SET-056`). What?
-- iOS share inbox: if several items wait, the newest wins (`SET-057`).
-- Opening a `/zh/…` or `/yue/…` link switches the app's dictionary mode, and the switch persists
-  (`GLB-110`). it should not persist that as the new user prefenrence, only adjust for that word entry.
-- HSK words missing from the dictionary are **no longer added as syllabus-sourced entries**; they stay
-  unlinked and show a card with headword, pinyin and part of speech but no definition (`HSK-056`,
-  `HSK-023`). The Word of the Day never picks them (`SET-063`). this is unacceptable. each HSK word must be mapped to a CC-CEDICT entry as is already done by the current processing.
-- Cantonese mode shows only Cantonese example sentences, not Mandarin ones (`MED-048`). OK
-- Chinese labels for definition blocks, e.g. 粤语释义（CC-Canto）/ 普通话释义 (`ENT-110`…). What?
-- Translate hand-off text is capped at 1,500 characters (`MED-030`). What does this mean?
-- CC-Canto lines "adapted from CC-CEDICT" are hidden when they repeat current CC-CEDICT text. What does "adapted from CC-CEDICT" mean?
-  (`ENT-114`). Risk: for polyphones this can remove the per-Jyutping meaning split (行 hong4 losing
-  "row; profession"); check against real entries before finalising. Explain this risk better? How would that be an issue? Each word is ided by trad + simpl + pronunciaiton, no? thus how is this is an issue?
-
-### `Q-119` — English search on Cantonese polyphones
-**Facts:** in Cantonese mode a single-character polyphone such as 行 has one entry per Jyutping, and
-each carries the same headword-level Mandarin block (`ENT-113`). English search indexing that block
-would return all five 行 entries for "walk".
-**Options:** (a) index the Mandarin block once per headword (on the most frequent Jyutping entry);
-(b) index it on every entry; (c) index only Cantonese senses for polyphones.
-**Recommendation:** (a).
-**Blocks:** `SRCH-047`, `DATA-076`.
-
-I'm a bit confused with these options. I think we can follow how pleco does it:
-They will first show the CC-Canto entries, and afterwards the CC-CEDICT entries.
+None. Every question raised in the 2026-10 review has been answered; see the decision log. New questions
+should be added here with the next free `Q-` number.
 
 ---
 
@@ -147,11 +27,11 @@ They will first show the CC-Canto entries, and afterwards the CC-CEDICT entries.
 | `Q-041` Saved photo resolution | Save the original capture; analysis uses the capped working image | `CAM-073` |
 | `Q-050` OCR on Reading | No OCR entry point on the Reading screen. OCR is reached only through its own destination (plus the launcher shortcut and share intent) | `CAM-006`…`CAM-009` |
 | `Q-060` TTS fallback | TTS speaks words without a recording, with no visual distinction | `MED-011` |
-| `Q-061` Translate hand-off | Android: Google Translate (web URL if not installed). iOS: Apple Translation (iOS 17.4+), else the Google Translate web URL. Web: new tab to Google Translate. Other translators post-v1 | `MED-030`…`MED-033` |
+| `Q-061` Translate hand-off | Android: Google Translate (web URL if not installed). iOS: Apple Translation (always available on iOS 26), with the Google Translate web URL only when the language pair is unsupported. Web: new tab to Google Translate. Other translators post-v1 | `MED-030`…`MED-033` |
 | `Q-062` Example ordering | Ranked in the pipeline (headword as a standalone word first, then shorter) | `MED-047` |
 | `Q-070` Licence review | Character origins deferred (removes CJKVI IDS, chinese-lexicon and the glyph sources); the remaining question is the app licence (`Q-100`) | `SET-040`, `SET-041` |
 | `Q-071` iOS widget | Android widget in v1; daily pick and projection live in shared code so an iOS widget is cheap later | `SET-068`, `SET-063`, `DATA-130` |
-| `Q-072` Screen assistant | **Removed** (not deferred). Instead the app receives shared **images → OCR** and shared **text → Reading** | `SET-054`, `SET-056`, `SET-057` |
+| `Q-072` Screen assistant | **Removed** (not deferred). Instead the app receives shared **images → OCR** and shared **text → Reading** | `SET-054`, `SET-056` (Android) |
 | `Q-080` Provenance labels | Decided from the dictionary analysis (73 % of Cantonese-mode headwords have only CC-CEDICT definitions): label per **block** — "Cantonese (CC-Canto)" first, then "Mandarin senses (CC-CEDICT) · pinyin", collapsed when a Cantonese block exists | `DATA-022`, `ENT-052`, `PROD-045` |
 | `Q-081` Cantonese frequency | Custom Cantonese table: rime-cantonese essay (CC BY 4.0) as the base, counts from HKCanCor, Common Voice yue, Tatoeba yue, UD_Cantonese-HK, zh-yue Wikipedia; words.hk and Leipzig excluded | `DATA-114`, `DATA-189`, `PIPE-077` |
 | `Q-082` Mandarin senses on Cantonese entries | (a) carry all Mandarin senses, refined by the analysis: join on (traditional, pinyin) for single-reading words; single-character polyphones use CC-Canto's per-Jyutping split, with the Mandarin senses as one headword-level block | `DATA-022`, `PIPE-053` |
@@ -171,6 +51,16 @@ They will first show the CC-Canto entries, and afterwards the CC-CEDICT entries.
 | `Q-112` iOS photo saving | Kept (`NSPhotoLibraryAddUsageDescription`) | `ARCH-106`, `CAM-017` |
 | `Q-113` Signing keys | Same key for Play and the direct APK, listed in `assetlinks.json` | `REL-041`, `GLB-111` |
 | `Q-114` Design choices | Accepted. Handwriting has Delete and Clear buttons; ink is never auto-committed (the app never inserts a candidate on its own, after a pause or when a new character starts — the user always taps one) | `HW-*` and the rules named in the git history |
+| `Q-042` iOS share extension | No iOS share target in v1 (a save-then-open flow would feel janky). Sharing images → OCR and text → Reading is **Android only** | `SET-054`…`SET-056`, `TXT-080` |
+| `Q-092` Android minimum | API 26; legacy photo saving uses `WRITE_EXTERNAL_STORAGE` with `maxSdkVersion="28"` | `PROD-025`, `CAM-017` |
+| `Q-100` App licence | **Apache-2.0** for the app code, so others can build on it easily. Datasets and models stay separate files under their own licences (CC BY-SA 4.0 dictionaries and derived data, LGPL-2.1+ language-model table, Arphic stroke data) | `REL-050`, `SET-041` |
+| `Q-105` Fuzzy pinyin | Not in v1 | — |
+| `Q-106` Combinations | Confirmed: in pinyin search, after whole-query matches and before PREFIX matches, for every query of 2+ tokens | `SRCH-060`…`SRCH-068` |
+| `Q-115` No-Jyutping headwords | (a) shown in Cantonese mode with their Mandarin senses and a "No Cantonese reading" note; no guessed readings | `ENT-116`, `DATA-022` |
+| `Q-116` iOS voice | iOS minimum raised to **26**; the voice model is an Apple-hosted Background Assets pack; Voice available on every supported iOS version | `PROD-025`, `VOICE-095`, `ARCH-142` |
+| `Q-117` Web CJK font | Web uses Compose Multiplatform's automatic font fallback, downloaded from a third-party font host when needed; no bundled Web font. Mobile keeps the bundled OFL rare-character font | `GLB-008`, `GLB-090`, `ARCH-005` |
+| `Q-118` Choices | Shared text (Android) replaces the Reading draft. Links to `/zh/…` or `/yue/…` show that content in the link's mode **for that route only** — the saved mode preference never changes. **Every HSK word links to a CC-CEDICT entry**: normalisation plus a committed manual mapping file; the build fails on any unlinked row (no fallback cards). Cantonese mode shows Cantonese example sentences only. Chinese block headings are used when the UI language is Chinese. Translate hand-off text is capped at 1,500 characters. CC-Canto lines adapted from CC-CEDICT are never hidden for characters with several Cantonese readings | `TXT-080`, `GLB-110`, `HSK-056`, `PIPE-044`, `MED-048`, `ENT-110`, `MED-030`, `ENT-114` |
+| `Q-119` Cantonese search order | Like Pleco: CC-Canto entries first, then CC-CEDICT entries; a CC-CEDICT match is listed once per CC-CEDICT entry, not once per Cantonese reading | `SRCH-076`, `SRCH-077`, `SRCH-033`, `SRCH-049`, `DATA-076` |
 | Cantonese example sentences | Tatoeba Cantonese (`yue`) sentences, short subset, with English through Tatoeba links | `MED-048`, `DATA-188` |
 | Normalisation | Matching key uses NFKC; dataset keys use the same form | `SRCH-010`, `DATA-071` |
 | Navigation | Search · OCR · Voice · Reading · HSK (Web: Search · Reading · HSK); Settings is a card on the empty Search screen | `PROD-050`, `SRCH-115`, `SRCH-116` |

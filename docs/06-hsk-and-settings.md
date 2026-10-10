@@ -10,7 +10,9 @@ bugs** in this area; do not reproduce them (see `HSK-026`, `HSK-027`, `HSK-056` 
 ### 1. Scope
 
 `HSK-001` `[MUST]` The HSK feature browses the official HSK vocabulary syllabus in its **2025
-edition** (`HSK-003`), grouped by level, and links each syllabus word to its canonical dictionary entry in the active dataset.
+edition** (`HSK-003`), grouped by level, and links **every** syllabus word to its canonical
+CC-CEDICT entry (`HSK-050`) — in Cantonese mode, to the Cantonese dataset's copy of that entry
+(`HSK-090`).
 
 `HSK-002` `[MUST]` HSK is available in **both dictionary modes**. The HSK destination (`PROD-050`)
 and HSK badges (`HSK-040`) appear in Mandarin and in Cantonese mode alike; the syllabus, its levels
@@ -66,21 +68,15 @@ Horizontal spacing 10 dp; cards carry their own 4 dp vertical padding.
 `HSK-021` `[MUST]` A level header renders the level badge with its row count: `HSK 3 (500)`.
 
 `HSK-022` `[MUST]` Each word card is the shared entry card (`ENT-070`) with:
-- the canonical dictionary entry's content when the row is linked, its reading shown or hidden per
-  the pronunciation-visibility setting (`GLB-120`);
+- the linked canonical dictionary entry's content, its reading shown or hidden per the
+  pronunciation-visibility setting (`GLB-120`);
 - container colour = the level's paper tint (`GLB-065`);
 - merge grouping **not** applied (each syllabus row is its own card);
 - an HSK badge footer showing the levels the entry belongs to.
 
-`HSK-023` `[MUST]` An **unlinked** syllabus row (no canonical dictionary entry) renders a fallback
-card built from the syllabus data alone: word, traditional form, syllabus reading (visibility per
-`GLB-120`), the level's part-of-speech label (`HSK-043`, `HSK-044`), and the level badge. It shows
-**no definition**: syllabus glosses are not kept (`HSK-055`). The card is **disabled** — not
-tappable and with no play button.
+`HSK-024` `[MUST]` Tapping a card opens its linked entry's detail (`ENT-010`).
 
-`HSK-024` `[MUST]` Tapping a linked card opens that entry's detail (`ENT-010`).
-
-`HSK-025` `[MUST]` Each linked card's play button reflects the real availability of pronunciation
+`HSK-025` `[MUST]` Each card's play button reflects the real availability of pronunciation
 audio for the canonical entry. Hiding readings (`GLB-120`) does not affect the play button.
 
 `HSK-026` `[MUST]` Grid item keys must be unique and stable across scrolling. **The tuple
@@ -100,8 +96,7 @@ reference app still renders two identical cards for 局 in level 6.
 
 `HSK-030` `[MUST]` Within a level, rows are ordered **alphabetically by pronunciation** (Pinyin in
 Mandarin mode; Jyutping in Cantonese mode, `HSK-093`), using this comparator:
-1. plain (toneless) reading of the **canonical dictionary entry** when linked, else of the syllabus
-   row;
+1. plain (toneless) reading of the linked **canonical dictionary entry**;
 2. numbered reading;
 3. display (marked) reading;
 4. the word itself;
@@ -146,11 +141,16 @@ token does not require an app release.
 
 ### 6. Relationship between HSK data and dictionary records
 
-`HSK-050` `[MUST]` Each syllabus row is joined **during preprocessing** to exactly one canonical
-dictionary entry, or explicitly marked unlinked. The app performs **no** joining at runtime.
+`HSK-050` `[MUST]` **Every** syllabus row is joined **during preprocessing** to exactly one
+canonical CC-CEDICT entry. There are no unlinked rows, no fallback cards and no syllabus-sourced
+entries. The app performs **no** joining at runtime.
 
-`HSK-051` `[MUST]` The join key is (simplified form, traditional form, reading), with reading matching
-tolerant of syllabus-vs-dictionary differences (`HSK-052`). When several dictionary entries qualify,
+`HSK-051` `[MUST]` The join key is (simplified form, traditional form, reading), matched after
+**normalisation**: traditional-form normalisation, `/`-split readings and tone-insensitive matching
+with a tone-sensitive preference (`HSK-052`), erhua `儿` stripping, and similar documented rules.
+Rows the normalised join cannot resolve are mapped by a **committed manual mapping file** in
+`data-sources/` (syllabus row → CC-CEDICT entry, e.g. 口哨儿 → 口哨; 致力于 → the closest
+CC-CEDICT entry), reviewed like any other committed input. When several dictionary entries qualify,
 the pipeline picks the most frequent non-proper-noun reading and records the decision. (Cantonese
 dataset: `HSK-090`.)
 
@@ -163,22 +163,20 @@ on `/`.
 
 `HSK-053` `[MUST]` The app **displays the canonical dictionary reading** for linked rows, not the
 syllabus reading, so the same word reads identically everywhere in the app. Like every reading, it is
-shown or hidden per `GLB-120`. The syllabus reading is used for joining (`HSK-051`, `HSK-052`) and
-on the unlinked fallback card (`HSK-023`) only; it is never shown as a secondary "HSK reading" on
-entries, in either mode. *(Decided: `Q-031`; former `HSK-054` and `HSK-095` removed.)*
+shown or hidden per `GLB-120`. The syllabus reading is used for joining (`HSK-051`, `HSK-052`)
+only; it is never shown anywhere, in either mode. *(Decided: `Q-031`; former `HSK-054` and `HSK-095` removed.)*
 
 `HSK-055` `[MUST]` CC-CEDICT (Mandarin) and CC-Canto (Cantonese) are the **source of truth for
-definitions**. Syllabus glosses are neither kept in the dataset nor shown anywhere: linked cards
-show the linked entry's dictionary definitions; an unlinked row shows the fallback card of
-`HSK-023` — headword, syllabus reading and part of speech, no gloss. *(Decided: `Q-032`.)*
+definitions**. Syllabus glosses are neither kept in the dataset nor shown anywhere: every card
+shows its linked entry's dictionary definitions. *(Decided: `Q-032`.)*
 
-`HSK-056` `[MUST]` The pipeline must **fail its validation gate** on unlinked rows above a small
-allowance, and must emit the list of unlinked rows. The reference dataset silently shipped 9 unlinked
-rows — 新媒体, 新能源, 不予, 精彩纷呈, 居于, 口哨儿, 两翼, 压轴, 致力于 — which appear in the grid as
-dead, untappable cards. Most are joinable after normalising the traditional form or splitting variant
-readings. Genuinely absent words stay unlinked within the allowance and render the fallback card
-(`HSK-023`); no syllabus-sourced dictionary entries are created, since syllabus glosses are not kept
-(`HSK-055`).
+`HSK-056` `[MUST]` The build **fails** on **any** unlinked row — zero allowance — in either
+dataset, and lists every offending row in its report. The reference dataset silently shipped 9
+unlinked rows — 新媒体, 新能源, 不予, 精彩纷呈, 居于, 口哨儿, 两翼, 压轴, 致力于 — which appeared in the
+grid as dead, untappable cards. Most join after normalisation (`HSK-051`); the rest are resolved by
+entries in the committed manual mapping file. A new syllabus or CC-CEDICT release that leaves a row
+unlinked is fixed by improving the normalisation or adding a mapping, never by shipping the row
+unlinked.
 
 ---
 
@@ -208,9 +206,11 @@ before showing anything — tolerable on a fast desktop, multiple seconds on a p
 (`DATA-120`) containing everything the card needs, and must resolve audio availability lazily per
 visible card.
 
-`HSK-067` `[MUST]` The load must not fail wholesale because one row cannot be linked. The reference
+`HSK-067` `[MUST]` The load must not fail wholesale because of one bad row. The reference
 implementation threw when any linked id was missing from the dictionary, taking down the whole
-screen. Unresolvable rows degrade to the disabled fallback card.
+screen. Linkage is guaranteed at build time (`HSK-056`) and cards render from the pre-projected row
+table (`HSK-066`), so the grid never depends on resolving entries at load; a card whose entry
+nevertheless fails to open on tap shows the entry error state.
 
 ---
 
@@ -249,25 +249,28 @@ before the switch.
 
 ### 10. HSK in Cantonese mode
 
-`HSK-090` `[MUST]` The Cantonese dataset carries its own HSK row table: the pipeline joins every
-syllabus row to the Cantonese dataset by written form — traditional form first, simplified form as a
-cross-check — never by reading, since the syllabus reading is Pinyin (`DATA-187`). The app performs
-no joining at runtime (`HSK-050`). Where the written form has several Cantonese entries (one per
-reading, `DATA-184`), the pipeline picks one deterministically (the entry sharing senses with the
-Mandarin-linked entry, then the most frequent) and records the decision. Unlinked rows are gated as
-in `HSK-056`.
+`HSK-090` `[MUST]` The Cantonese dataset carries its own HSK row table: each row links to the
+Cantonese dataset's **copy of the same CC-CEDICT entry** the Mandarin row links to (`HSK-050`,
+`DATA-187`) — the Cantonese entry whose Mandarin block carries that CC-CEDICT entry. Every CC-CEDICT
+headword is present in the Cantonese dataset (a headword with no Jyutping as a no-reading entry,
+`DATA-182`), so every row links. Where several Cantonese entries carry the CC-CEDICT entry (one per
+Jyutping reading, `DATA-184`), the pipeline picks one deterministically (the most frequent, then the
+lowest id) and records the decision. The app performs no joining at runtime (`HSK-050`); the build
+fails on any unlinked row (`HSK-056`).
 
 `HSK-091` `[MUST]` Per-level row counts, levels, de-duplication and parts of speech are identical in
 both modes (`HSK-003`, `HSK-027`, `HSK-042`); only the linked entry differs.
 
-`HSK-092` `[MUST]` Linked cards in Cantonese mode show the linked Cantonese entry's **Jyutping**
+`HSK-092` `[MUST]` Cards in Cantonese mode show the linked Cantonese entry's **Jyutping**
 (visibility per `GLB-120`) and its definitions **Cantonese-first**, with Mandarin-sourced definitions
-as fallback, labelled by provenance (`PROD-045`). An unlinked row's fallback card (`HSK-023`) shows
-the syllabus Pinyin labelled `Mandarin`, the part of speech and no definition.
+as fallback, labelled by provenance (`PROD-045`). A card whose linked entry has no Cantonese reading
+shows the `No Cantonese reading` note in place of the Jyutping and the entry's Mandarin senses
+(`ENT-116`, `Q-115`).
 
 `HSK-093` `[MUST]` In Cantonese mode rows are ordered by the linked entry's **Jyutping** with the
-`HSK-030` comparator; unlinked rows — including rows whose only match is an entry with no Cantonese
-reading (`Q-115`) — sort after the linked rows of their level, by their syllabus Pinyin. The Jyutping sort key is precomputed in the Cantonese dataset (`DATA-121`, `DATA-187`).
+`HSK-030` comparator; rows whose linked entry has no Cantonese reading (`Q-115`) sort after the
+Jyutping rows of their level, by the Pinyin of their linked CC-CEDICT entry. The sort key is
+precomputed in the Cantonese dataset (`DATA-121`, `DATA-187`).
 *(Decided: `Q-114`.)*
 
 `HSK-094` `[MUST]` Entry badges in Cantonese mode (`HSK-040`, `HSK-041`) derive from the Cantonese
@@ -418,7 +421,8 @@ Data sources:
 | Common Voice Cantonese (`yue`) sentences | Cantonese frequency counts and bigrams (`DATA-189`, `PIPE-077`) | CC0 |
 | UD_Cantonese-HK | Cantonese frequency counts and bigrams (`DATA-189`, `PIPE-077`) | CC BY-SA 4.0 |
 | Cantonese Wikipedia (zh-yue) | Cantonese frequency counts and bigrams (`DATA-189`, `PIPE-077`) | CC BY-SA 4.0 |
-| CJK fallback font (OFL-licensed; exact font recorded in the attribution source) | glyphs for rare characters missing from system fonts; text is tagged zh-Hans / zh-Hant / zh-HK (`PERF-070`) | SIL OFL 1.1 |
+| CJK fallback font (OFL-licensed; exact font recorded in the attribution source; mobile only) | glyphs for rare characters missing from system fonts; text is tagged zh-Hans / zh-Hant / zh-HK (`PERF-070`) | SIL OFL 1.1 |
+| Noto CJK subsets (Web only; fetched when needed by Compose Multiplatform's web font fallback, not bundled, `ARCH-005`) | Chinese glyphs on Web | SIL OFL 1.1 |
 
 Models and recognition engines (mobile only unless stated):
 
@@ -430,12 +434,12 @@ Models and recognition engines (mobile only unless stated):
 | ML Kit Text Recognition (Chinese) | OCR destination (`CAM-006`…) | Google ML Kit terms |
 | ML Kit Digital Ink Recognition models | handwriting recognition (`HW-001`…); also on Web | Google ML Kit terms |
 
-`SET-041` `[MUST]` Licence obligations that must be honoured in the shipping app: CC BY and CC BY-SA
-sources require attribution; CC BY-SA sources also require that derived dictionary data remain under
-a compatible licence; LGPL-2.1+ material (the Mandarin language model, in derived form) keeps its
-licence notice and source availability. The app itself is open source (copyleft acceptable); the
-choice of the app's own licence must be compatible with every source above — including the Arphic
-Public License of the stroke data — and with App Store distribution. *(Open question — `Q-100`.)*
+`SET-041` `[MUST]` The app's own code is licensed **Apache-2.0**, so others can build on it
+easily. Datasets and models are **separate files under their own licences**, never relicensed: the
+CC BY-SA 4.0 dictionaries and the dictionary dataset derived from them (which stays CC BY-SA); the
+LGPL-2.1+ Mandarin language-model table, shipped as a separate, replaceable file with its licence
+notice and source availability; the Arphic Public License stroke data; and the CC BY-SA Cantonese
+tables. CC BY and CC BY-SA sources require attribution (`SET-040`). *(Decided: `Q-100`.)*
 
 `SET-042` `[MUST]` Each source's exact version/commit/build date is recorded in the dataset metadata
 (`sources`, `DATA-002`) and surfaced in its attribution card, so a user can tell which build of
@@ -454,8 +458,7 @@ licence and URL, generated from the same attribution source as `SET-040`.
 `SET-050` `[MUST]` Static shortcuts:
 - `Read clipboard` — opens the Reading destination and pastes (`TXT-057`);
 - `Open camera` — opens the OCR destination with its live camera feed (`CAM-006`);
-- `[SHOULD]` `Voice` — opens the Voice destination (`VOICE-001`…), as an Android static shortcut;
-  mobile only.
+- `[SHOULD]` `Voice` — opens the Voice destination (`VOICE-001`…); Android and iOS.
 
 `SET-051` `[MUST]` The clipboard shortcut must defer its clipboard read until the window actually has
 focus (`TXT-053`), so it works when launched cold.
@@ -463,43 +466,32 @@ focus (`TXT-053`), so it works when launched cold.
 `SET-052` `[MUST]` A shortcut's action is **consumed** on handling (the intent action is reset) so
 activity recreation, rotation, or a later Back does not re-trigger it.
 
-`SET-053` `[MUST]` On iOS these become Home Screen quick actions (the Voice one optional); on Web they
-are omitted (or `Read clipboard` is exposed as a PWA shortcut if a manifest is shipped), since Web has
-no OCR or Voice destination. The Voice shortcut / quick action is hidden wherever the Voice
-destination is: on iOS below 26 and on Web (`VOICE-095`, `Q-116`).
+`SET-053` `[MUST]` On Android these are static launcher shortcuts and on iOS Home Screen quick
+actions, the Voice one included on both (optional per `SET-050`). On Web they are omitted (or
+`Read clipboard` is exposed as a PWA shortcut if a manifest is shipped), since Web has no OCR or Voice
+destination.
 
 ---
 
 ### 6. Share targets
 
-The app receives shared **images** (→ OCR destination) and shared **text** (→ Reading destination) on
-Android and iOS. Web registers no share target.
+On **Android only**, the app receives shared **images** (→ OCR destination) and shared **text**
+(→ Reading destination). iOS has no share target in v1 (no share extension), and Web registers none.
 
-`SET-054` `[MUST]` The app registers as a share target for `image/*` (Android `ACTION_SEND`; iOS
-through the share extension, `SET-057`). Receiving a shared image opens the OCR destination
+`SET-054` `[MUST]` On Android the app registers as a share target for `image/*` (`ACTION_SEND`).
+Receiving a shared image opens the OCR destination
 (`CAM-002`, `CAM-006`) in gallery-review mode and runs OCR on it (`CAM-040`).
 
-`SET-055` `[MUST]` A shared item (image URI or text) is read once; the intent (or inbox item,
-`SET-057`) is consumed so activity recreation, rotation or a later Back does not re-deliver it. Only
+`SET-055` `[MUST]` On Android a shared item (image URI or text) is read once; the intent is
+consumed so activity recreation, rotation or a later Back does not re-deliver it. Only
 an image URI's scheme and authority may be logged; shared text is never logged.
 
-`SET-056` `[MUST]` The app is a share target for **text**. Android: an `ACTION_SEND` filter for
+`SET-056` `[MUST]` On Android the app is a share target for **text**: an `ACTION_SEND` filter for
 `text/plain`, and an `ACTION_PROCESS_TEXT` activity labelled `Look up in Shenzhen Dictionary` in the
-system text-selection menu (read-only: the app never returns replacement text). iOS: through the share
-extension (`SET-057`). Received text is handled per `TXT-080`: the Reading destination opens,
+system text-selection menu (read-only: the app never returns replacement text). Received text is handled per `TXT-080`: the Reading destination opens,
 **replaces its current draft** with the text and analyses it (`TXT-051`; long text is chunked per
 `TXT-015`). Blank text is ignored: Reading opens with its draft unchanged. Consumed once per
 `SET-055`.
-
-`SET-057` `[MUST]` iOS ships one **Share extension** accepting one image or text
-(`NSExtensionActivationRule`: `SupportsImageWithMaxCount` = 1, `SupportsText`). It does no lookup in
-v1. Within the extension memory limit (about 120 MB) it downsamples an image to at most 2048 px on the
-longest side without decoding the full bitmap, writes the image or text to an inbox in the App Group
-shared container (`ARCH-147`), and shows `Saved — open the app to continue`; it never tries to open
-the containing app. When the app next becomes active it consumes the inbox **once** — the item is
-deleted as it is read; if several items are waiting, the newest wins and the rest are discarded —
-and routes an image to the OCR destination (`SET-054`, `CAM-002`) and text to Reading (`SET-056`,
-`TXT-080`).
 
 ---
 
@@ -519,8 +511,8 @@ refreshes when any of them changes. It always shows the reading: `show_pronuncia
 does not apply to the widget. *(Decided: `Q-114`.)*
 
 `SET-063` `[MUST]` The word is derived **deterministically** from the device-local date and the level
-mask: filter to words in the selected levels, **excluding unlinked syllabus rows** (no dictionary
-entry, hence no definition — `HSK-023`, `HSK-055`), de-duplicate by entry id, sort by entry id, then take
+mask: filter to words in the selected levels (every row is linked, `HSK-050`), de-duplicate by
+entry id, sort by entry id, then take
 index `splitmix64(epochDay XOR (levelMask << 32)) mod n`, where `n` is the candidate count. All
 arithmetic is on unsigned 64-bit integers with wrap-around; `epochDay` is the signed day count since
 1970-01-01 in 64-bit two's complement; `>>` is a logical shift; the modulo is taken on the unsigned
@@ -546,7 +538,9 @@ show the same word on the same day.
 route of the widget's dictionary mode — `/zh/word/{natural-key}` or `/yue/word/{natural-key}`
 (`GLB-110`) — carrying the entry's natural key (`DATA-014`, `DATA-212`),
 never its `entry_id`. The app switches to Search, clears any existing detail stack, and pushes that
-entry; if the dataset is still opening it waits and then opens it.
+entry; if the dataset is still opening it waits and then opens it. The link's mode applies to that
+route — and routes pushed from it — only (`GLB-110`): it does **not** change the persisted
+`dictionary_mode`, and leaving the stack returns to the user's own mode.
 
 `SET-065` `[MUST]` The widget has a speaker button that plays the word's pronunciation from the audio
 installed with the app (on mobile all audio is installed up front, `MED-010`) **without opening the
