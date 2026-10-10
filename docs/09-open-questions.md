@@ -17,6 +17,7 @@ app directly. On iOS the equivalent is a separate **share extension** target, wi
   App Review rejection);
 - it cannot use the app's in-memory state; data is handed over through a shared **App Group**
   container.
+  
 
 **Current spec (`SET-057`, `ARCH-147`):** one share extension accepting one image or text. It
 downsamples the image (≤ 2048 px) or keeps the text, saves it to the App Group inbox and shows
@@ -24,6 +25,8 @@ downsamples the image (≤ 2048 px) or keeps the text, saves it to the App Group
 once: image → OCR review, text → Reading. No lookup inside the extension in v1.
 **Alternative:** run lookup / OCR inside the extension (more code, tighter memory).
 **Needs:** confirmation that "save, then open the app" is acceptable for v1.
+
+Sounds janky, let's not have this on ios for now.
 
 ### `Q-092` — Minimum Android API level (advice)
 **Facts (2026):** AndroidX libraries default to minSdk 23; Compose 1.13 and CameraX 1.7 move to 24;
@@ -41,6 +44,8 @@ once: image → OCR review, text → Reading. No lookup inside the extension in 
 **Recommendation:** 26. Choose 24 only if the extra ~1.6 % matters; nothing in the spec breaks.
 **Blocks:** `PROD-025`, `CAM-075`.
 
+Keep 26
+
 ### `Q-100` — App licence and store compatibility
 **Unclear:** GPL-family licences conflict with Apple App Store terms; LGPL adds a relinking requirement
 that iOS apps cannot practically meet. Bundled data keeps its own licences (CC BY-SA 4.0 dictionaries,
@@ -51,6 +56,8 @@ contributions); (b) MPL-2.0 (file-level copyleft, App Store friendly); (c) Apach
 in the attribution source (`REL-052`).
 **Blocks:** `REL-050`, `SET-041`.
 
+Let's actually have Apache-2.0. Thus allowing for other people to build upon this work more easily.
+
 ### `Q-105` — Fuzzy pinyin (post-v1 candidate)
 **What it means:** many speakers do not distinguish some sounds — `z`/`zh`, `c`/`ch`, `s`/`sh`, `n`/`l`,
 `an`/`ang`, `en`/`eng`, `in`/`ing` (and `n`/`l` in Cantonese). Fuzzy pinyin lets a query typed with one
@@ -58,11 +65,14 @@ of a pair also match the other, so `zongguo` still finds 中国 (zhōngguó) and
 cheap to add through the syllable alias data, but it makes many more queries ambiguous.
 **Recommendation:** not in v1; consider an opt-in setting later.
 
+Not for now.
+
 ### `Q-106` — Combinations: position and activation
 **Current spec:** the Combinations group sits after whole-query matches (EXACT / EXACT_TONELESS) and
 before PREFIX matches, and runs for every query of 2+ tokens.
 **Open:** whether that position and trigger feel right in real listening use.
 **Blocks:** `SRCH-060`…`SRCH-068`.
+This is for the pinyin search right? If so, yes, i think this order makes sense.
 
 ### `Q-115` — Cantonese mode: CC-CEDICT words with no Jyutping
 **Facts:** 19,905 current CC-CEDICT headwords have no Jyutping in CC-Canto or the 2015 readings file
@@ -72,6 +82,7 @@ note; (b) generate Jyutping per character from single-reading characters and mar
 (c) hide them in Cantonese mode.
 **Recommendation:** (a) for v1 — never show a guessed reading; (b) later, clearly marked.
 **Blocks:** `DATA-022`, `PIPE-053`, `PIPE-078`.
+option a is okay.
 
 ### `Q-116` — Voice on iOS requires iOS 26+
 **Facts:** On-Demand Resources is deprecated in the iOS 27 SDK. Its successor, Background Assets with
@@ -82,6 +93,8 @@ iOS 26+ and hidden on older iOS (as on Web). The rest of the app keeps iOS 16 as
 **Options:** keep that; raise the iOS minimum to 26; or self-host the pack on szdict.com for iOS 16–25.
 **Blocks:** `VOICE-095`, `PROD-025`.
 
+Raise iOS min to 26 and use the background asset pack.
+
 ### `Q-117` — Web CJK font size
 **Facts:** Compose-Wasm draws text on a canvas and cannot use the browser's fonts; its automatic
 fallback downloads Noto subsets from a third-party server, which breaks offline use and `GLB-090`. The
@@ -89,20 +102,22 @@ Web build therefore ships its own OFL CJK font, cut down to the dataset and UI c
 **Open:** the real size per script (estimated ≤ 8 MB) and whether it can load before the first frame;
 measure at first integration. This raised the Web first-visit target (`PERF-060`) to 15 s / 30 s.
 
+For web, downloading a 3rd party font is okay.
+
 ### `Q-118` — Choices made while applying the decisions (confirm)
-- Shared text **replaces** the Reading draft, like `Open in Reading` (`TXT-080`, `SET-056`).
+- Shared text **replaces** the Reading draft, like `Open in Reading` (`TXT-080`, `SET-056`). What?
 - iOS share inbox: if several items wait, the newest wins (`SET-057`).
 - Opening a `/zh/…` or `/yue/…` link switches the app's dictionary mode, and the switch persists
-  (`GLB-110`).
+  (`GLB-110`). it should not persist that as the new user prefenrence, only adjust for that word entry.
 - HSK words missing from the dictionary are **no longer added as syllabus-sourced entries**; they stay
   unlinked and show a card with headword, pinyin and part of speech but no definition (`HSK-056`,
-  `HSK-023`). The Word of the Day never picks them (`SET-063`).
-- Cantonese mode shows only Cantonese example sentences, not Mandarin ones (`MED-048`).
-- Chinese labels for definition blocks, e.g. 粤语释义（CC-Canto）/ 普通话释义 (`ENT-110`…).
-- Translate hand-off text is capped at 1,500 characters (`MED-030`).
-- CC-Canto lines "adapted from CC-CEDICT" are hidden when they repeat current CC-CEDICT text
+  `HSK-023`). The Word of the Day never picks them (`SET-063`). this is unacceptable. each HSK word must be mapped to a CC-CEDICT entry as is already done by the current processing.
+- Cantonese mode shows only Cantonese example sentences, not Mandarin ones (`MED-048`). OK
+- Chinese labels for definition blocks, e.g. 粤语释义（CC-Canto）/ 普通话释义 (`ENT-110`…). What?
+- Translate hand-off text is capped at 1,500 characters (`MED-030`). What does this mean?
+- CC-Canto lines "adapted from CC-CEDICT" are hidden when they repeat current CC-CEDICT text. What does "adapted from CC-CEDICT" mean?
   (`ENT-114`). Risk: for polyphones this can remove the per-Jyutping meaning split (行 hong4 losing
-  "row; profession"); check against real entries before finalising.
+  "row; profession"); check against real entries before finalising. Explain this risk better? How would that be an issue? Each word is ided by trad + simpl + pronunciaiton, no? thus how is this is an issue?
 
 ### `Q-119` — English search on Cantonese polyphones
 **Facts:** in Cantonese mode a single-character polyphone such as 行 has one entry per Jyutping, and
@@ -112,6 +127,9 @@ would return all five 行 entries for "walk".
 (b) index it on every entry; (c) index only Cantonese senses for polyphones.
 **Recommendation:** (a).
 **Blocks:** `SRCH-047`, `DATA-076`.
+
+I'm a bit confused with these options. I think we can follow how pleco does it:
+They will first show the CC-Canto entries, and afterwards the CC-CEDICT entries.
 
 ---
 
