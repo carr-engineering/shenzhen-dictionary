@@ -7,10 +7,16 @@ reference the ID.
 
 ## 1. Text, script and characters
 
-`GLB-001` `[MUST]` **Hanzi definition.** A code point is treated as Hanzi if it falls in
-`U+3400–U+4DBF` (Ext A), `U+4E00–U+9FFF` (URO), `U+F900–U+FAFF` (Compatibility Ideographs),
-`U+20000–U+323AF` (Ext B–I), or equals `U+3007` (〇). This exact set governs tappability,
-segmentation runs, and character indexing everywhere in the app.
+`GLB-001` `[MUST]` **Hanzi definition.** A code point is treated as Hanzi if it has the Unicode
+property `Unified_Ideograph=Yes` (URO, Ext A, Ext B–J and the twelve unified ideographs inside the
+Compatibility Ideographs block) or equals `U+3007` (〇). The set is generated from one pinned Unicode
+Character Database version (at least Unicode 17.0, which adds Ext J) and compiled into shared code,
+never taken from platform APIs whose Unicode version differs between Android, iOS and the browser.
+This exact set governs tappability, segmentation runs, and character indexing everywhere in the app.
+Kangxi Radicals (`U+2F00–U+2FDF`) and CJK Compatibility Ideographs (`U+F900–U+FAFF`,
+`U+2F800–U+2FA1F`) are folded to their unified ideograph by NFKC in the matching key (`SRCH-010`) and
+are then treated as that Hanzi; displayed text keeps the original code point. Dataset keys are
+normalised in exactly the same way (`DATA-071`), so a folded query and a folded headword meet.
 
 `GLB-002` `[MUST]` All character iteration, tap-target computation, offsets, and highlight ranges
 operate on **code points**, never UTF-16 code units. A supplementary-plane Hanzi is one tappable
@@ -34,7 +40,8 @@ via NFKC for matching: `Ｔ恤` matches `t恤`. Precomputed (`DATA-071`).
 
 `GLB-007` `[MUST]` **ASCII case insensitivity.** Headwords containing Latin letters (`K金`, `AA制`,
 `X光`) match case-insensitively in both directions. Handled by a case-folded index column in the
-dataset — the app must **not** enumerate case permutations at query time (finding `F-020`).
+dataset — the app must **not** enumerate case permutations at query time (doing so multiplies
+storage reads per keystroke).
 
 ---
 
@@ -47,25 +54,55 @@ Mandarin syllable table; the syllable inventory and tone count arrive with the d
 
 `GLB-011` `[MUST]` Mandarin mode: display uses tone-marked Pinyin (`nǐ hǎo`), tones `1–5`
 (5 = neutral). Cantonese mode: display uses Jyutping with trailing tone digits (`nei5 hou2`),
-tones `1–6`.
+tones `1–6`. Whether readings are shown at all is governed by `GLB-120`.
 
 `GLB-012` `[MUST]` **Pronunciation input accepts, per mode:** plain toneless (`nihao`, `neihou`),
 digit-toned (`ni3hao3`, `nei5hou2`), diacritic-toned Mandarin (`nǐhǎo`), `u:`/`v` as `ü`, apostrophes
-and spaces as explicit syllable boundaries, and mixed forms (`ni3 hao`). Parsing rules: `SRCH-040`.
+and spaces as explicit syllable boundaries, and mixed forms (`ni3 hao`). It also accepts
+**abbreviated and mixed-abbreviation input**: any number of syllables, from one to all, may be typed
+as an abbreviation (`nh`, `nih`, `nhao` all reach 你好; Jyutping multi-letter initials such as `ng`,
+`gw`, `kw` count as abbreviations, as does their first letter). Fuller spellings outrank abbreviated
+ones. Parsing rules: `SRCH-040` and `SRCH-050`…`SRCH-054`. Which spellings abbreviate which syllables
+is data, not code (`DATA-150`), so the engine stays romanisation-agnostic (`GLB-010`).
 
-`GLB-013` `[MUST]` Uppercase-initial romanisation marks a **proper-noun reading**. Proper-noun
-readings sort after common readings at equal rank (`SRCH-070`). [Note:Needs an example.]
+`GLB-013` `[MUST]` Uppercase-initial romanisation marks a **proper-noun reading**. This is the single
+normative tie position for proper-noun readings, referenced by `SRCH-070`, `SRCH-075`, `TXT-021` and
+`ENT-054`: candidates are ordered by match class, then input token cost (abbreviated or literal tokens,
+`SRCH-052`), then frequency, then headword length; **only when all of these are equal** does a common reading sort before a proper-noun reading; entry id is the final
+tiebreak. Example: CC-CEDICT has 王 `wang2` "king" and 王 `Wang2` "surname Wang". The query `wang2`
+matches both as exact matches with equal frequency (frequency is per written form) and equal length,
+so 王 wáng "king" comes first and 王 Wáng "surname Wang" second. 黄 `huang2` / `Huang2` behaves the
+same way. In Cantonese mode the flag derives from the entry's CC-CEDICT/CC-Canto Pinyin key, because
+Jyutping is never capitalised.
 
 `GLB-014` `[MUST]` **Non-Mandarin romanisation inside definitions must not be re-rendered as
 Mandarin.** CEDICT prose contains bracketed romanisations for Cantonese (Jyutping), Hokkien
 (Tâi-lô/POJ), Teochew, and Wade-Giles. A bracketed reading is converted to tone marks only when the
-preceding context does not indicate a non-Mandarin system. Provenance must be resolved in the
-pipeline (`DATA-053`) rather than re-derived from prose at runtime; the app renders what the dataset
-labels. [How should this be handled for users in the Cantonese should be decided based on the entries on CC-Canto, and also be made clear]
+pipeline has classified it as Pinyin (`DATA-053`); provenance is resolved in the pipeline rather than
+re-derived from prose at runtime, and the app renders what the dataset labels. In **Cantonese mode**
+(definitions from CC-Canto, with CC-CEDICT senses carried over per `PROD-045`):
+1. readings inside CC-Canto senses are Jyutping and are shown verbatim with tone digits;
+2. inside carried-over CC-CEDICT senses, a reference that resolves to exactly one Cantonese entry
+   shows that entry's Jyutping; an unresolved reference keeps its Pinyin tone marks with a
+   `Mandarin` label;
+3. a bare bracketed reading inside a carried-over CC-CEDICT sense stays Pinyin, labelled `Mandarin`.
 
-`GLB-015` `[MUST]` Tone-mark placement rule for numbered→marked conversion (used only if the app
-ever converts, e.g. for user input echo): mark the first `a` or `e`; otherwise the `o` of `ou`;
-otherwise the last vowel among `i o u ü`. Precomputed forms are preferred (`DATA-010`). [This isn't clear. Improve explanation and add an example]
+The pipeline performs the resolution; the app only renders the labelled segments. The exact
+reference format in the pinned CC-Canto release is an open question (`09-open-questions.md`).
+
+`GLB-015` `[MUST]` **Tone-mark placement** for numbered→marked Pinyin conversion. Conversion is done
+mainly by the pipeline (`PIPE-021`, precomputed forms `DATA-010`); the app converts only if it must
+echo user input. First turn `u:` or `v` into `ü`, then put the mark on exactly one letter:
+1. if the syllable contains `a` or `e`, mark it (`hao3` → hǎo, `mei2` → méi, `xie3` → xiě,
+   `lüe4` → lüè);
+2. otherwise, if it contains `ou`, mark the `o` (`dou1` → dōu);
+3. otherwise, mark the last vowel (`gui4` → guì, `liu2` → liú, `duo1` → duō, `jiong3` → jiǒng,
+   `nü3` → nǚ);
+4. a syllabic nasal with no vowel (`m`, `n`, `ng`) takes the mark on the `m` or `n` as a combining
+   diacritic (`m2` → ḿ, `n3` → ň, `ng2` → ńg).
+
+Tone 5 (neutral) is unmarked (`ma5` → ma). An uppercase initial keeps its case (`Ou1` → Ōu).
+Cantonese Jyutping is never converted; it keeps trailing digits (`GLB-011`).
 
 ---
 
@@ -73,19 +110,24 @@ otherwise the last vowel among `i o u ü`. Precomputed forms are preferred (`DAT
 
 `GLB-030` `[MUST]` **Never blank populated content.** When a new request supersedes displayed
 content, the previous content stays on screen until the replacement is ready. Applies to search
-results on query/side/script/mode change, to the word-candidate sheet on re-selection, and to entry
-detail on script change.
+results on query/side/script/mode change, to the word-candidate sheet on re-selection, to entry
+detail on script change (`ENT-092`), to passage re-analysis (`TXT-051`), and to the live voice
+transcript as it updates.
 
 `GLB-031` `[MUST]` **Shape-matched skeletons for first loads.** A first load with no prior content
-shows a skeleton whose block sizes approximate the real content (entry detail: `ENT-016`;
-HSK: `HSK-030`). Never a bare centred spinner on a full screen except where explicitly specified
-(image decode: `CAM-054`; OCR in progress: `CAM-050`).
+shows a skeleton whose block sizes approximate the real content (entry detail: `ENT-018`;
+HSK: `HSK-063`). Never a bare centred spinner on a full screen except where explicitly specified
+(image decode: `CAM-040`; OCR in progress: `CAM-050`).
 
 `GLB-032` `[MUST]` A skeleton keeps its navigation affordances live (back / close work while the
 content loads).
 
-`GLB-033` `[MUST]` **Progress for in-place refresh** is a 2 dp determinate-less linear indicator at
-the top of the affected surface, not an overlay (word-candidate sheet: `TXT-042`). [This needs to be made more clear on what this is, and for what kind of loads this would appear, I don't want there to be a loading indicator for processes that have a very short loading duration]
+`GLB-033` `[MUST]` **Progress for in-place refresh.** A surface that already shows content and is
+being refreshed in place (word-candidate sheet re-selection `TXT-042`, search results being replaced,
+entry re-fetch after a script change) may show an indeterminate 2 dp linear bar along its top edge,
+never an overlay. The bar appears only if the refresh is still running **150 ms** after it started,
+so fast refreshes never flash it; once shown it stays visible for at least **300 ms** so it never
+flickers. It is never used for first loads, which show skeletons (`GLB-031`).
 
 `GLB-034` `[MUST]` **Error text is inline, human, and actionable**, placed where the content would
 have been, and prefixed with the operation: e.g. `Unable to load entry`, `Unable to search`,
@@ -93,48 +135,67 @@ have been, and prefixed with the operation: e.g. `Unable to load entry`, `Unable
 underlying failure has a message, it is appended after a colon. A failed feature must leave the app
 in a **recoverable, non-busy** state — retrying the same gesture must be possible with no restart.
 
-`GLB-035` `[MUST]` **Graceful asset absence.** If an optional asset family is missing (audio, strokes,
-origins, examples), the corresponding control is disabled or the section is omitted. Missing assets
-never produce an error message, never block the entry from rendering, and never remove the entry's
-core content.
+`GLB-035` `[MUST]` **Graceful asset absence.** On mobile every asset family is installed with the app
+(`PROD-070`), so "absent" only means that no data exists for this item (no recording, no stroke
+order, no examples): the corresponding control is disabled or the section is omitted. Missing data
+never produces an error message, never blocks the entry from rendering, and never removes the
+entry's core content. Only Web has a **lazy-loading state**: assets fetched on first use (handwriting
+model, abbreviation/combination data, `PROD-070`) show an inline loading state on the feature that
+needs them while everything else keeps working; a failed fetch follows `GLB-034`.
 
 `GLB-036` `[MUST]` **Empty vs no-result are different.** "Empty" = no query yet, and shows guidance
-plus discovery content (`SRCH-100`). "No result" = a query that matched nothing, and shows a single
-centred neutral message (`SRCH-102`).
+plus discovery content (`SRCH-110`). "No result" = a query that matched nothing, and shows a single
+centred neutral message (`SRCH-113`).
 
 ---
 
 ## 4. Concurrency, cancellation, and staleness
 
 `GLB-040` `[MUST]` **Latest-only for every user-driven async operation.** Each operation family
-(search, word-candidate lookup, entry detail, passage analysis, OCR, HSK load, audio playback, TTS)
-maintains a monotonically increasing request generation. A completed result is applied **only if**
-its generation is still current *and* the state it was computed for (query, script, mode, side,
-passage identity, route identity) still matches. Cancellation alone is never treated as sufficient —
-a non-cooperative in-flight operation must not be able to overwrite newer state when it finally
-returns.
+(search, combination decoding `SRCH-060`…, word-candidate lookup, entry detail, passage analysis,
+OCR, handwriting recognition `HW-001`…, voice transcription and live re-segmentation `VOICE-001`…,
+HSK load, audio playback, TTS) maintains a monotonically increasing request generation. A completed
+result is applied **only if** its generation is still current *and* the state it was computed for
+(query, script, mode, side, passage identity, route identity, stroke set, live utterance) still
+matches. Cancellation alone is never treated as sufficient — a non-cooperative in-flight operation
+must not be able to overwrite newer state when it finally returns.
 
 `GLB-041` `[MUST]` **Conflate, don't queue.** While one search is executing, additional inputs
 collapse to the single newest request. Rapidly typing then backspacing ten characters must complete
-exactly one search — the last one.
+exactly one search — the last one. The same applies to handwriting recognition (one pending
+recognition per stroke set) and to re-segmentation of the live voice utterance.
 
-`GLB-042` `[MUST]` **Blank queries bypass any coalescing delay** and execute immediately. [better explain this]
+`GLB-042` `[MUST]` **Blank queries bypass any coalescing delay.** When the query becomes blank (field
+cleared, last character deleted), the empty state (`SRCH-110`) is applied in the same frame, skipping
+any coalescing window (`GLB-043`); every pending or in-flight non-blank search is superseded
+(`GLB-041`), so stale results never flash. Example: with an 80 ms window, typing `ni` and then
+clearing the field shows the empty-state content at once, and the searches for `n` and `ni` are
+discarded.
 
 `GLB-043` `[SHOULD]` No artificial input debounce by default. The target is that a query is cheap
-enough to run per keystroke (`PERF-020`). A configurable coalescing window (0–100 ms) may exist for
-benchmarking and for low-end device tuning, defaulting to `0`. (include more details about the coalescing window).
+enough to run per keystroke (`PERF-020`). A **coalescing window** W may exist for benchmarking and
+low-end device tuning:
+- trailing-edge debounce of W ms, W in `0–100`, default `0`; each keystroke restarts the timer;
+- maximum wait `2×W` from the first pending keystroke, so continuous typing still updates results;
+- never applied to blank queries (`GLB-042`), paste, the restored last query, side/script/mode
+  changes, IME composition commit, or a committed handwriting candidate — these run immediately;
+- set only from the developer screen or build configuration, never a user setting;
+- traced as `dict.coalescing` (`PERF-100`);
+- with W = 0, conflation (`GLB-041`) still guarantees that only the latest search completes.
 
-`GLB-044` `[MUST]` **Data-context generation.** Replacing or reloading the dataset (mode switch,
-downloaded asset pack becoming available) bumps a data generation counter that invalidates every
-outstanding request, every cached derived model, and every identifier that is only meaningful within
-one dataset (notably passage ids and entry ids). Stale identifiers must never be dereferenced against
-a new dataset.
+`GLB-044` `[MUST]` **Data-context generation.** Replacing or reloading the dataset (mode switch, or a
+dataset reload on Web) bumps a data generation counter that invalidates every outstanding request,
+every cached derived model, and every identifier that is only meaningful within one dataset (notably
+passage ids and entry ids). Stale identifiers must never be dereferenced against a new dataset.
+Auxiliary data becoming available later on Web (handwriting model, abbreviation/combination data)
+does not bump the generation; it re-runs the current request so the new results appear.
 
 `GLB-045` `[MUST]` Long-running queries must be **cancellable at the storage layer**, not merely at
 the coroutine/promise layer, so that abandoning a query stops the underlying scan.
 
 `GLB-046` `[MUST]` No dictionary work on the UI thread. All lookup, ranking, hydration, segmentation,
-tokenisation, decoding, and model building happen off the main thread. Only rendering and state
+tokenisation, combination (lattice) decoding, handwriting recognition, speech decoding and
+transcript re-segmentation, and model building happen off the main thread. Only rendering and state
 diffing happen on it.
 
 ---
@@ -146,8 +207,11 @@ bundle), the following survive:
 - active primary destination;
 - the entry-detail stack: each route's identity, its selected tab, its header collapse fraction, and
   each tab's independent scroll position;
-- the search query, search side, and results scroll position;
-- the camera capture and its recognition result;
+- the search query, search side, and each result page's own scroll position (`SRCH-180`…);
+- the current input method (keyboard or handwriting, `SET-019`) and whether the handwriting sheet
+  is visible;
+- the OCR destination's state (live feed or reviewed capture, and its recognition result,
+  `CAM-006`…`CAM-009`);
 - the reading draft text and its analysis.
 
 `GLB-051` `[MUST]` Route-scoped saved state is keyed by a **unique per-visit route key**, not by
@@ -171,17 +235,24 @@ link/tap behaviour of the pressed span. A normal tap on a link still follows it.
 than one dictionary word, the choice is presented in a non-modal bottom sheet that opens at a compact
 peek height (~256 dp), can be dragged to full height, and dismisses by drag-down, an explicit close
 button, or back. The content behind it stays interactive and is bottom-inset by exactly the visible
-sheet height. Full spec: `TXT-040`.
+sheet height. If the handwriting sheet is visible, opening the word sheet hides it and closing the
+word sheet restores it (`HW-001`…). Full spec: `TXT-040`.
 
 `GLB-058` `[MUST]` **Character stepping.** Where a selection sits inside a known text (search
-passage, reading passage, example sentence, OCR line), the sheet header offers previous/next controls
-that move the selection to the adjacent character that contains a word (is itself alon a word, or combined with neighboring characters forms a word), disabled at the ends. In the camera image view, stepping also pans the
-image to centre the newly selected glyph.
+passage, reading passage, voice transcript, example sentence, OCR line), the sheet header offers
+previous/next controls. They move the selection to the nearest character in that direction that is
+**covered by a word**: the character is a dictionary word on its own, or forms a word together with
+neighbouring characters (its word candidates are non-empty). Whitespace, punctuation, Latin, digits,
+emoji and uncovered Hanzi are skipped. A control is disabled when no covered character exists in its
+direction. Coverage is computed once per analysed passage (for example as a bitset), not per step.
+Tapping an uncovered character directly is still allowed (`TXT-022`, `TXT-023`). In the camera image
+view, stepping also pans the image to centre the newly selected glyph. Step latency: `PERF-050`.
 
 `GLB-059` `[MUST]` **Focus discipline.** Leaving the search field to open an entry drops field focus
-so the soft keyboard does not reopen when returning. Clearing the query with the clear button
-re-focuses the field and re-shows the keyboard. The primary navigation hides while the soft keyboard
-is visible.
+so neither the soft keyboard nor the handwriting sheet reopens when returning. Clearing the query
+with the clear button re-focuses the field and re-shows the current input method (soft keyboard or
+handwriting sheet). The primary navigation hides while the soft keyboard **or the handwriting sheet**
+is visible (`HW-001`…).
 
 ---
 
@@ -225,10 +296,13 @@ tone number with a safe fallback for out-of-range values.
 
 `GLB-066` `[MUST]` **Tone colouring is applied only when it can be applied correctly**: the
 character count and the syllable count must match exactly, otherwise the text renders in its normal
-colour. Never partially colour a mismatched pair.
+colour. Never partially colour a mismatched pair. Tone colouring is independent of pronunciation
+visibility: when readings are hidden (`GLB-120`) the characters keep their tone colours if tone
+colouring is on.
 
 `GLB-067` `[SHOULD]` Content is constrained to a maximum readable width (~900 dp) and centred on
-wide viewports. The word-candidate sheet caps at ~720 dp.
+wide viewports; in two-pane layouts the limit applies per pane (`GLB-125`). The word-candidate sheet
+caps at ~720 dp.
 
 ---
 
@@ -245,7 +319,9 @@ any floating header, and bottom padding equal to the bottom safe inset plus 16�
 last items are fully reachable.
 
 `GLB-073` `[MUST]` The soft keyboard inset is consumed by the scaffold so the focused field and the
-list above it remain visible; the primary navigation hides while the keyboard is up.
+list above it remain visible; the primary navigation hides while the keyboard is up. The handwriting
+sheet is treated exactly like the soft keyboard: its visible height is the bottom inset, and the
+primary navigation hides while it is visible (`HW-001`…).
 
 `GLB-074` `[MUST]` Floating headers (search control, HSK level selector, camera result header) are
 translucent (~88% `bg`) with a bottom-only gradient shadow that fades in only when the content behind
@@ -258,7 +334,10 @@ them can scroll up.
 `GLB-080` `[MUST]` Every icon-only control has a descriptive label: `Play pronunciation`,
 `Stop sentence playback`, `Clear search`, `Paste clipboard into search`, `Previous character`,
 `Next character`, `Close word options`, `Back`, `Close detail`, `Take photo`, `Toggle flash`,
-`Save photo`.
+`Save photo`, `Choose image`, the input-method button (`Switch to handwriting` / `Switch to
+keyboard`, naming the mode a tap switches to), `Close handwriting`, `Undo stroke`,
+`Clear handwriting`, the pronunciation toggle (`Hide pronunciation` / `Show pronunciation`, also
+exposed as a toggle state), and the voice control (`Start listening` / `Stop listening`).
 
 `GLB-081` `[MUST]` Interactive targets are at least 40×40 dp; the compact pills and chips that render
 smaller must expand their touch area to 40 dp. The camera shutter is 72 dp.
@@ -275,7 +354,8 @@ off-switchable; matched vs unmatched spans differ in both colour and, for unmatc
 
 `GLB-084` `[MUST]` A screen reader must be able to reach every result card, read headword +
 pronunciation + definitions as one coherent label, and activate it. Tappable characters inside
-passages expose per-character actions rather than one opaque blob.
+passages expose per-character actions rather than one opaque blob. When pronunciation is hidden, the
+reading is omitted from these labels (`GLB-122`).
 
 `GLB-085` `[SHOULD]` Respect the platform reduce-motion setting: route transitions, sheet motion,
 pulse animations, and the stroke animation reduce to cross-fades or static states.
@@ -288,23 +368,126 @@ must meet AA.
 
 ## 10. Analytics, logging, diagnostics
 
-`GLB-090` `[MUST]` No behavioural telemetry will be included for v1.
+`GLB-090` `[MUST]` **No telemetry.** The app contains no analytics, telemetry or crash-reporting SDK
+of its own and makes no network request except those listed in `PROD-071`. Nothing may transmit
+queries, OCR text, clipboard content, images, audio, transcripts or handwriting. Performance traces
+(`GLB-091`, `ARCH-170`, `PERF-100`) are local only. Mobile builds declare no `INTERNET` permission
+(`ARCH-104`…`ARCH-106`), so third-party SDK telemetry cannot leave the device either.
 
 `GLB-091` `[SHOULD]` Structured, named performance trace sections must be emitted around: query
-classification, storage read, hydration, ranking, variant grouping, segmentation, state emission,
-HSK model build, and the input→first-frame span. Names and use: `PERF-100`.
+classification, storage read, hydration, ranking, variant grouping, combination decoding,
+segmentation, state emission, HSK model build, handwriting recognition, speech decoding, and the
+input→first-frame span. Names and use: `PERF-100`.
 
-`GLB-092` `[MUST]` Diagnostic logging must never log clipboard text, OCR text, image bytes, or file
-URIs beyond scheme/authority.
+`GLB-092` `[MUST]` Diagnostic logging must never log clipboard text, OCR text, image bytes,
+handwriting strokes, audio, voice transcripts, or file URIs beyond scheme/authority.
 
+---
 
+## 11. UI languages
 
+`GLB-100` `[MUST]` **UI strings** are provided in exactly three languages, identified by script
+subtag: English (`en`), Simplified Chinese (`zh-Hans`) and Traditional Chinese (`zh-Hant`). Resources
+live in Android `values/`, `values-b+zh+Hans/`, `values-b+zh+Hant/`; iOS `en.lproj`, `zh-Hans.lproj`,
+`zh-Hant.lproj`; on Web the document's `lang` attribute is set to the active UI language. Quoted UI
+copy in these specifications is the English source text of a string key; every user-visible label
+(navigation labels, HSK part-of-speech and note labels, error texts, accessibility labels) has all
+three translations. The UI language is **independent** of dictionary mode, script mode and dictionary
+content: it never changes definitions, readings or which form is the headword.
 
-I'm missing language support. For the in app labels translation, the app should support:
-- English
-- Chinese simplified (zh-Hans NOT zh-CN)
-- Chinese tranditional (zh-Hans NOT zh-TW)
-This does not apply to the content language.
+`GLB-101` `[MUST]` **Locale mapping and fallback.** With the `System` setting (`GLB-102`) the app
+takes the first supported match from the platform's preferred languages (Web: `navigator.languages`):
+`zh-Hans`, `zh-CN`, `zh-SG`, `zh-MY` and bare `zh` → `zh-Hans`; `zh-Hant`, `zh-TW`, `zh-HK`, `zh-MO` →
+`zh-Hant`; any other language → `en`. A string missing in a Chinese locale falls back to English, never
+to a key name or an empty label.
 
+`GLB-102` `[MUST]` **App language setting.** Settings offers `App language` with `System`, `English`,
+`简体中文`, `繁體中文` (each language named in itself), persisted as `ui_language` (`SET-018`). On
+Android 13+ and iOS it uses the platform's per-app language mechanism so the choice also appears in
+system settings; older Android versions and Web apply it in-app. Changing it takes effect immediately
+and does not change dictionary mode or script mode.
 
-The app should support the list-detail structure on view-port width large screens.
+`GLB-103` `[MUST]` **Locale stripping at build time.** No other locale ships. Android:
+`androidResources { localeFilters += listOf("en", "b+zh+Hans", "b+zh+Hant"); generateLocaleConfig =
+true }` (with `unqualifiedResLocale=en` in `res/resources.properties`), so translations bundled by
+libraries are removed and the generated locale config lists only these three. iOS:
+`CFBundleLocalizations` = `en`, `zh-Hans`, `zh-Hant`, and only those `.lproj` folders are bundled. Web
+ships only these three string tables. CI checks the shipped locale list of each build (`REL-030`).
+
+---
+
+## 12. Routes and deep links
+
+`GLB-110` `[MUST]` **One route table** is shared by the apps and the Web build at `https://szdict.com`.
+The app's in-app navigation, Web URLs, widget and shortcut deep links all resolve through it:
+
+| Route | Opens | Platforms |
+|-------|-------|-----------|
+| `/` | Search, empty state (`SRCH-110`) | all |
+| `/search?q=…&side=en\|zh` | Search with that query and side | all |
+| `/word/{natural-key}` | Search with that entry pushed on the detail stack; natural key per `DATA-014` / `DATA-212` | all |
+| `/hsk`, `/hsk/{level}` | HSK, optionally at level 1–7 | all |
+| `/reading` | Reading (empty draft) | all |
+| `/ocr` | OCR destination, live feed (`CAM-006`) | mobile |
+| `/voice` | Voice destination | mobile |
+| `/settings` | Settings (pushed from Search, `SET-005`) | all |
+
+Every route accepts an optional `mode=cmn|yue` query parameter selecting the dictionary mode; when
+absent the current mode is kept. Whether mode should become a path segment instead is an open question
+(`09-open-questions.md`). On Web, browser history mirrors the destination, the query and the
+entry-detail stack: switching destination and pushing an entry add history entries, query edits
+replace the current entry (no entry per keystroke), and browser back follows `PROD-056`.
+
+`GLB-111` `[MUST]` **App Links and Universal Links.** The installed app opens `https://szdict.com`
+links for every route in `GLB-110`. Android: an intent filter with `android:autoVerify="true"` for the
+host, verified by `/.well-known/assetlinks.json` listing the signing certificate fingerprints of the
+Play app-signing key and the direct-APK key. iOS: the Associated Domains entitlement
+`applinks:szdict.com`, verified by `/.well-known/apple-app-site-association`, served as JSON over
+HTTPS without redirects. Verification is done by the operating system, so it needs no `INTERNET`
+permission in the app. Both files are deployed with the Web build (`REL-040`). Without the app
+installed, the same link opens the Web build.
+
+`GLB-112` `[MUST]` **Fallback and no content in URLs.** An unknown route, a malformed parameter, an
+unknown natural key, or a mobile-only route opened on Web (`/ocr`, `/voice`) falls back to Search
+(`/`) without an error page. Passage text, the reading draft, OCR text, voice transcripts, handwriting
+and clipboard content are **never** placed in a URL; `q` is written only for a query typed by
+keyboard or handwriting, and is omitted when the query is pasted or is long enough to be treated as a
+passage. The Web build changes the URL through the History API only (no request is made), and
+`szdict.com` hosting serves the same app shell for every route and does not log query strings
+(`GLB-090`).
+
+---
+
+## 13. Pronunciation visibility
+
+`GLB-120` `[MUST]` **Global pronunciation toggle.** One persisted setting, `show_pronunciation`
+(`SET-017`, default shown, `PROD-012`), shows or hides readings for **all** Hanzi in the app. A
+toggle button for it appears on Search, Reading, Voice, the entry header and HSK; every button
+reflects and changes the same state. When hidden, no reading is shown on result cards and compact
+rows, the word-candidate sheet, the entry header, HSK cards, readings inside definitions (reading and
+reference segments, `DATA-050`; the Hanzi stay) or passages (`GLB-121`). Hidden readings keep their
+space reserved, so switching the toggle never moves the layout. There is no per-item reveal. Tone
+colours (`GLB-066`) and audio controls are unaffected, and pronunciation **input** is unaffected:
+romanised queries still work and the search field shows what the user typed.
+
+`GLB-121` `[MUST]` **Interlinear (ruby) readings for passages.** Passages in Reading, the Search passage
+card, the voice transcript and the OCR text view render the reading above each Hanzi, taken from the entry chosen by
+segmentation (`TXT-034`, `TXT-035`): one syllable per character when the counts match, otherwise the
+word's reading centred over the word. Tone colours follow `GLB-066`. Hanzi not covered by any word
+get no reading. The ruby line keeps its height when pronunciation is hidden (`GLB-120`).
+
+`GLB-122` `[MUST]` **Screen readers.** When pronunciation is hidden, accessibility labels omit the
+reading (`GLB-084`), so the toggle also works for self-testing with TalkBack or VoiceOver; the toggle
+announces its state. When shown, a character's or word's label includes its reading.
+
+---
+
+## 14. Window size
+
+`GLB-125` `[MUST]` **List-detail layout.** At a window width of at least **840 dp** (Web: 840 CSS px,
+the expanded width class) Search, HSK and Reading use a two-pane list-detail layout: the list or
+passage on one side, the top entry-detail route on the other. Below 840 the layout is single-pane and
+entry detail is pushed full screen. Window width is used, not screen width, so split screen and
+resized browser windows switch accordingly. Each pane applies its own maximum width (`GLB-067`), and
+the word-candidate sheet anchors to the pane holding the tapped text. `PROD-054`, `ENT-015`,
+`ENT-019`, `SRCH-096` and `ARCH-051` reference this rule.

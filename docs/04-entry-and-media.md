@@ -29,17 +29,17 @@ skeletons).
 gesture was issued for (guarded pop). A route is removed from state only **after** its exit animation
 completes, so an exiting detail never degrades into an empty placeholder mid-animation.
 
-`ENT-015` `[MUST]` Layout:
-- Compact width: the detail fills the screen; the list is not visible.
-- Medium and expanded widths: a list-detail two-pane layout keeps the list visible; the detail pane
-  shows the top route; a **close** action appears in the detail's app bar and clears the entire stack.
+`ENT-015` `[MUST]` Layout follows the list-detail rule (`GLB-125`):
+- Single pane: the detail fills the screen; the list is not visible.
+- Two-pane: the list stays visible; the detail pane shows the top route; a **close** action appears in
+  the detail's app bar and clears the entire stack.
 
 `ENT-016` `[MUST]` Route transitions:
 - forward: incoming slides in from the trailing edge with alpha 0.72 to 1.0; outgoing shifts 12% in
   the opposite direction and fades to 0.88 — about 220 ms;
 - back: mirrored;
-- when the compact pane itself is closing, the pane transition owns the motion and the route adds only
-  a small 8% slide;
+- when the single-pane detail itself is closing, the pane transition owns the motion and the route
+  adds only a small 8% slide;
 - content-state change within a route (Loading to Ready/Error) is a cross-fade (180 ms in / 120 ms
   out), never a slide.
 
@@ -49,10 +49,11 @@ message from `GLB-034`.
 
 `ENT-018` `[MUST]` The loading skeleton approximates the real header: a 126x42 dp block (headword), a
 152x18 dp block (reading), a row of three equal 30 dp blocks (tabs), then three text bars at 92%, 78%
-and 64% width.
+and 64% width. When pronunciation is hidden (`GLB-120`) the reading block keeps its space but is not
+drawn, matching the real header.
 
-`ENT-019` `[MUST]` Empty-detail placeholder (two-pane, nothing selected): centred `titleMedium` muted
-text `Select an entry to see its detail`.
+`ENT-019` `[MUST]` Empty-detail placeholder (two-pane layout per `GLB-125`, nothing selected): centred
+`titleMedium` muted text `Select an entry to see its detail`.
 
 ---
 
@@ -65,20 +66,25 @@ text `Select an entry to see its detail`.
 2. **Alternate form(s)** in `titleMedium` muted, baseline-aligned, wrapping to its own line if needed:
    the merged variant list joined by ` · ` when the entry is part of a merge group, otherwise the
    other script form when it differs, otherwise nothing.
-3. A row with the **play button** (40 dp, outlined, accent) and the **pronunciation** in
-   `titleMedium` medium-weight accent, tone-coloured, allowed to wrap.
+3. A row with the **play button** (40 dp, outlined, accent), the **pronunciation** in
+   `titleMedium` medium-weight accent, tone-coloured, allowed to wrap, and the **pronunciation
+   toggle** button (`GLB-120`) at the trailing end. When pronunciation is hidden, the reading is not
+   shown but its space is reserved (the row is measured as if it were shown) so the header does not
+   reflow; the play button stays available (`MED-001`) and the headword keeps its tone colours.
 4. A wrapping row of **HSK badges**, one per level, each reading `HSK n` — or `HSK 7-9` for level 7 —
    and, when a part of speech is known for that level, `HSK n • Noun` (`HSK-040`).
 5. Optional inline status text (e.g. a failed word-candidate lookup message).
 
 `ENT-021` `[MUST]` Headword, alternate form and pronunciation are inside a text-selection container so
-they can be long-pressed and copied. The play button is outside it so a drag does not start a
-selection.
+they can be long-pressed and copied. The play button and the pronunciation toggle are outside it so a
+drag does not start a selection. A hidden reading (`GLB-120`) is not part of the selectable text.
 
 `ENT-022` `[MUST]` The header **collapses** on upward scroll and restores on downward scroll at list
 top, shared by every tab. Implementation must be placement-only (the pager keeps a constant measured
 height and is translated) so collapsing does not re-measure per frame. When collapse exceeds 95%, the
-app bar shows the headword as its title with a fade.
+app bar shows the headword as its title with a fade. Because a hidden reading keeps its reserved space
+(`GLB-120`), the header height and collapse distance are the same whether readings are shown or
+hidden; toggling visibility never changes the collapse fraction.
 
 `ENT-023` `[MUST]` The collapse fraction is part of route-scoped saved state (`GLB-050`).
 
@@ -120,9 +126,7 @@ provider. Key the pager subtree on the immutable tab list.
 2. the **numbered sense list** — one paragraph per sense, numbered from 1, bold `fg` numbers,
    `bodyLarge` body, each sense selectable and with tappable Chinese references;
 3. **structured notes** joined by ` • `, muted, also with tappable references;
-4. **Examples** section (`MED-020`);
-5. **Character origin** section, one card per distinct character of the displayed headword that has
-   origin data (`MED-025`).
+4. **Examples** section (`MED-040`).
 
 `ENT-041` `[MUST]` Senses are never truncated in the DICT tab.
 
@@ -142,7 +146,7 @@ De-duplication and redirect suppression rules are `SRCH-082`.
 #### 4.3 Redirects and variant expansion
 
 `ENT-045` `[MUST]` Many entries have no definition of their own and instead point at another entry.
-Three redirect kinds must be recognised: `variant-of`, `old-variant-of`, `erhua` (from prose
+Three redirect kinds must be recognised: `variant_of`, `old_variant_of`, `erhua` (from prose
 `erhua form of` / `erhua variant of` / `variant of`).
 
 `ENT-046` `[MUST]` A redirect is resolved to a **single** target only when exactly one candidate entry
@@ -189,12 +193,19 @@ it is Mandarin. Non-Mandarin romanisations (Jyutping, Tâi-lô, POJ, Teochew, Wa
 verbatim. Provenance is resolved in the pipeline (`DATA-053`), not by scanning surrounding prose at
 runtime.
 
+Every reading rendered inside definitions and notes — the parenthesised reading after a structured
+reference, a pronunciation-only bracket, a verbatim non-Mandarin romanisation, and a note's own reading
+(`ENT-057`) — follows pronunciation visibility (`GLB-120`). When hidden, the reading and its enclosing
+parentheses or brackets are not drawn but keep their width, so lines wrap identically in both states.
+Tap targets (`ENT-053`) are unaffected.
+
 `ENT-053` `[MUST]` Tap targets are rendered in `accent` with an underline. A **long press** enters
 text selection and must not activate the link (`GLB-056`).
 
 `ENT-054` `[MUST]` Tapping a reference opens the word-candidate sheet (`TXT-040`) whose contents are:
-1. every entry exactly matching the reference, ordered by the reference-ranking tiers of `ENT-046`,
-   then proper-noun-last, then frequency, then id; the first is marked as the default;
+1. every entry exactly matching the reference, ordered by the reference-ranking tiers of `ENT-046`;
+   within a tier, ties are broken by the shared order of `GLB-013` (including where proper-noun
+   readings fall), ending with id; the first is marked as the default;
 2. followed by **every dictionary word contained inside** the referenced text, in the standard
    sub-span order (`SRCH-034`).
 
@@ -208,15 +219,16 @@ the referring word with its tab and scroll intact.
 
 #### 4.5 Notes
 
-`ENT-057` `[MUST]` Structured note kinds present in the source data and their rendering: `see`,
-`variant-of`, `old-variant-of`, `cl` (classifier/measure word), `tw-pr` (Taiwan pronunciation),
-`abbr-for`, `also-written`, `also-pr`, `see-also`. A note renders as its kind with hyphens replaced by
-spaces, lowercased, then `: ` and its details: references (form + parenthesised reading), then the
+`ENT-057` `[MUST]` Structured note kinds (spelled as in `DATA-060`) and their rendering: `see`,
+`variant_of`, `old_variant_of`, `classifier` (classifier/measure word), `taiwan_pr` (Taiwan
+pronunciation), `abbr_for`, `also_written`, `also_pr`, `see_also`. A note renders as its label (the
+kind with underscores replaced by spaces, lowercased, unless `ENT-058` applies), then `: ` and its
+details: references (form + parenthesised reading), then the
 note's own reading, then any extra text, space-joined. Multiple notes are joined by ` • `.
 
 `ENT-058` `[SHOULD]` Note kind labels should be replaced by human phrasing in the successor
 (`classifier:`, `also pronounced:`, `Taiwan pronunciation:`, `abbreviation for:`, `see also:`) rather
-than the raw hyphenated source keys. *(Improvement — `Q-020`.)*
+than the raw source keys (the dataset's `display_label`, `DATA-060`). *(Improvement — `Q-020`.)*
 
 ---
 
@@ -231,7 +243,8 @@ than the raw hyphenated source keys. *(Improvement — `Q-020`.)*
    Omitted when the reversed string equals the original.
 
 `ENT-061` `[MUST]` All rows are compact cards (`SRCH-097`) with the same content rules as search
-result cards, including merge variants and clamped definitions.
+result cards, including merge variants, clamped definitions and pronunciation visibility (`GLB-120`:
+a hidden reading keeps its space, the play button stays).
 
 `ENT-062` `[MUST]` `Within` rows are keyed by (start, length, entry id) and de-duplicated by entry id
 after merge grouping, so one entry never appears twice in that section.
@@ -240,19 +253,19 @@ after merge grouping, so one entry never appears twice in that section.
 
 `ENT-064` `[SHOULD]` Related-word sections are **paged**, not fully hydrated. The reference
 implementation eagerly fetched up to 500 entries per section (up to about 1500 hydrated entries per
-entry opened, each with JSON parsing) — a primary cause of slow entry opening (finding `F-030`). The
-successor must fetch a first page (25 per section is recommended) and load more on scroll.
+entry opened, each with JSON parsing) — a primary cause of slow entry opening. The successor must
+fetch a first page (25 per section is recommended) and load more on scroll.
 
 `ENT-065` `[MUST]` Each row's play button reflects the **actual** availability of pronunciation audio
-for that entry. The reference implementation hard-coded the WORDS-tab buttons to enabled (finding
-`F-031`).
+for that entry (recording or TTS, `MED-001`). The reference implementation hard-coded the WORDS-tab
+buttons to enabled.
 
 ---
 
 ### 6. STROKES tab
 
 `ENT-066` `[MUST]` One practice pane per distinct character of the displayed headword that has valid
-stroke data, laid out 1 / 2 / 3 per row at compact / medium / expanded widths. Behaviour: `MED-050`.
+stroke data, laid out 1 / 2 / 3 per row at compact / medium / expanded widths. Behaviour: `MED-060`.
 
 ---
 
@@ -260,9 +273,9 @@ stroke data, laid out 1 / 2 / 3 per row at compact / medium / expanded widths. B
 
 `ENT-070` `[MUST]` One card component serves search results, sub-span rows, sheet rows, HSK cards and
 WORDS rows. Its inputs: the entry, the merge-group member entries, script mode, the merged variant
-list, selected flag, tone-colour flag, compact flag, container colour override, enabled flag, audio
-availability (tri-state: unknown / unavailable / available), playing flag, and callbacks for tap and
-play.
+list, selected flag, tone-colour flag, pronunciation-visible flag (`GLB-120`), compact flag,
+container colour override, enabled flag, audio availability (tri-state: unknown / unavailable /
+available), playing flag, and callbacks for tap and play.
 
 `ENT-071` `[MUST]` Its content derivation (definition concatenation, redirect header suppression,
 embedded-variant stripping, note visibility) is the merge logic of `SRCH-082` and must be implemented
@@ -283,10 +296,11 @@ of speech; merge-group id and member ids; and the *first page* of each related-w
 
 `ENT-081` `[MUST]` The reference `EntryDetailData` also carried a per-character entry list
 (`chars`) that no UI ever rendered. It cost one exact lookup, one merge grouping and one hydration per
-character of every opened headword. It must not exist in the successor (finding `F-032`).
+character of every opened headword. It must not exist in the successor.
 
-`ENT-082` `[MUST]` Related-word sections and sub-spans must be answerable from precomputed
-relationships (`DATA-100`), not from per-character posting-list intersections at runtime.
+`ENT-082` `[MUST]` Related-word sections and sub-spans are answered by indexed lookup (`DATA-100`),
+never by per-character posting-list intersections at runtime. `Within` is precomputed for entries of
+up to 8 code points and computed on demand for longer headwords (`DATA-101`, `DATA-102`).
 
 ---
 
@@ -300,7 +314,9 @@ its own bottom inset (`GLB-072`).
 
 `ENT-092` `[MUST]` Changing script mode re-fetches **every** route in the stack (they may render
 different headwords, merge groups and related words) and keeps the stack shape and route keys. While
-refetching, each route shows its skeleton; a failure marks the affected routes with the error state.
+refetching, each route keeps showing its previous content and is refreshed in place when its new data
+arrives (`GLB-030`, progress per `GLB-033`); only a route that had no content yet shows its skeleton. A
+failure marks the affected routes with the error state.
 
 `ENT-093` `[MUST]` Changing dictionary mode **clears** the stack (entry ids are dataset-scoped —
 `GLB-044`).
@@ -338,23 +354,30 @@ all of them, the best-tier one marked default — it must not silently pick one.
 permitted); each visit has its own route key and scroll state.
 
 `ENT-108` If asset loading throws, the entry keeps its dictionary content and simply has no examples,
-origins, strokes or audio (`GLB-035`).
+strokes or recorded audio (`GLB-035`).
 
-## Pronunciation, Audio, Sentences, Strokes and Origins
+## Pronunciation, Audio, Sentences and Strokes
 
-Optional asset families. All are subject to `GLB-035` (graceful absence).
+Asset families beyond the core dictionary: recorded audio, example sentences and stroke data. Delivery
+is `MED-084`: on mobile they are installed with the app; on Web they may be fetched when first needed.
+Any family can still be absent or incomplete, so all are subject to `GLB-035` (graceful absence).
+Character origins are deferred (see the Deferred list at the end of this part).
 
 ---
 
 ### 1. Recorded pronunciation audio
 
 `MED-001` `[MUST]` A pronunciation **play button** appears on every entry card and in the entry-detail
-header. It is enabled only when an audio plan exists for that entry, shows a breathing pulse on the
-speaker glyph while its own audio plays, and is otherwise a static outlined accent button.
+header. It is enabled when a recording plan exists for that entry **or** TTS can speak it
+(`MED-011`), and disabled only when neither is available. It shows a breathing pulse on the speaker
+glyph while its own audio plays, and is otherwise a static outlined accent button. Pronunciation
+visibility (`GLB-120`) never affects it.
 
 `MED-002` `[MUST]` Only one playback is active at a time. Starting a new one cancels the previous one
 and clears its playing state. Playback state is a single "currently playing entry id" so exactly one
-button animates.
+button animates. A Voice recording session (`VOICE-063`)
+owns the audio session: starting it stops any playback or TTS, and play controls are disabled while
+it records, so playback cannot start during recording.
 
 `MED-003` `[MUST]` An **audio plan** is an ordered list of asset paths plus a `gaps` flag. Playing a
 plan plays its clips in sequence.
@@ -383,9 +406,10 @@ dataset changes.
 
 `MED-009` `[MUST]` Playback errors are silent — the button simply stops animating. No error text.
 
-`MED-010` `[SHOULD]` Recorded audio is a large asset family (about 52 MB of word clips plus about
-13 MB of syllable clips in the reference build). It should be an **on-demand download**, not bundled
-(`PROD-071`, `PERF-070`). Until it is present, the play buttons fall back to TTS (`MED-011`).
+`MED-010` `[MUST]` Recorded audio (word and syllable clips; sizes in `DATA-170` and `PERF-070`) is
+delivered per `MED-084`: installed with the app on mobile, so every recording is playable offline from
+first launch. On Web, until a needed clip has been fetched, the play button falls back to TTS
+(`MED-011`).
 
 `MED-011` `[SHOULD]` When no recording exists for an entry, the play button should speak the headword
 via platform TTS instead of being disabled. *(New behaviour — `Q-060`.)*
@@ -413,7 +437,8 @@ speak error must leave the UI consistent (button back to play) with no error dia
 dataset is replaced.
 
 `MED-025` `[MUST]` Sentence action rows appear on: the Search sentence card, the Reading passage, the
-Camera `All text` card, and each Camera line card.
+Camera `All text` card, each Camera line card, and each Voice transcript line (`VOICE-040`). Play/stop on a transcript line follows the
+recording rule of `MED-002` (unavailable while recording).
 
 ---
 
@@ -428,9 +453,10 @@ source `zh` and target `en` hints. If none resolves, show a brief toast
 `Google Translate isn't installed`. The translator package must be declared in the manifest's
 `queries` block so it is visible.
 
-`MED-032` `[MUST]` iOS: present the system translation sheet (`UITranslationSession` / the Translate
-share action). Web: no translate action (the browser provides its own). Hiding the button on Web is
-preferred over a dead affordance.
+`MED-032` `[MUST]` iOS: present the system translation sheet from Apple's Translation framework
+(`translationPresentation` / `TranslationSession`), available from iOS 17.4; below iOS 17.4 the
+translate action is omitted. Web: no translate action (the browser provides its own). Omitting the
+button is preferred over a dead affordance.
 
 `MED-033` `[SHOULD]` The hard-coded activity class names of a third-party app are fragile; prefer
 implicit intents and drop the component names. *(Improvement — `Q-061`.)*
@@ -456,9 +482,10 @@ line height, then its English translation in muted body text.
 `highlight` background (every occurrence, not just the first).
 
 `MED-043` `[MUST]` Every Hanzi in the sentence is an individual tap target that opens the
-word-candidate sheet for that offset within the sentence, and the sheet's stepper walks the sentence
-(`GLB-058`). Tap ranges must be per code point with correct offsets, including for supplementary
-characters.
+word-candidate sheet for that offset within the sentence. The sheet's previous/next controls move to
+the nearest character in the sentence that is covered by a dictionary word, skipping characters that
+are not, and are disabled when there is none in that direction (`GLB-058`). Tap ranges must be per
+code point with correct offsets, including for supplementary characters.
 
 `MED-044` `[MUST]` Long-press selects text without following the tap (`GLB-056`).
 
@@ -476,43 +503,7 @@ standalone word) rather than by source order. *(Improvement — `Q-062`.)*
 
 ### 6. Character origins
 
-`MED-050` `[MUST]` The DICT tab shows a `Character origin` section with one card per distinct character
-of the displayed headword that has origin data.
-
-`MED-051` `[MUST]` An origin card contains, in order:
-- the character in accent title text;
-- its **IDS decomposition** rendered as a structural layout (see `MED-053`) when an IDS string exists;
-  otherwise up to 8 component chips; otherwise `Standalone form: X`;
-- an optional character definition;
-- an optional etymology note (max 4 lines, ellipsised);
-- a horizontally scrolling **historical glyph strip** when glyph images exist, captioned
-  `Historical forms` or `Historical forms of X` when the glyphs belong to a variant character;
-  otherwise a fallback strip built from the components' own historical glyphs;
-- provenance labels: `IDS: <source>` and `glyphs: <source>`.
-
-`MED-052` `[MUST]` Components and the character in an IDS layout are **tappable chips**: tapping one
-opens that character (`MED-055`).
-
-`MED-053` `[MUST]` IDS rendering interprets the Ideographic Description Characters as real layout:
-horizontal split, vertical split, enclosure/surround, overlay, and their variants, nesting recursively.
-Placeholder components are omitted but the structure is preserved.
-
-`MED-054` `[MUST]` Historical glyph images arrive as data URIs and are decoded lazily; a malformed or
-non-image URI is skipped, never rendered as an error.
-
-`MED-055` `[MUST]` Tapping a component character runs a lookup for that character: if a dictionary
-entry exists it is pushed as a **nested detail route** (so Back returns to the word the component was
-opened from); otherwise the app navigates to Search with that character as the query.
-
-`MED-056` `[MUST]` Repeated component taps cancel obsolete lookups and cannot overlap with the
-coordinated search work (`GLB-040`).
-
-`MED-057` `[MUST]` Origin component preloading is bounded (at most 12 component origins per entry).
-
-`MED-058` `[SHOULD]` Origins are about 22 MB in the reference build, mostly embedded glyph images.
-They should be an on-demand asset pack, and the glyph images should be re-encoded (WebP/AVIF, small
-fixed size) rather than shipped as base64 data URIs inside JSON — base64 inflates payload by about
-33% and forces a full-shard JSON parse to read one record (finding `F-070`).
+Deferred to post-v1 (`MED-050`…`MED-058`, see Deferred below). No v1 rule depends on origin data.
 
 ---
 
@@ -571,19 +562,22 @@ component shortcuts (the packaged stroke assets carry no component maps).
 median still renders and is skipped for practice. A record with no stroke paths at all is rejected and
 the `STROKES` tab does not appear for that character.
 
-`MED-071` `[SHOULD]` Stroke data is about 30 MB in the reference build and should be an on-demand asset
-pack, stored as a compact binary geometry format rather than 256 JSON shards that must be parsed to
-read one character (finding `F-071`).
+`MED-071` `[SHOULD]` Stroke data (delivered per `MED-084`; size in `DATA-170`) should be stored as a
+compact binary geometry format with one record per character rather than JSON shards that must be
+fully parsed to read one character (`DATA-171`).
 
 ---
 
 ### 8. Asset access patterns
 
-`MED-080` `[MUST]` Assets are addressed by content key, not by scanning: strokes and origins by
-`codePoint mod 256` shard; example sentences by a word index shard (`codePoint mod 64`) yielding
-sentence ids, then sentence shards of 500 rows.
+`MED-080` `[MUST]` Assets are addressed by content key, never by scanning: strokes by code point,
+example sentences by simplified headword (`MED-046`), recordings by canonical key
+(`MED-005`, `MED-007`). Reading one character's or one headword's record must not require reading
+or parsing records for other keys. The storage layout is the data contract's concern (`DATA-170`,
+`DATA-171`).
 
-`MED-081` `[MUST]` Shards are cached in memory once read, per shard, for the lifetime of the process.
+`MED-081` `[MUST]` Asset records already read are cached in memory (bounded) so revisiting an entry or
+tab does not read them again.
 
 `MED-082` `[MUST]` Reading an asset never blocks the UI thread and never fails the entry.
 
@@ -591,3 +585,25 @@ sentence ids, then sentence shards of 500 rows.
 (one seek + one decode per character) so reading one character's strokes does not parse a shard
 containing hundreds. See `DATA-171`.
 
+`MED-084` `[MUST]` **Delivery.** On Android and iOS, recorded audio, stroke data and example sentences
+are installed with the app (bundled, or an install-time asset pack on Play): there is no pack to
+download and no network access (`PROD-070`). On Web they may be fetched lazily the first time a record
+is needed; while a fetch is pending the affected control or section behaves as absent (`GLB-035`), and
+audio falls back to TTS (`MED-010`).
+
+---
+
+### Deferred (post-v1)
+
+Character origins are deferred in their entirety; these IDs are reserved and not normative in v1.
+
+- `MED-050` `Character origin` section in the DICT tab.
+- `MED-051` Origin card contents (IDS layout, components, definition, etymology, historical glyphs,
+  provenance).
+- `MED-052` Tappable component chips.
+- `MED-053` IDS structural rendering.
+- `MED-054` Lazy decoding of historical glyph images.
+- `MED-055` Component tap opens a nested route or a search.
+- `MED-056` Cancellation of obsolete component lookups.
+- `MED-057` Bounded component-origin preloading.
+- `MED-058` Origins asset delivery and glyph re-encoding.
