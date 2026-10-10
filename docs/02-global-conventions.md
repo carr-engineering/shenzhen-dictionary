@@ -54,18 +54,18 @@ digit-toned (`ni3hao3`, `nei5hou2`), diacritic-toned Mandarin (`nǐhǎo`), `u:`/
 and spaces as explicit syllable boundaries, and mixed forms (`ni3 hao`). Parsing rules: `SRCH-040`.
 
 `GLB-013` `[MUST]` Uppercase-initial romanisation marks a **proper-noun reading**. Proper-noun
-readings sort after common readings at equal rank (`SRCH-070`).
+readings sort after common readings at equal rank (`SRCH-070`). [Note:Needs an example.]
 
 `GLB-014` `[MUST]` **Non-Mandarin romanisation inside definitions must not be re-rendered as
 Mandarin.** CEDICT prose contains bracketed romanisations for Cantonese (Jyutping), Hokkien
 (Tâi-lô/POJ), Teochew, and Wade-Giles. A bracketed reading is converted to tone marks only when the
 preceding context does not indicate a non-Mandarin system. Provenance must be resolved in the
 pipeline (`DATA-053`) rather than re-derived from prose at runtime; the app renders what the dataset
-labels.
+labels. [How should this be handled for users in the Cantonese should be decided based on the entries on CC-Canto, and also be made clear]
 
 `GLB-015` `[MUST]` Tone-mark placement rule for numbered→marked conversion (used only if the app
 ever converts, e.g. for user input echo): mark the first `a` or `e`; otherwise the `o` of `ou`;
-otherwise the last vowel among `i o u ü`. Precomputed forms are preferred (`DATA-010`).
+otherwise the last vowel among `i o u ü`. Precomputed forms are preferred (`DATA-010`). [This isn't clear. Improve explanation and add an example]
 
 ---
 
@@ -85,7 +85,7 @@ HSK: `HSK-030`). Never a bare centred spinner on a full screen except where expl
 content loads).
 
 `GLB-033` `[MUST]` **Progress for in-place refresh** is a 2 dp determinate-less linear indicator at
-the top of the affected surface, not an overlay (word-candidate sheet: `TXT-042`).
+the top of the affected surface, not an overlay (word-candidate sheet: `TXT-042`). [This needs to be made more clear on what this is, and for what kind of loads this would appear, I don't want there to be a loading indicator for processes that have a very short loading duration]
 
 `GLB-034` `[MUST]` **Error text is inline, human, and actionable**, placed where the content would
 have been, and prefixed with the operation: e.g. `Unable to load entry`, `Unable to search`,
@@ -118,11 +118,11 @@ returns.
 collapse to the single newest request. Rapidly typing then backspacing ten characters must complete
 exactly one search — the last one.
 
-`GLB-042` `[MUST]` **Blank queries bypass any coalescing delay** and execute immediately.
+`GLB-042` `[MUST]` **Blank queries bypass any coalescing delay** and execute immediately. [better explain this]
 
 `GLB-043` `[SHOULD]` No artificial input debounce by default. The target is that a query is cheap
 enough to run per keystroke (`PERF-020`). A configurable coalescing window (0–100 ms) may exist for
-benchmarking and for low-end device tuning, defaulting to `0`.
+benchmarking and for low-end device tuning, defaulting to `0`. (include more details about the coalescing window).
 
 `GLB-044` `[MUST]` **Data-context generation.** Replacing or reloading the dataset (mode switch,
 downloaded asset pack becoming available) bumps a data generation counter that invalidates every
@@ -169,14 +169,13 @@ link/tap behaviour of the pressed span. A normal tap on a link still follows it.
 
 `GLB-057` `[MUST]` **Sheet-based disambiguation.** Whenever a tapped position could belong to more
 than one dictionary word, the choice is presented in a non-modal bottom sheet that opens at a compact
-peek height (~240 dp), can be dragged to full height, and dismisses by drag-down, an explicit close
+peek height (~256 dp), can be dragged to full height, and dismisses by drag-down, an explicit close
 button, or back. The content behind it stays interactive and is bottom-inset by exactly the visible
 sheet height. Full spec: `TXT-040`.
 
 `GLB-058` `[MUST]` **Character stepping.** Where a selection sits inside a known text (search
 passage, reading passage, example sentence, OCR line), the sheet header offers previous/next controls
-that move the selection to the adjacent *visible* character (skipping whitespace, including
-punctuation/Latin/emoji), disabled at the ends. In the camera image view, stepping also pans the
+that move the selection to the adjacent character that contains a word (is itself alon a word, or combined with neighboring characters forms a word), disabled at the ends. In the camera image view, stepping also pans the
 image to centre the newly selected glyph.
 
 `GLB-059` `[MUST]` **Focus discipline.** Leaving the search field to open an entry drops field focus
@@ -289,8 +288,7 @@ must meet AA.
 
 ## 10. Analytics, logging, diagnostics
 
-`GLB-090` `[SHOULD]` No behavioural telemetry is required for v1. If added, it must be opt-in and
-must never transmit dictionary queries, OCR text, clipboard content, or images.
+`GLB-090` `[MUST]` No behavioural telemetry will be included for v1.
 
 `GLB-091` `[SHOULD]` Structured, named performance trace sections must be emitted around: query
 classification, storage read, hydration, ranking, variant grouping, segmentation, state emission,
@@ -298,3 +296,15 @@ HSK model build, and the input→first-frame span. Names and use: `PERF-100`.
 
 `GLB-092` `[MUST]` Diagnostic logging must never log clipboard text, OCR text, image bytes, or file
 URIs beyond scheme/authority.
+
+
+
+
+I'm missing language support. For the in app labels translation, the app should support:
+- English
+- Chinese simplified (zh-Hans NOT zh-CN)
+- Chinese tranditional (zh-Hans NOT zh-TW)
+This does not apply to the content language.
+
+
+The app should support the list-detail structure on view-port width large screens.

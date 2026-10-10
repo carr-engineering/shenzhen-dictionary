@@ -27,14 +27,14 @@ compact/related rows (`ENT-070`).
 
 ## 2. Query normalisation
 
-`SRCH-010` `[MUST]` Raw input is normalised once, deterministically, before any matching:
-1. Unicode NFC.
+`SRCH-010` `[MUST]` Raw input is normalised once, deterministically, before any matching: (I suppose this is for use for the chinese search, right? this needs to be more clear so that the rule objectives/context is more clear)
+1. Unicode NFC. (what is this?)
 2. Lowercase.
-3. Right single quote (U+2019) becomes ASCII apostrophe.
+3. Right single quote (U+2019) becomes ASCII apostrophe. (include the char for reference; explain the why of the rule)
 4. `u:` becomes `ü`.
 5. Every character that is **not** Hanzi (`GLB-001`), `a-z`, `0-9`, `'`, whitespace, `ü`, or a
    tone-marked vowel (the 24 combinations of `a e i o u ü` with the four Mandarin tone marks) is
-   replaced by a single space.
+   replaced by a single space. (Explain the goal of this rule)
 6. Runs of whitespace collapse to one space; the result is trimmed.
 
 Examples: `  NI3   HAO3!! ` becomes `ni3 hao3`; a string of only CJK punctuation becomes empty.
