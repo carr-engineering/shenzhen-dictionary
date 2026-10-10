@@ -13,22 +13,15 @@ application from them **without reading the reference app's code**.
 
 | # | Document | Purpose |
 |---|----------|---------|
-| 01 | [Product Overview](docs/01-product-overview.md) | What the product is, journeys, platforms, modes, philosophy |
-| 02 | [Global Conventions](docs/02-global-conventions.md) | Shared rules referenced by every feature spec — read before any feature |
-| 03 | [Search](docs/03-search.md) | Query handling, matching, ranking, result presentation |
-| 04 | [Entry Detail](docs/04-entry-detail.md) | Word/entry display, tabs, internal links, related words |
-| 05 | [HSK](docs/05-hsk.md) | Level browser, HSK metadata, ordering |
-| 06 | [Camera / OCR](docs/06-camera-ocr.md) | Android + iOS capture, recognition, focus, flash, image saving |
-| 07 | [Text Analysis & Reading](docs/07-text-analysis-reading.md) | Segmentation, passage interaction, clipboard reading |
-| 08 | [Pronunciation & Media](docs/08-pronunciation-and-media.md) | Audio plans, TTS, examples, strokes, character origins |
-| 09 | [Settings & Platform Integration](docs/09-settings-and-platform-integration.md) | Persisted settings, shortcuts, widgets, share targets, assistant |
-| 10 | [Data Contract](docs/10-data-contract.md) | **Exact shape of the processed dataset the app consumes** |
-| 11 | [Data Pipeline Requirements](docs/11-data-pipeline.md) | What the offline build must produce, from which sources, with what validation |
-| 12 | [Technical Architecture](docs/12-architecture.md) | Recommended implementation (explicitly non-binding where marked) |
-| 13 | [Performance Targets](docs/13-performance.md) | Measurable budgets and benchmark definitions |
-| 14 | [Findings Register](docs/14-findings-register.md) | Preserve / Improve / Bug / Replace / New classification of every notable behavior |
-| 15 | [Open Questions](docs/15-open-questions.md) | **Ambiguous items requiring human review before implementation** |
-| 16 | [Coverage Checklist](docs/16-coverage-checklist.md) | Proof that every reference-app feature is documented, excluded, or flagged |
+| 01 | [Product](docs/01-product.md) | What the product is, journeys, platforms, navigation, modes, philosophy |
+| 02 | [Global Conventions](docs/02-global-conventions.md) | Shared rules referenced by every feature spec (text, romanisation, states, sheets, theme, accessibility, UI languages, routes) — read before any feature |
+| 03 | [Search](docs/03-search.md) | Query handling, matching (incl. abbreviated pinyin and multi-word combinations), ranking, result presentation, home screen |
+| 04 | [Entry Detail and Media](docs/04-entry-and-media.md) | Word page, tabs, internal links, related words, audio, TTS, examples, strokes |
+| 05 | [Reading and Input](docs/05-reading-and-input.md) | Segmentation and passages, Reading, Camera/OCR, handwriting input, voice transcription |
+| 06 | [HSK and Settings](docs/06-hsk-and-settings.md) | HSK browser, settings, persistence, shortcuts, widget, share targets |
+| 07 | [Data](docs/07-data.md) | **Exact shape of the processed dataset** and the in-repo pipeline that builds it |
+| 08 | [Engineering](docs/08-engineering.md) | Architecture (non-binding where marked), performance budgets, release and repository practice |
+| 09 | [Open Questions](docs/09-open-questions.md) | **Decisions taken and items still needing human review** |
 
 ## Requirement conventions
 
@@ -37,15 +30,17 @@ Every normative statement carries an ID and a strength:
 - `[MUST]` — mandatory product behavior. Changing it changes the product.
 - `[SHOULD]` — strongly intended behavior; deviate only with a recorded reason.
 - `[REC]` — recommended implementation choice. **Free to change** if there is a compelling
-  technical reason. All of [Technical Architecture](docs/12-architecture.md) is `[REC]` unless a
+  technical reason. All of the architecture part of [Engineering](docs/08-engineering.md) is `[REC]` unless a
   statement is explicitly marked otherwise.
 
 ID prefixes: `PROD` (overview), `GLB` (global), `SRCH`, `ENT`, `HSK`, `CAM`, `TXT`, `MED`, `SET`,
-`DATA`, `PIPE`, `ARCH`, `PERF`, `Q` (open question).
+`DATA`, `PIPE`, `ARCH`, `PERF`, `HW` (handwriting), `VOICE`, `REL` (release), `Q` (open question).
+IDs are stable: they did not change when the original 16 documents were consolidated into 9.
 
 Cross-references use the ID, e.g. "see `GLB-014`".
 
 ## Non-goals for the first release
 
-Desktop targets, user accounts, cloud sync, SRS/flashcards, handwriting *input* (as an input method),
-speech recognition, and pronunciation scoring are out of scope. See `PROD-030`.
+Desktop-native targets, user accounts, cloud sync, SRS/flashcards, a system-wide input method,
+pronunciation scoring, the Android screen-assistant integration and character origins are out of
+scope for v1. See `PROD-030`.

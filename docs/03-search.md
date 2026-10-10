@@ -19,7 +19,7 @@ each segment can display its own result count.
 side answers "which entries have definitions matching my words".
 
 `SRCH-004` `[SHOULD]` Search result presentation and full entry presentation are specified separately
-([04 — Entry Detail](04-entry-detail.md)) because they differ in structure: a result is a compact card
+([04 — Entry Detail](04-entry-and-media.md)) because they differ in structure: a result is a compact card
 with clamped definitions, an entry is a paged surface. They **share one card component** for
 compact/related rows (`ENT-070`).
 

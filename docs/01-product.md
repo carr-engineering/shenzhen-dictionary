@@ -178,7 +178,7 @@ external translator.
 
 `PROD-080` `[MUST]` Search must feel **typed-through**: results for each keystroke render within one
 or two frames of the keystroke on a mid-range 2022 phone. Budget table and measurement method:
-[13 — Performance](13-performance.md).
+[13 — Performance](08-engineering.md).
 
 `PROD-081` `[MUST]` Cold start to an interactive, searchable field must not depend on loading the
 dictionary into memory. There is no "loading the full dictionary" phase visible to the user; the
@@ -191,7 +191,7 @@ fraction of the reference app's ~180 MB on-device dictionary footprint. Target: 
 
 `PROD-090` `[MUST]` The application does **not** parse, join, reconcile, normalise, or clean raw
 dictionary sources at runtime. It consumes a **pre-built, versioned, immutable dataset** whose exact
-shape is defined in [10 — Data Contract](10-data-contract.md).
+shape is defined in [10 — Data Contract](07-data.md).
 
 `PROD-091` `[MUST]` The dataset and the app are independently implementable. The app knows only the
 contract; the pipeline knows only the contract. Neither may assume the other's internals.
@@ -204,7 +204,7 @@ already-scored candidates, and rendering. Migration list: `PIPE-100`.
 
 `PROD-093` `[MUST]` The pipeline is **not** implemented as part of this specification work, but its
 inputs, outputs, joins, and validation gates are specified in
-[11 — Data Pipeline](11-data-pipeline.md) in enough detail to implement independently.
+[11 — Data Pipeline](07-data.md) in enough detail to implement independently.
 
 `PROD-094` `[MUST]` Dataset versioning is explicit and checked at open time; a mismatched dataset is
 a hard, reported error, never a silent partial read (`DATA-200`).
