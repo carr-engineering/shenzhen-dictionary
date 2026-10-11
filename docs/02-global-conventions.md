@@ -68,6 +68,27 @@ HTML pages (`GLB-113`). Fallback fonts differ by platform:
   its host is allowed by `GLB-090`. Text whose glyphs have not arrived yet renders once they do; start-up
   never waits for the font. The language tags above still select the glyph forms.
 
+`GLB-009` `[MUST]` **Script conversion is a view state.** The Reading passage, the OCR text view and the
+voice transcript can be shown converted between Simplified and Traditional with OpenCC (`ARCH-196`;
+UI: `TXT-081`…`TXT-084`, `CAM-130`…`CAM-135`, `VOICE-096`). Everywhere:
+- **The original is kept.** The converted text is a view of the original, never a replacement: the
+  Reading draft, the OCR recognition result and the transcript keep the original text, conversion is
+  never written back silently, and `Show original` restores it. The conversion state is held per
+  passage while it is on screen; it is not persisted across launches and is never placed in a URL
+  (`GLB-112`).
+- **Analysis follows the displayed text.** Segmentation, readings (`GLB-121`), tone colours and word
+  boundaries (`GLB-066`), word candidates and character stepping (`GLB-058`) run on the text as
+  displayed, converted or not. Re-analysis after a toggle follows `GLB-030` (the previous analysis stays
+  until the new one is ready) and `GLB-040`. A conversion can change the text's length (phrase
+  conversion), so toggling clears the character selection.
+- **Both scripts are searchable.** The dataset holds simplified and traditional forms and lookup matches
+  both regardless of script mode (`GLB-004`, `SRCH-030`), so the original and the converted text reach the
+  same entries; conversion never makes a word unfindable and is never required to look a word up.
+- **Independent of script mode.** Converting text never changes script mode (`GLB-003`, `SET-011`), and
+  script mode never converts user text by itself; the only default-on conversion is the voice
+  transcript's (`VOICE-096`). Converted text is language-tagged per `GLB-008` using the converted text's
+  script in place of script mode.
+
 ---
 
 ## 2. Pronunciation and romanisation
@@ -89,6 +110,14 @@ as an abbreviation (`nh`, `nih`, `nhao` all reach 你好; Jyutping multi-letter 
 `gw`, `kw` count as abbreviations, as does their first letter). Fuller spellings outrank abbreviated
 ones. Parsing rules: `SRCH-040` and `SRCH-050`…`SRCH-054`. Which spellings abbreviate which syllables
 is data, not code (`DATA-150`), so the engine stays romanisation-agnostic (`GLB-010`).
+
+**Alternative readings are search keys.** Readings that the source gives as alternatives inside a
+definition — CC-CEDICT `also pr. [..]` and `Taiwan pr. [..]`, and CC-Canto `also pr.` Jyutping — are
+extracted by the pipeline (`PIPE-079`) and indexed as reading keys exactly like the main reading (full
+syllables, toneless, abbreviated / first-letter, `DATA-073`, `DATA-192`), so every input form above
+matches them. An entry matched only through an alternative reading ranks after entries matched by their
+main reading within the same match class, and its card shows the matched reading with its label
+(`also pronounced …` / `Taiwan pronunciation …`) (`SRCH-078`).
 
 `GLB-013` `[MUST]` Uppercase-initial romanisation marks a **proper-noun reading**. This is the single
 normative tie position for proper-noun readings, referenced by `SRCH-070`, `SRCH-075`, `TXT-021` and
@@ -154,8 +183,8 @@ Cantonese Jyutping is never converted; it keeps trailing digits (`GLB-011`).
 `GLB-030` `[MUST]` **Never blank populated content.** When a new request supersedes displayed
 content, the previous content stays on screen until the replacement is ready. Applies to search
 results on query/side/script/mode change, to the word-candidate sheet on re-selection, to entry
-detail on script change (`ENT-092`), to passage re-analysis (`TXT-051`), and to the live voice
-transcript as it updates.
+detail on script change (`ENT-092`), to passage re-analysis (`TXT-051`) including after a script
+conversion toggle (`GLB-009`), and to the live voice transcript as it updates.
 
 `GLB-031` `[MUST]` **Shape-matched skeletons for first loads.** A first load with no prior content
 shows a skeleton whose block sizes approximate the real content (entry detail: `ENT-018`;
@@ -184,13 +213,24 @@ for this item (no recording, no stroke order, no examples): the corresponding co
 the section is omitted. Missing data never produces an error message, never blocks the entry from
 rendering, and never removes the entry's core content.
 
-Two cases have a **download or loading state** instead:
+Three cases have a **download or loading state** instead:
 - **Voice model on mobile** (`VOICE-095`). Play builds receive it as an on-demand Play Asset Delivery
   pack and iOS as an Apple-hosted Background Assets pack; the direct APK bundles it. While the pack is
   missing, the Voice destination shows its download state (size, progress, retry) in place of the
   transcript; every other destination works normally.
-- **Web.** The Web PWA stores only the app shell (code) and the dataset for offline use; the dataset is
-  kept current by changesets (`ARCH-145`). Every other Web asset (handwriting model,
+- **Web OCR model** (`ARCH-197`, `DATA-196`). The Web OCR engine (the ML Kit text-recognition model
+  repackaged for the browser, ~2.6 MB) is downloaded from `szdict.com` on the **first use of OCR**, then
+  stored for offline use alongside the dataset. It is versioned by a manifest (model version + SHA-256):
+  when online, opening OCR checks the manifest and downloads the model again **only when its version
+  changed**, otherwise nothing is downloaded; offline, the stored model is used. While no model is
+  stored, the OCR destination shows its download state (size, progress, retry) in place of recognition,
+  and its capture and input controls stay usable so the image is recognised once the model arrives; a
+  failed or impossible download (offline before the first download) follows `GLB-034` on OCR only.
+  Every other destination works normally. (Android bundles ML Kit and iOS uses Apple Vision, so mobile
+  has no OCR download.)
+- **Web.** The Web PWA stores exactly three things for offline use: the app shell (code), the dataset,
+  and — once downloaded — the versioned OCR model (above); the dataset is kept current by changesets
+  (`ARCH-145`). Every other Web asset (handwriting model,
   abbreviation/combination data, audio, strokes, examples) is fetched from `szdict.com` when needed,
   kept in the browser cache, and not guaranteed offline. The CJK font is likewise fetched when needed
   and not guaranteed offline, but by Compose's web font fallback from its own host (`GLB-008`). A feature that needs a fetched
@@ -210,9 +250,11 @@ centred neutral message (`SRCH-113`).
 `GLB-040` `[MUST]` **Latest-only for every user-driven async operation.** Each operation family
 (search, combination decoding `SRCH-060`…, word-candidate lookup, entry detail, passage analysis,
 OCR, handwriting recognition `HW-001`…, voice transcription and live re-segmentation `VOICE-001`…,
-HSK load, audio playback, TTS) maintains a monotonically increasing request generation. A completed
+script detection and conversion (`GLB-009`), HSK load, audio playback, TTS) maintains a
+monotonically increasing request generation. A completed
 result is applied **only if** its generation is still current *and* the state it was computed for
-(query, script, mode, side, passage identity, route identity, stroke set, live utterance) still
+(query, script, mode, side, passage identity and its conversion state, route identity, stroke set,
+live utterance) still
 matches. Cancellation alone is never treated as sufficient — a non-cooperative in-flight operation
 must not be able to overwrite newer state when it finally returns.
 
@@ -246,16 +288,17 @@ meaningful within one dataset (notably passage ids and entry ids). Stale identif
 dereferenced against a new dataset; anything that must survive the swap keys on the natural key
 (`DATA-212`). Opening a route in a mode other than the persisted one (`GLB-110`) is **not** a mode
 switch and bumps nothing: it opens that mode's dataset alongside the current one, and each route's
-identifiers are only ever dereferenced against the dataset of that route's own mode. Auxiliary data becoming available later (on Web the handwriting model or
-abbreviation/combination data; on mobile the voice pack, `VOICE-095`) does not bump the generation; it
-re-runs the current request so the new results appear.
+identifiers are only ever dereferenced against the dataset of that route's own mode. Auxiliary data becoming available later (on Web the handwriting model,
+abbreviation/combination data or the OCR model, `GLB-035`; on mobile the voice pack, `VOICE-095`) does
+not bump the generation; it re-runs the current request so the new results appear.
 
 `GLB-045` `[MUST]` Long-running queries must be **cancellable at the storage layer**, not merely at
 the coroutine/promise layer, so that abandoning a query stops the underlying scan.
 
 `GLB-046` `[MUST]` No dictionary work on the UI thread. All lookup, ranking, hydration, segmentation,
-tokenisation, combination (lattice) decoding, handwriting recognition, speech decoding and
-transcript re-segmentation, and model building happen off the main thread. Only rendering and state
+tokenisation, combination (lattice) decoding, handwriting recognition, OCR, speech decoding and
+transcript re-segmentation, script detection and conversion (`GLB-009`), and model building happen off
+the main thread. Only rendering and state
 diffing happen on it.
 
 ---
@@ -272,7 +315,8 @@ bundle), the following survive:
   is visible;
 - the OCR destination's state (live feed or reviewed capture, and its recognition result,
   `CAM-006`…`CAM-009`);
-- the reading draft text and its analysis.
+- the reading draft text and its analysis;
+- the script-conversion state of the Reading passage, the OCR text and the voice transcript (`GLB-009`).
 
 `GLB-051` `[MUST]` Route-scoped saved state is keyed by a **unique per-visit route key**, not by
 entry id. Opening the same word twice at different stack depths yields independent scroll/tab state.
@@ -360,6 +404,12 @@ colour. Never partially colour a mismatched pair. Tone colouring is independent 
 visibility: when readings are hidden (`GLB-120`) the characters keep their tone colours if tone
 colouring is on.
 
+**Where tone colours and word boundaries apply.** Tone colouring (`tone_colors`) and word-boundary
+underlines (`show_boundaries`, `GLB-061`; both `SET-010`) apply to every analysed passage — Reading
+passages, the Search passage card, the OCR text view and the voice transcript — and equally to converted
+text (`GLB-009`), where they follow the segmentation of the displayed text. Neither is removed or
+weakened on any of these surfaces; each setting switches its effect everywhere at once.
+
 `GLB-067` `[SHOULD]` Content is constrained to a maximum readable width (~900 dp) and centred on
 wide viewports; in two-pane layouts the limit applies per pane (`GLB-125`). The word-candidate sheet
 caps at ~720 dp.
@@ -394,10 +444,14 @@ them can scroll up.
 `GLB-080` `[MUST]` Every icon-only control has a descriptive label: `Play pronunciation`,
 `Stop sentence playback`, `Clear search`, `Paste clipboard into search`, `Previous character`,
 `Next character`, `Close word options`, `Back`, `Close detail`, `Take photo`, `Toggle flash`,
-`Save photo`, `Choose image`, the input-method button (`Switch to handwriting` / `Switch to
+`Save photo`, the OCR image inputs (`Use camera`, `Choose file`, `Paste image`, and `Drop image` for the drop zone, `Torch` for the torch toggle,
+`CAM-130`…`CAM-135`), the input-method button (`Switch to handwriting` / `Switch to
 keyboard`, naming the mode a tap switches to), `Close handwriting`, `Undo stroke`,
 `Clear handwriting`, the pronunciation toggle (`Hide pronunciation` / `Show pronunciation`, also
-exposed as a toggle state), and the voice control (`Start listening` / `Stop listening`).
+exposed as a toggle state), the voice control (`Start listening` / `Stop listening`), and the
+script-conversion split button (`GLB-009`): its main action is labelled by what a tap does
+(`Convert to Traditional` / `Convert to Simplified`, then `Show original` once converted) and its menu
+part `Conversion options`.
 
 `GLB-081` `[MUST]` Interactive targets are at least 40×40 dp; the compact pills and chips that render
 smaller must expand their touch area to 40 dp. The camera shutter is 72 dp.
@@ -439,11 +493,13 @@ queries, OCR text, clipboard content, images, audio, transcripts or handwriting.
 - **iOS:** the app makes no network request of its own; the voice pack is a Background Assets pack that
   the operating system downloads from Apple's servers (`VOICE-095`).
 - **Web:** the app fetches from exactly two hosts: `szdict.com` — the app shell, the dataset manifest
-  and changesets (`ARCH-145`), and assets fetched when needed (`GLB-035`) — and the **third-party font
+  and changesets (`ARCH-145`), the OCR model manifest and the OCR model (`GLB-035`, `ARCH-197`), and
+  assets fetched when needed (`GLB-035`) — and the **third-party font
   host** used by Compose Multiplatform's automatic web font fallback, for Noto font subsets only
   (`GLB-008`, `ARCH-005`; decided: `Q-117`). Font requests name only font files and carry no user data,
   though the subsets requested reflect which Unicode ranges appear on screen. No other third-party host
-  is contacted.
+  is contacted. OCR runs in the browser: images and recognised text never leave the device, and the
+  camera is used through the browser's own permission prompt.
 
 `GLB-091` `[SHOULD]` Structured, named performance trace sections must be emitted around: query
 classification, storage read, hydration, ranking, variant grouping, combination decoding,
@@ -451,7 +507,8 @@ segmentation, state emission, HSK model build, handwriting recognition, speech d
 input→first-frame span. Names and use: `PERF-100`.
 
 `GLB-092` `[MUST]` Diagnostic logging must never log clipboard text, OCR text, image bytes,
-handwriting strokes, audio, voice transcripts, or file URIs beyond scheme/authority.
+handwriting strokes, audio, voice transcripts, Reading drafts, converted text (`GLB-009`), or file
+URIs (or dropped/pasted file names) beyond scheme/authority.
 
 ---
 
@@ -504,14 +561,15 @@ dictionary mode as a path segment: `zh` (Mandarin) or `yue` (Cantonese).
 | `/{mode}/hsk`, `/{mode}/hsk/{level}` | HSK, optionally at level 1–7, in that mode | all |
 | `/` | Search, empty state, in the persisted mode | all |
 | `/reading` | Reading (empty draft) | all |
-| `/ocr` | OCR destination, live feed (`CAM-006`) | mobile |
+| `/ocr` | OCR destination in its initial input state (`CAM-006`; drop / pick / paste emphasised at expanded width, `CAM-130`…`CAM-135`) | all |
 | `/voice` | Voice destination | mobile |
 | `/settings` | Settings (pushed from Search, `SET-005`) | all |
+| `/privacy` | Privacy policy (`GLB-114`, `SET-090`) | all |
 
 **Mode rule.** A route carries the mode segment **if and only if the URL itself names dictionary
 content** — a query, an entry or an HSK level, plus the empty Search screen that shows mode-specific
-discovery content. Routes that name only a destination (`/`, `/reading`, `/ocr`, `/voice`, `/settings`)
-carry no mode segment and use the user's persisted dictionary mode (`SET-010`); their content (a
+discovery content. Routes that name only a destination or page (`/`, `/reading`, `/ocr`, `/voice`,
+`/settings`, `/privacy`) carry no mode segment and use the user's persisted dictionary mode (`SET-010`); their content (a
 draft, a capture, a transcript) is never in the URL (`GLB-112`).
 
 **Mode links are route-scoped** (decided: `Q-118`). The mode segment selects the mode of the content
@@ -556,13 +614,13 @@ links for every route in `GLB-110` that the platform offers, and for no other pa
 `/.well-known/` files, `robots.txt`, sitemaps and static assets always stay on the web.
 - **Android:** an intent filter with `android:autoVerify="true"` for the host, with
   `android:pathPrefix="/zh/"`, `android:pathPrefix="/yue/"` and `android:path` entries for `/`, `/zh`,
-  `/yue`, `/reading`, `/ocr`, `/voice` and `/settings`; verified by `/.well-known/assetlinks.json`
+  `/yue`, `/reading`, `/ocr`, `/voice`, `/settings` and `/privacy`; verified by `/.well-known/assetlinks.json`
   listing the certificate fingerprint of the single signing key shared by the Play and direct-APK
   builds (decided: `Q-113`).
 - **iOS:** the Associated Domains entitlement `applinks:szdict.com`, verified by
   `/.well-known/apple-app-site-association`, served as JSON over HTTPS without redirects, whose
   `components` list the same patterns (`/`, `/zh`, `/zh/*`, `/yue`, `/yue/*`, `/reading`, `/ocr`,
-  `/voice`, `/settings`).
+  `/voice`, `/settings`, `/privacy`).
 
 An incoming link follows the mode rule of `GLB-110`: it shows its content in the link's mode for that
 route only and never changes the persisted dictionary mode. Verification is done by the operating
@@ -571,16 +629,16 @@ files are deployed with the Web build (`REL-040`). Without the app installed, th
 Web build — for a word route, the word page of `GLB-113`.
 
 `GLB-112` `[MUST]` **Fallback and no content in URLs.** An unknown route, a malformed parameter, an
-unknown natural key, or a route to a destination the platform does not offer (`/ocr` and `/voice` on
-Web — the only such case; both exist on Android and iOS) falls back to Search without an error page; an unknown path under a valid
+unknown natural key, or a route to a destination the platform does not offer (`/voice` on Web — the
+only such case; it exists on Android and iOS, and `/ocr` exists on every platform) falls back to Search without an error page; an unknown path under a valid
 mode segment falls back to that mode's Search (`/{mode}`, route-scoped per `GLB-110`), anything else to
 `/`.
 Passage text, the reading draft, OCR text, voice transcripts, handwriting and clipboard content are
 **never** placed in a URL; `q` is written only for a query typed by keyboard or handwriting, and is
 omitted when the query is pasted or is classified as a passage (`isSentence`, `SRCH-035`). Inside the
 running Web app the URL changes through the History API only (no request is made). `szdict.com`
-hosting serves the app shell for every route except a word page requested outside the running app
-(`GLB-113`), and does not log query strings (`GLB-090`).
+hosting serves the app shell for every route except a word page (`GLB-113`) or the privacy page
+(`GLB-114`) requested outside the running app, and does not log query strings (`GLB-090`).
 
 `GLB-113` `[MUST]` **Indexable word pages (Web, SEO).** Every entry of each mode's dataset has a public,
 indexable page at the same URL as its in-app route, `/{mode}/word/{natural-key}` (`GLB-110`), so a
@@ -610,6 +668,21 @@ search-engine result, a shared link and the app all use one address. Architectur
 - **Into the app.** Each page has a prominent link that opens the same route in the Web app (which then
   stores the dataset for offline use, `ARCH-145`). Where the native app is installed, the link opens it
   through App Links / Universal Links (`GLB-111`).
+
+`GLB-114` `[MUST]` **Privacy policy route.** There is exactly one privacy policy, at the route `/privacy`
+(`GLB-110`), with the same content in the apps and at `https://szdict.com/privacy`. Content: `SET-090`;
+architecture: `ARCH-199`.
+- **Bundled.** The apps and the Web app shell bundle the policy text in `en`, `zh-Hans` and `zh-Hant`, so
+  it opens offline and makes no network request. Inside the app it is a screen pushed like Settings, in
+  the active UI language (`GLB-100`), opened from Settings (`Privacy policy`), from the about /
+  attribution area (`SET-040`) and by the `/privacy` route or link (`GLB-111`).
+- **On the website.** Requested outside the running Web app, `/privacy` is served as a static HTML page
+  built from the same source text and deployed with the Web build (`REL-040`), readable without
+  loading the app shell and suitable as the store-listing privacy URL. It contains the three languages, each tagged with its
+  `lang` (`GLB-008`), with in-page links between them, and makes no third-party requests, cookies or
+  analytics (`GLB-090`). It is indexable and declares itself canonical.
+- **One source.** The bundled and published texts come from one source file per language, so they cannot
+  diverge within a release; a policy change ships with the next app and Web release.
 
 ---
 
@@ -645,4 +718,6 @@ passage on one side, the top entry-detail route on the other. Below 840 the layo
 entry detail is pushed full screen. Window width is used, not screen width, so split screen and
 resized browser windows switch accordingly. Each pane applies its own maximum width (`GLB-067`), and
 the word-candidate sheet anchors to the pane holding the tapped text. `PROD-054`, `ENT-015`,
-`ENT-019`, `SRCH-096` and `ARCH-051` reference this rule.
+`ENT-019`, `SRCH-096` and `ARCH-051` reference this rule. At the same expanded width the OCR
+destination (all platforms) emphasises the drop zone and the pick / paste buttons and shows the camera
+as a secondary option; below it the camera feed stays primary (`CAM-130`…`CAM-135`).

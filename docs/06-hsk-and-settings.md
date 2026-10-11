@@ -11,7 +11,8 @@ bugs** in this area; do not reproduce them (see `HSK-026`, `HSK-027`, `HSK-056` 
 
 `HSK-001` `[MUST]` The HSK feature browses the official HSK vocabulary syllabus in its **2025
 edition** (`HSK-003`), grouped by level, and links **every** syllabus word to its canonical
-CC-CEDICT entry (`HSK-050`) — in Cantonese mode, to the Cantonese dataset's copy of that entry
+CC-CEDICT entry (`HSK-050`) — or, for the rare word CC-CEDICT lacks, to an entry of the project
+supplement dictionary (`HSK-051`) — in Cantonese mode, to the Cantonese dataset's copy of that entry
 (`HSK-090`).
 
 `HSK-002` `[MUST]` HSK is available in **both dictionary modes**. The HSK destination (`PROD-050`)
@@ -21,14 +22,21 @@ ordering, linking): `HSK-090`…`HSK-094`, `HSK-096`. *(Decided: `Q-030`.)*
 
 `HSK-003` `[MUST]` Levels are `1..7`, where level `7` represents the combined band **7-9** and is
 always labelled `HSK 7-9`. The committed word list follows the **2025 HSK syllabus**
-(新版HSK考试大纲, Chinese Testing International (CTI), released 2025-11-15, effective 2025-11-18).
-Vocabulary per level: L1 300, L2 200, L3 500, L4 1,000, L5 1,600, L6 1,800, L7-9 5,600 —
-cumulative 300 / 500 / 1,000 / 2,000 / 3,600 / 5,400 / 11,000 words. After de-duplication
-(`HSK-027`) each level's distinct-word count must match these figures; the pipeline's validation gate
-checks them (gate 8 of `DATA-200`). Only facts are stored — word → level and per-level
-part-of-speech tags; the official syllabus document is not redistributed, and CTI is cited as the
-source (`SET-040`). The word list file is committed in the repository. *(Decided: `Q-110`,
-`Q-102`.)*
+(新版HSK考试大纲（词汇、汉字、语法）, Chinese Testing International (CTI), published 2025-11, in force
+from 2026-07). Vocabulary per level: L1 300, L2 200, L3 500, L4 1,000, L5 1,600, L6 1,800, L7-9
+5,600 — cumulative 300 / 500 / 1,000 / 2,000 / 3,600 / 5,400 / 11,000 words. A syllabus word is
+identified by **word + syllabus pinyin + homograph index**: 82 rows carry a homograph index
+(`本1`/`本2` style) and 61 polyphones appear twice with different pinyin (还 hái / huán), so neither
+the word alone nor (word, pinyin) is a key. After de-duplication (`HSK-027`) each level's
+distinct-word count must match these figures; the pipeline's validation gate checks them (gate 8 of
+`DATA-200`). 102 words carry an **extra bracketed level** for one part of speech or sense (半 is
+level `1（4）` with POS `数、（副）`: numeral at level 1, adverb at level 4); the extra level is
+stored with its part of speech (`extra_levels`, `DATA-120`) and shown as an additional badge
+(`HSK-080`), but the word is listed and counted in the grid only at its main level. 495 words
+(phrases, chengyu) have no part of speech (`HSK-082`). Only facts are stored — word → level and
+per-level part-of-speech tags, and the character levels (`HSK-098`); the official syllabus document
+is not redistributed, and CTI is cited as the source (`SET-040`). The word list file is committed in
+the repository. *(Decided: `Q-110`, `Q-102`.)*
 
 ---
 
@@ -87,8 +95,11 @@ identifier supplied by the dataset (`DATA-120`). Duplicate keys crashed the refe
 before it was patched.
 
 `HSK-027` `[MUST]` Beyond keying, the successor must **de-duplicate the rows themselves**: one card
-per (level, word, reading), with the parts of speech for that level merged into the card's badge. The
-reference app still renders two identical cards for 局 in level 6.
+per syllabus word (word + pinyin + homograph index, `HSK-003`) per level, with the parts of speech
+for that level merged into the card's badge. The reference app still renders two identical cards for
+局 in level 6. Homograph rows of one level that link to the same dictionary entry render as **one**
+card whose badge merges their parts of speech; the level header (`HSK-021`) still reports the
+syllabus word count.
 
 ---
 
@@ -115,7 +126,8 @@ performs a plain sort — or, better, reads rows already in order — rather tha
 
 `HSK-040` `[MUST]` An entry's HSK levels appear as outlined badge pills in: search result cards,
 compact rows, sheet rows, HSK cards, and the entry-detail header, in both dictionary modes. Pill text
-is `HSK n` (or `HSK 7-9`).
+is `HSK n` (or `HSK 7-9`). An entry's levels include its direct syllabus levels, its extra bracketed
+levels (`HSK-003`) and levels received through variants (`HSK-097`); all render identically.
 
 `HSK-041` `[MUST]` In the **entry-detail header only**, each badge also carries the part of speech for
 that level: `HSK 1 • Measure word`.
@@ -137,25 +149,62 @@ English ones.
 `HSK-045` `[SHOULD]` The translation table belongs in the dataset (`DATA-122`) so a new part-of-speech
 token does not require an app release.
 
+`HSK-097` `[MUST]` **HSK levels propagate through variants.** When a syllabus word's linked entry is
+related to another entry by a **plain variant** (`variant of`), **old variant** (`old variant of`) or
+**erhua variant** (`erhua variant of`) relation, in either direction — the other entry is a variant
+of the HSK word, or the HSK word is itself a variant of the other entry — the other entry receives
+the HSK word's levels and per-level parts of speech. Propagation follows up to **two hops** (this
+covers every chain in the current data); other variant kinds do not propagate. An entry with its own
+direct syllabus level keeps only its direct levels; when an entry receives different levels through
+several HSK words, it takes the **lowest**. The badge is **identical** to a direct HSK word's badge
+(`HSK-040`, `HSK-041`) everywhere badges appear. The **HSK grid lists only syllabus words** (and the
+widget and Word of the Day draw only from them, `HSK-096`): propagated entries never appear as grid
+cards. Computed in the pipeline (`DATA-193`, `PIPE-082`), per dataset — in Cantonese mode the
+Cantonese copies of those entries carry the same badges (`HSK-094`). Current data: 3,716 CC-CEDICT
+entries carry 3,767 variant relations (plain 2,709, old 723, erhua 258, other); propagation gives 630
+extra entries a level (622 at hop 1, 8 at hop 2) — 370 single characters, mostly obscure old forms
+(宍 → 肉), and 260 words (抵銷 → 抵消, 骨董 → 古董, 39 erhua forms); 2 receive conflicting levels.
+
 ---
 
 ### 6. Relationship between HSK data and dictionary records
 
 `HSK-050` `[MUST]` **Every** syllabus row is joined **during preprocessing** to exactly one
-canonical CC-CEDICT entry. There are no unlinked rows, no fallback cards and no syllabus-sourced
-entries. The app performs **no** joining at runtime.
+**primary** canonical dictionary entry — a CC-CEDICT entry, or a supplement entry for a word
+CC-CEDICT lacks (`HSK-051`). Where one simplified word stands for several traditional words that
+CC-CEDICT lists as separate entries (后/後, 回/迴, 干/乾/幹), the row links **all** of them, marks one
+primary (the card, ordering and widget use the primary), and every linked entry carries the HSK badge.
+There are no unlinked rows, no fallback cards and no syllabus-sourced entries. The app performs **no**
+joining at runtime.
 
-`HSK-051` `[MUST]` The join key is (simplified form, traditional form, reading), matched after
-**normalisation**: traditional-form normalisation, `/`-split readings and tone-insensitive matching
-with a tone-sensitive preference (`HSK-052`), erhua `儿` stripping, and similar documented rules.
-Rows the normalised join cannot resolve are mapped by a **committed manual mapping file** in
-`data-sources/` (syllabus row → CC-CEDICT entry, e.g. 口哨儿 → 口哨; 致力于 → the closest
-CC-CEDICT entry), reviewed like any other committed input. When several dictionary entries qualify,
-the pipeline picks the most frequent non-proper-noun reading and records the decision. (Cantonese
-dataset: `HSK-090`.)
+`HSK-051` `[MUST]` The join matches the syllabus word's **simplified form and reading** against
+CC-CEDICT after these documented **normalisations**: split `/`-separated readings, strip hyphens and
+apostrophes, lowercase, and match **tone-insensitively with a tone-sensitive preference**
+(`HSK-052`). With them, 10,997 of the 11,000 words link automatically. Remaining rules and cases:
+- **嗯** (syllabus `ǹg`) links to CC-CEDICT `en4` by simplified form only — a documented single-word
+  rule.
+- **口哨儿** links to 口哨 through the **committed manual mapping file** in `data-sources/` (syllabus
+  word → dictionary entry), reviewed like any other committed input.
+- **精彩纷呈** is **not in CC-CEDICT**. Words required by the syllabus that CC-CEDICT lacks are added
+  to a small project-maintained **supplement dictionary**, `data-sources/supplement.u8`, in CC-CEDICT
+  format with the project's own definitions (CC BY-SA 4.0, credited as "Shenzhen Dictionary
+  supplement", `SET-040`), and each such entry is also submitted upstream to CC-CEDICT. The mapping
+  file may point to supplement entries; supplement entries are used for nothing else. *(Pending
+  confirmation: `Q-121`.)*
+- **Ambiguity**: 866 words match more than one entry. The pipeline first drops capitalised
+  (proper-noun / surname) entries and **pure-variant** entries (entries whose only sense is a variant
+  cross-reference), leaving 10,863 words with one candidate, 127 with two and 8 with three; the
+  one-simplified-to-many-traditional cases link all (`HSK-050`); any other remaining tie takes the
+  tone-exact reading, then the most frequent entry, and the decision is recorded in the build report.
+- **Variant-only words**: 21 words match only pure-variant entries (14 erhua forms, e.g. 一点儿 →
+  一点; 7 others, e.g. 辞典 → 词典). They link to that variant entry, and their card shows the
+  definitions of the variant's target entry.
 
-`HSK-052` `[MUST]` The syllabus and CC-CEDICT disagree on readings for a few hundred rows (about
-257 of 11105 in the reference word list), because the syllabus writes **tone sandhi and neutral-tone conventions** that CC-CEDICT does not:
+(Cantonese dataset: `HSK-090`.)
+
+`HSK-052` `[MUST]` The syllabus and CC-CEDICT disagree on tones for 246 of the 11,000 words, because
+the syllabus writes **tone sandhi and neutral-tone conventions** that CC-CEDICT does not (148 一/不
+sandhi rows, about 99 neutral-tone conventions):
 `不客气 bú kè qi` vs `bù kè qi`; `一半 yíbàn` vs `yī bàn`; `那边 nàbiān` vs `nà bian`;
 `学生 xuéshēng` vs `xué sheng`. Some rows carry two readings separated by `/` (`谁 shéi/shuí`). The
 reading match must therefore be **tone-insensitive with a tone-sensitive preference**, and must split
@@ -166,17 +215,17 @@ syllabus reading, so the same word reads identically everywhere in the app. Like
 shown or hidden per `GLB-120`. The syllabus reading is used for joining (`HSK-051`, `HSK-052`)
 only; it is never shown anywhere, in either mode. *(Decided: `Q-031`; former `HSK-054` and `HSK-095` removed.)*
 
-`HSK-055` `[MUST]` CC-CEDICT (Mandarin) and CC-Canto (Cantonese) are the **source of truth for
-definitions**. Syllabus glosses are neither kept in the dataset nor shown anywhere: every card
+`HSK-055` `[MUST]` CC-CEDICT (Mandarin) and CC-Canto (Cantonese) — plus the supplement for the
+words CC-CEDICT lacks (`HSK-051`) — are the **source of truth for definitions**. Syllabus glosses are neither kept in the dataset nor shown anywhere: every card
 shows its linked entry's dictionary definitions. *(Decided: `Q-032`.)*
 
 `HSK-056` `[MUST]` The build **fails** on **any** unlinked row — zero allowance — in either
 dataset, and lists every offending row in its report. The reference dataset silently shipped 9
 unlinked rows — 新媒体, 新能源, 不予, 精彩纷呈, 居于, 口哨儿, 两翼, 压轴, 致力于 — which appeared in the
-grid as dead, untappable cards. Most join after normalisation (`HSK-051`); the rest are resolved by
-entries in the committed manual mapping file. A new syllabus or CC-CEDICT release that leaves a row
-unlinked is fixed by improving the normalisation or adding a mapping, never by shipping the row
-unlinked.
+grid as dead, untappable cards. Against the 2025 syllabus all but two join after normalisation
+(`HSK-051`); 口哨儿 is resolved by the manual mapping file and 精彩纷呈 by a supplement entry. A new syllabus or CC-CEDICT release that leaves a row
+unlinked is fixed by improving the normalisation, adding a mapping or (only when CC-CEDICT lacks the
+word) adding a supplement entry, never by shipping the row unlinked.
 
 ---
 
@@ -252,8 +301,9 @@ before the switch.
 `HSK-090` `[MUST]` The Cantonese dataset carries its own HSK row table: each row links to the
 Cantonese dataset's **copy of the same CC-CEDICT entry** the Mandarin row links to (`HSK-050`,
 `DATA-187`) — the Cantonese entry whose Mandarin block carries that CC-CEDICT entry. Every CC-CEDICT
-headword is present in the Cantonese dataset (a headword with no Jyutping as a no-reading entry,
-`DATA-182`), so every row links. Where several Cantonese entries carry the CC-CEDICT entry (one per
+headword — and every supplement entry (`HSK-051`), carried like a CC-CEDICT entry — is present in the
+Cantonese dataset (a headword with no Jyutping as a no-reading entry, `DATA-182`), so every row
+links. Where several Cantonese entries carry the CC-CEDICT entry (one per
 Jyutping reading, `DATA-184`), the pipeline picks one deterministically (the most frequent, then the
 lowest id) and records the decision. The app performs no joining at runtime (`HSK-050`); the build
 fails on any unlinked row (`HSK-056`).
@@ -282,6 +332,33 @@ row table of the active mode's dataset.
 
 ---
 
+### 11. HSK character levels (data only in v1)
+
+`HSK-098` `[MUST]` Besides the words, the 2025 syllabus lists characters (汉字) by level: **3,088
+recognition characters** (认读字: L1 246, L2 125, L3 284, L4 441, L5 431, L6 413, L7-9 1,148) and
+**1,200 writing characters** (书写字, a subset: L1-2 100, L3-6 150 each, L7-9 500). The pipeline
+stores them as data on single-character entries — the character level and a `writing` flag
+(`hsk_char_level`, `DATA-194`) — and validates the per-level counts. A character's level equals the
+first word level containing it for 3,085 of the 3,088 (exceptions 店, 饺, 留); 1,503 characters are
+also single-character syllabus words, 414 of which have a word level different from the character
+level (白: character level 1, word level 5), and 1,585 occur only inside longer words. The character
+level is **not** an HSK word level: it never feeds `HSK-040` badges, the grid, propagation
+(`HSK-097`), the widget or Word of the Day. v1 has **no UI** for it until `Q-120` is decided.
+
+---
+
+### 12. Grammar lessons (v2, not in v1)
+
+`HSK-099` `[SHOULD]` *v2 note, not part of v1.* In v2 the HSK destination offers **grammar lessons per
+level**, built on the 2025 syllabus grammar list (593 points: L1 70, L2 78, L3 96, L4 95, L5 70, L6
+50, L7-9 134, in the hierarchy 类别 / 类别名称 / 细目 / 语法内容) plus separately licensed imported
+lessons and reviewed project-written explanations and examples; linked words show related grammar on
+the entry detail screen (`ENT-127`). The data model and architecture readiness are specified in
+`ARCH-198` and `PIPE-083`. v1 builds nothing for it beyond not blocking it: the HSK destination's
+structure (level selector, per-level sections) must leave room for a per-level grammar entry point.
+
+---
+
 ## Settings and Platform Integration
 
 ---
@@ -305,6 +382,7 @@ separated by 18 dp, 20 dp horizontal padding, and status/nav-bar insets applied.
 | Show pronunciation | switch | default on (`SET-017`) |
 | Reading boundaries | switch | default on |
 | Save photos to gallery | switch | default off (`CAM-080`) — Android/iOS only |
+| Privacy policy | link row | opens the privacy policy (`SET-090`) |
 
 `SET-003` `[MUST]` Changing any setting takes effect immediately and is persisted immediately; there is
 no Save button.
@@ -312,8 +390,9 @@ no Save button.
 `SET-004` `[MUST]` Below a divider: an `About & Attribution` block with the app version
 (`YYYY.MM.DD-X`, see the release section of [08 — Engineering](08-engineering.md)), the **dataset
 version** of the active dataset (source versions + pipeline commit, `PIPE-166`), an explanatory
-paragraph, a button opening an **open-source library licences** dialog (`SET-043`), a
-`Data sources` heading, and one card per bundled data source or model (`SET-040`). Long-pressing the
+paragraph, a button opening an **open-source library licences** dialog (`SET-043`), a `Privacy
+policy` link (`SET-090`), a `Data sources` heading, and one card per bundled data source or model
+(`SET-040`). Long-pressing the
 version opens the developer screen (`ARCH-171`); there is no other entry point to it.
 
 `SET-005` `[MUST]` Settings opens as a route pushed over the Search destination: a top bar with the
@@ -336,9 +415,9 @@ every platform, including Web.
 | `script` | enum | `simplified` | per mode (`SET-011`) |
 | `ui_language` | enum | `system` | `system` / `en` / `zh-Hans` / `zh-Hant` (`SET-018`) |
 | `theme_mode` | enum | `system` | |
-| `tone_colors` | bool | `true` | |
+| `tone_colors` | bool | `true` | `GLB-066`; applies to Reading passages, OCR text and the Voice transcript, including converted text (`TXT-081`…) |
 | `show_pronunciation` | bool | `true` | global reading visibility (`SET-017`, `GLB-120`) |
-| `show_boundaries` | bool | `true` | word-boundary underlines |
+| `show_boundaries` | bool | `true` | word-boundary underlines on Reading passages, OCR text and the Voice transcript, including converted text (`TXT-081`…) |
 | `input_method` | enum | `keyboard` | `keyboard` / `handwriting` (`SET-019`) |
 | `search_side` | enum | `english` | only written per `SRCH-026` |
 | `last_search_query` | string | `""` | per mode (`SET-013`); debounced 750 ms, flushed on stop |
@@ -354,8 +433,9 @@ without wiping the rest of the store.
 mode's last query.
 
 `SET-014` `[MUST]` Not persisted across launches: the entry-detail stack, OCR destination state,
-reading draft, voice transcript, HSK scroll position, sheet state (word-candidate and handwriting
-sheets), flash mode, and whether Settings was open.
+reading draft, voice transcript, script-conversion view state (`TXT-081`…, `CAM-130`…,
+`VOICE-096`), HSK scroll position, sheet state (word-candidate and handwriting sheets), flash mode,
+and whether Settings or the privacy policy was open.
 
 `SET-015` `[MUST]` A settings change that affects widget appearance (dictionary mode, script, tone
 colours, theme) triggers a widget refresh (`SET-060`).
@@ -409,10 +489,14 @@ Data sources:
 | CC-CEDICT (via MDBG) | Mandarin headwords, Pinyin, English definitions, variants, notes | CC BY-SA 4.0 |
 | CC-Canto / Cantonese dictionary data | Cantonese readings and definitions | CC BY-SA 3.0 (verify at build time) |
 | FrequencyWords (zh_cn, OpenSubtitles 2018 via OPUS) | word frequency for ranking and segmentation | CC BY-SA 4.0 |
-| HSK 2025 syllabus word list (CTI; committed in the repository, `HSK-003`) | HSK level and part-of-speech tags | facts only; official PDF not redistributed |
+| HSK 2025 syllabus word and character lists (CTI; committed in the repository, `HSK-003`, `HSK-098`) | HSK word levels, part-of-speech tags and character levels | facts only; official PDF not redistributed |
+| Shenzhen Dictionary supplement (`data-sources/supplement.u8`, project-maintained) | definitions for the few HSK words CC-CEDICT lacks (`HSK-051`) | CC BY-SA 4.0 |
+| Unicode Unihan database | fallback definitions and readings for characters with no CC-CEDICT or CC-Canto entry (`ENT-126`, `DATA-190`) | Unicode-3.0 (licence notice reproduced in full on the card) |
+| Unicode Character Database (`EquivalentUnifiedIdeograph.txt`, `CJKRadicals.txt`) | mapping radical forms to unified ideographs in character decomposition (`ENT-120`…, `DATA-191`) | Unicode-3.0 (same notice) |
+| BabelStone IDS (`IDS.TXT`, Andrew West; file date pinned) | character decomposition (`ENT-120`…, `DATA-191`) | free use for personal or commercial purposes; no attribution required, credited anyway |
 | Tatoeba / Tatoeba Challenge | Mandarin–English example sentence pairs | CC BY 2.0 FR |
 | Tatoeba Cantonese (`yue`) sentences, with English translations via Tatoeba links | Cantonese example sentences (`MED-048`, `DATA-188`); Cantonese frequency corpus (`DATA-189`) | CC BY 2.0 FR |
-| OpenCC | simplified/traditional conversion of examples (build time) and of voice transcripts (runtime table) | Apache-2.0 |
+| OpenCC data (dictionaries, pinned release) | simplified/traditional conversion: examples at build time; script conversion of Reading passages, OCR text and the Voice transcript at runtime (`TXT-081`…, `CAM-130`…, `VOICE-096`, `DATA-195`) | Apache-2.0 |
 | audio-cmn (Shtooka-derived) | recorded syllable and word pronunciations | CC BY-SA |
 | hanzi-writer-data (Make Me a Hanzi derived) | stroke outlines, order, medians | MIT / Arphic Public License |
 | libime language model (`lm_sc.arpa`, fcitx) | Mandarin word bigrams for multi-word combinations (`SRCH-060`…) | LGPL-2.1-or-later |
@@ -424,22 +508,25 @@ Data sources:
 | CJK fallback font (OFL-licensed; exact font recorded in the attribution source; mobile only) | glyphs for rare characters missing from system fonts; text is tagged zh-Hans / zh-Hant / zh-HK (`PERF-070`) | SIL OFL 1.1 |
 | Noto CJK subsets (Web only; fetched when needed by Compose Multiplatform's web font fallback, not bundled, `ARCH-005`) | Chinese glyphs on Web | SIL OFL 1.1 |
 
-Models and recognition engines (mobile only unless stated):
+Models, recognition and conversion engines (mobile only unless stated):
 
 | Component | Role | Licence |
 |-----------|------|---------|
 | sherpa-onnx | voice recognition runtime (`VOICE-001`…) | Apache-2.0 |
 | onnxruntime | inference runtime used by sherpa-onnx | MIT |
 | Streaming Paraformer trilingual model (zh / Cantonese / en), [`dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online`](https://modelscope.cn/models/dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online) | voice recognition model; the only separately downloaded asset (`VOICE-095`) | Apache-2.0 |
-| ML Kit Text Recognition (Chinese) | OCR destination (`CAM-006`…) | Google ML Kit terms |
+| ML Kit Text Recognition (Chinese) | OCR destination on Android (`CAM-006`…); iOS uses the system's Vision framework | Google ML Kit terms |
+| Web OCR model (ML Kit Text Recognition model repackaged for the browser) | OCR destination on Web (`CAM-130`…, `ARCH-197`, `DATA-196`); Web only | Google ML Kit terms |
+| OpenCC KMP library (`opencc-kmp`, project-maintained, pinned version, `ARCH-196`) | runtime simplified/traditional conversion engine; all platforms | Apache-2.0 |
 | ML Kit Digital Ink Recognition models | handwriting recognition (`HW-001`…); also on Web | Google ML Kit terms |
 
 `SET-041` `[MUST]` The app's own code is licensed **Apache-2.0**, so others can build on it
 easily. Datasets and models are **separate files under their own licences**, never relicensed: the
 CC BY-SA 4.0 dictionaries and the dictionary dataset derived from them (which stays CC BY-SA); the
 LGPL-2.1+ Mandarin language-model table, shipped as a separate, replaceable file with its licence
-notice and source availability; the Arphic Public License stroke data; and the CC BY-SA Cantonese
-tables. CC BY and CC BY-SA sources require attribution (`SET-040`). *(Decided: `Q-100`.)*
+notice and source availability; the Arphic Public License stroke data; the CC BY-SA Cantonese
+tables; the CC BY-SA 4.0 project supplement dictionary; the Unicode-3.0 Unihan/UCD data; and the
+BabelStone IDS decomposition file. CC BY and CC BY-SA sources require attribution (`SET-040`). *(Decided: `Q-100`.)*
 
 `SET-042` `[MUST]` Each source's exact version/commit/build date is recorded in the dataset metadata
 (`sources`, `DATA-002`) and surfaced in its attribution card, so a user can tell which build of
@@ -467,9 +554,9 @@ focus (`TXT-053`), so it works when launched cold.
 activity recreation, rotation, or a later Back does not re-trigger it.
 
 `SET-053` `[MUST]` On Android these are static launcher shortcuts and on iOS Home Screen quick
-actions, the Voice one included on both (optional per `SET-050`). On Web they are omitted (or
-`Read clipboard` is exposed as a PWA shortcut if a manifest is shipped), since Web has no OCR or Voice
-destination.
+actions, the Voice one included on both (optional per `SET-050`). On Web they are omitted, or — if a
+PWA manifest is shipped — `Read clipboard` and `Open camera` are exposed as PWA shortcuts; Web has no
+Voice destination, so no Voice shortcut.
 
 ---
 
@@ -573,3 +660,28 @@ rather than an empty card.
 shows the entry error state.
 
 `SET-084` The auto-save switch is absent on Web.
+
+---
+
+### 9. Privacy policy
+
+`SET-090` `[MUST]` The app has **one privacy policy**, served at the route `/privacy` (`GLB-110`)
+in the app and at `szdict.com/privacy` on the website — same route, same content. The app **bundles**
+the policy text, so it works offline, in **English, Simplified Chinese and Traditional Chinese**,
+shown in the UI language (`GLB-101` fallback); the website serves the same text from the same source
+file, published with each web deploy (release practice, [08 — Engineering](08-engineering.md)). It is
+reached from the `Privacy policy` row in Settings (`SET-002`) and the `Privacy policy` link in the
+About & Attribution block (`SET-004`); it opens as a pushed route over Settings with a back/up control
+(like `SET-005`) and is a single readable-width text page (`GLB-067`). The policy states, at least
+(spec summary, not the legal text):
+- no accounts and no telemetry or analytics;
+- Android makes no network requests of its own; the only downloads are those managed by Google Play or
+  the OS;
+- what the Web app fetches: szdict.com (app, dataset, OCR model and other assets) and the font host
+  (`ARCH-005`);
+- what is stored on the device: preferences (`SET-010`), the last search query, and cached datasets
+  and models;
+- camera and microphone are used only on the device for OCR and Voice, and nothing captured is stored
+  except photos the user chooses to save (`CAM-080`);
+- shared text and images (share targets, `SET-054`…) are processed on the device only;
+- the app stores no user-curated data (`PROD-030`).

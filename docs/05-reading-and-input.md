@@ -24,7 +24,11 @@ uses `FULL` (so punctuation and Latin inside a pasted query participate); Readin
 Scanning the run right-to-left, `score[i] = max over lengths L of (logProb(word) + score[i+L])`, where
 `logProb(word) = ln(freq(word)) - ln(totalFreq)` for words present in the dictionary,
 `ln(1) - ln(totalFreq)` for dictionary words with no frequency entry, and a fixed penalty of `-20.0`
-for a single unknown character. Ties prefer the **longer** word. Only lengths up to `maxWordLen` are
+for a single unknown character. A **Unicode-only character entry** (`is_unihan`, `DATA-190`,
+`SRCH-079`) counts as a matched single-character word with the **lowest score**: it is scored with
+the same `-20.0` as an unknown character, so it never displaces a CC-CEDICT, CC-Canto or supplement
+word and the segmentation of its neighbours is unchanged, but the character becomes a matched
+segment (covered, `TXT-020`) instead of "no match". Ties prefer the **longer** word. Only lengths up to `maxWordLen` are
 considered, where `maxWordLen` is the dataset's `max_word_len` metadata value (`DATA-004`) — the
 segmentation window, which may be shorter than the longest headword. Longer headwords are still
 found by Search but are never produced by segmentation or span enumeration.
@@ -32,10 +36,12 @@ found by Search but are never produced by segmentation or span enumeration.
 When the dataset carries a bigram model (`has_bigram_model`, `DATA-155`), passage segmentation
 `[SHOULD]` instead use the shared lattice decoder (`TXT-026`) with `k = 1` over the character
 lattice, scoring with the bigram and unigram tables (`DATA-152`…`DATA-154`) and the same
-unknown-character penalty. Without the bigram model the unigram DAG above applies.
+unknown-character penalty, which also scores a Unicode-only character entry (it has no
+language-model word id). Without the bigram model the unigram DAG above applies.
 
 `TXT-013` `[MUST]` **Without frequency data: greedy longest-match**, left to right, lengths from
-`maxWordLen` (`DATA-004`) down to 2, falling back to a single character.
+`maxWordLen` (`DATA-004`) down to 2, falling back to a single character (a matched segment when the
+character has an entry, Unicode-only entries included).
 
 The two strategies differ observably and both must be supported: `我们研究生命科学` segments as
 `我们 / 研究 / 生命 / 科学` with frequency data, and as `我们 / 研究生 / 命 / 科学` with greedy
@@ -66,7 +72,10 @@ rather than an opaque engine-side id, removing a whole class of staleness bugs.
 `TXT-020` `[MUST]` Tapping index `i` in a passage produces every dictionary word that **covers** `i`:
 for every start `s` in `[max(runStart, i - (maxWordLen - 1)), i]` and every length `L` such that
 `s + L > i` and `s + L <= runEnd` and `L <= maxWordLen` (`maxWordLen` as in `TXT-012`), the substring
-`[s, s+L)` if it is a dictionary headword. A character is **covered** when this set is non-empty.
+`[s, s+L)` if it is a dictionary headword. Unicode-only character entries (`DATA-190`) are headwords
+for this purpose, so such a character is covered: tappable with candidates, and included in stepping
+(`TXT-033`). Among candidates they sort after dictionary entries at the same span (`SRCH-079`). A
+character is **covered** when this set is non-empty.
 
 `TXT-021` `[MUST]` Candidate ordering:
 1. the **default** candidate first — the segment the segmenter actually chose for this position;
@@ -77,7 +86,8 @@ for every start `s` in `[max(runStart, i - (maxWordLen - 1)), i]` and every leng
 5. then start offset ascending;
 6. then entry id ascending.
 
-`TXT-022` `[MUST]` When there are **no** candidates (the character is not part of any dictionary word),
+`TXT-022` `[MUST]` When there are **no** candidates (the character is not part of any dictionary word
+and has no Unicode-only entry),
 the result instead carries up to 50 entries in which that character **appears**, ordered by frequency
 then id. The sheet header changes from `Words at 「X」` to `「X」 appears in`.
 
@@ -128,10 +138,11 @@ segmentation (`TXT-012`).
 `TXT-030` `[MUST]` A passage is rendered as **one** text layout (never one composable per character),
 with:
 - base colour `muted`; matched segments in `fg`; per-character tone colours when tone colouring is on
-  and a segment's tone count equals its character count (`GLB-066`);
+  (`tone_colors`, `SET-010`) and a segment's tone count equals its character count (`GLB-066`);
 - the selected character's code-point range highlighted with `highlight` background and semibold
   weight;
-- word-boundary underlines when the boundary setting is on: for each matched segment, an underline
+- word-boundary underlines when the boundary setting is on (`show_boundaries`, `SET-010`): for each
+  matched segment, an underline
   drawn per character with 1.6 dp stroke, inset 1.25 dp at the word's leading and trailing edges (so
   adjacent words read as separate strokes), coloured in alternating shades (`GLB-061`) that flip per
   word;
@@ -143,7 +154,11 @@ with:
 boxes so they follow line wrapping correctly.
 
 `TXT-032` `[MUST]` This renderer is shared verbatim by: the Search passage card, the Reading passage,
-each OCR text-view line (`CAM-069`) and each Voice transcript utterance (`VOICE-040`).
+each OCR text-view line (`CAM-069`) and each Voice transcript utterance (`VOICE-040`). It renders a
+script-converted text (`TXT-081`…`TXT-084`, `CAM-135`, `VOICE-096`; `GLB-009`) exactly like an
+original one: word-boundary underlines (`show_boundaries`), tone colours (`GLB-066`) and interlinear
+readings all apply, computed from the analysis of the converted text. No surface turns either
+setting off.
 
 `TXT-033` `[MUST]` **Tappable characters** are all visible characters — punctuation, Latin, digits and
 emoji included; only space, tab, CR and LF are excluded. **Stepping** (`GLB-058`) visits only
@@ -161,7 +176,9 @@ passage card, OCR text-view lines and the Voice transcript render readings above
 - when the segment's syllable count equals its character count, each syllable is centred over its
   character; otherwise the whole reading is centred over the segment's glyphs on the line where the
   segment starts, ellipsised if wider than the space available;
-- unmatched characters, punctuation, Latin, digits and emoji carry no reading;
+- unmatched characters, punctuation, Latin, digits and emoji carry no reading; neither does a
+  Unicode-only entry without a reading for the active mode (`reading_source = none`, `DATA-190`),
+  which is still covered and tappable but not tone-coloured (`GLB-066`);
 - a reading takes its character's tone colour when tone colouring applies (`GLB-066`), otherwise
   `muted`; ruby text is about half the base text size;
 - every line reserves a ruby band, so the line height does not depend on whether a given line has
@@ -173,8 +190,9 @@ passage card, OCR text-view lines and the Voice transcript render readings above
   toggling never reflows the passage; tone colours and underlines are unaffected;
 - a tap on the ruby band hit-tests to the character beneath it; the selection highlight covers the
   character and its reading;
-- a new analysis of the same passage (live voice utterance, mode or script change) replaces readings
-  in the same frame as segmentation and tone colours;
+- a new analysis of the same passage (live voice utterance, mode or script change, script conversion
+  or `Show original` — `TXT-084`) replaces readings in the same frame as segmentation and tone
+  colours;
 - screen-reader labels follow `GLB-122`;
 - the Reading and Voice destinations show the pronunciation toggle button (`GLB-120`).
 
@@ -204,7 +222,8 @@ of the two sheets is visible at a time.
 
 `TXT-045` `[MUST]` The sheet closes on: the close button, a drag down to hidden, back, tapping a row
 (which opens the entry), changing destination, changing script or dictionary mode, and any change to
-the underlying passage. A programmatic hide must not be mistaken for a user dismissal.
+the underlying passage, including converting it or showing the original (`TXT-084`, `CAM-135`,
+`VOICE-096`). A programmatic hide must not be mistaken for a user dismissal.
 **Exception:** updates of the Voice transcript — the live utterance growing or being re-segmented,
 or an utterance being committed — do not close the sheet; it stays open and refreshes in place
 (`VOICE-041`).
@@ -224,7 +243,9 @@ sheet; closing the word sheet restores it (`HW-020`).
   `Paste or type a Chinese passage…`, carrying the input-method button (`HW-003`) as a trailing icon
   button;
 - a wrapping button row: `Paste` (filled accent, disabled when the clipboard has no usable text),
-  `Clear` (outlined, disabled when the draft is blank), and the pronunciation toggle (`GLB-120`);
+  `Clear` (outlined, disabled when the draft is blank), the pronunciation toggle (`GLB-120`), and,
+  to the right of these, the script-conversion split button (`TXT-081`; disabled while the draft is
+  blank);
 - optional status text (clipboard message, `Reading…`, or an error);
 - when analysed: the passage card (`TXT-030`, with interlinear readings `TXT-034`) and the sentence
   action row (`MED-020`): play/stop, translate — an external hand-off per `MED-030`…`MED-033`
@@ -274,6 +295,86 @@ handled read-only: the app never returns modified text to the calling app. The c
 touched, and the received text is never logged (`GLB-090`). Received **images** go to the OCR
 destination instead (`CAM-002`).
 
+#### 6.1 Script conversion
+
+Script conversion follows the shared view-state rule `GLB-009`. The control and its behaviour are
+defined here once and reused by the OCR text view (`CAM-135`) and the Voice transcript
+(`VOICE-096`). Conversion runs on the device with the OpenCC Kotlin Multiplatform library
+(`ARCH-196`) and its dictionaries (`DATA-195`).
+
+`TXT-081` `[MUST]` **The control.** A Material 3 **split button** sits to the right of the surface's
+existing action buttons (Reading: the button row of `TXT-050`; OCR: `CAM-135`; Voice: `VOICE-096`):
+- the **main action** (leading segment) is a text button whose label depends on the state:
+  `Convert to Traditional` or `Convert to Simplified` while the original is shown (`TXT-082`), and
+  `Show original` while a conversion is shown;
+- the **menu** (trailing segment, a chevron labelled `Conversion options`) opens the conversion dialog
+  (`TXT-083`).
+
+`Show original` restores the original text; the main action then offers the conversion again, using
+the source and target last confirmed in the dialog for this passage if any, else `TXT-082`. The
+control is disabled while there is no text (blank draft, no recognised text, empty transcript).
+
+`TXT-082` `[MUST]` **Script detection and the main action.** The script of the current original text
+is detected on the device:
+- count `s` = characters that occur only in the simplified set and `t` = characters that occur only
+  in the traditional set (S-only: keys of OpenCC `STCharacters` that are neither keys of
+  `TSCharacters` nor values of `STCharacters`; T-only: the mirror rule);
+- `s + t = 0` → **Neutral**; `s / (s + t) ≥ 0.8` → **Simplified**; `≤ 0.2` → **Traditional**;
+  otherwise **Mixed**; fewer than 3 distinguishing characters → low confidence, treated like
+  Neutral;
+- when Traditional, the regional variant is scored from the values of OpenCC `HKVariants` /
+  `TWVariants` and `HKPhrases` / `TWPhrases`: a clear winner gives Traditional (Hong Kong) or
+  Traditional (Taiwan), otherwise Traditional (OpenCC standard).
+
+Main action: detected Simplified → `Convert to Traditional`; detected Traditional (any variant) →
+`Convert to Simplified`. Neutral, Mixed and low-confidence text is assumed to be in the user's script
+for the active mode (`SET-011`), and the main action converts to the other script. Detection never
+converts by itself (the only default-on conversion is Voice, `VOICE-096`). The default Traditional
+target of the main action is Traditional (Hong Kong) in Cantonese mode and Traditional (OpenCC
+standard) in Mandarin mode. Detection runs on the original text after each analysis and is cheap
+enough to share its off-UI-thread job.
+
+`TXT-083` `[MUST]` **Conversion dialog.** Opened from the split button's menu; title `Convert script`;
+two single-choice groups and the buttons `Cancel` / `Convert`:
+- `Text is:` — `Simplified`, `Traditional (OpenCC standard)`, `Traditional (Hong Kong)`,
+  `Traditional (Taiwan)`; the detected value (`TXT-082`) is preselected (the user's script for
+  Neutral, Mixed or low-confidence text);
+- `Convert to:` — `Simplified`, `Traditional (OpenCC standard)`, `Traditional (Hong Kong)`,
+  `Traditional (Taiwan)`, `Traditional (Taiwan, with phrases)` (converts vocabulary too, e.g.
+  软件 → 軟體); the option equal to the selected source is greyed out (disabled) and, if it was
+  selected, the selection moves to the main action's default target.
+
+`Convert` applies the conversion to the original text (never to an already converted text) and the
+main action becomes `Show original`. OpenCC configurations used (upstream configurations marked
+"in development", such as `s2hkp` / `hk2sp`, are not used):
+
+| Text is ↓ / Convert to → | Simplified | Traditional (OpenCC) | Traditional (HK) | Traditional (Taiwan) | Taiwan, with phrases |
+|---|---|---|---|---|---|
+| Simplified | — | `s2t` | `s2hk` | `s2tw` | `s2twp` |
+| Traditional (OpenCC) | `t2s` | — | `t2hk` | `t2tw` | `t2s` → `s2twp` |
+| Traditional (HK) | `hk2s` | `hk2t` | — | `hk2t` → `t2tw` | `hk2s` → `s2twp` |
+| Traditional (Taiwan) | `tw2s` | `tw2t` | `tw2t` → `t2hk` | — | `tw2s` → `s2twp` |
+
+`TXT-084` `[MUST]` **Conversion on the Reading passage** (`GLB-009`):
+- the passage card shows the converted text; the text field always holds the **original** draft,
+  which conversion never modifies;
+- the converted text is re-analysed in full (segmentation `TXT-010`, span candidates, coverage,
+  readings, tone colours and boundary underlines — `TXT-032`); both scripts are in the dataset, so
+  converted text resolves to the same entries; the previous analysis stays until the new one is ready
+  (`GLB-030`, `GLB-033`);
+- converting, `Show original` and changing the options close the word-candidate sheet (a change of
+  the underlying passage, `TXT-045`) and clear the selection, since phrase conversion can change the
+  text's length;
+- the sentence actions (play, translate, copy — `MED-020`) act on the displayed text;
+- the conversion state belongs to the passage while it is on screen: editing the draft keeps it and
+  converts the edited text with the same source and target; a new passage (`Clear`, `Paste`, shared
+  text `TXT-080`, `Open in Reading` from Voice) starts unconverted with fresh detection; it is not
+  persisted across launches (`SET-014`) and never appears in a URL (`GLB-112`);
+- conversion runs off the UI thread, is latest-only (`GLB-040`) and loads the OpenCC dictionaries it
+  needs lazily on first use (`ARCH-196`); budgets: `PERF-059`. A conversion that changes nothing
+  still shows `Show original`, with the status `Nothing to convert`. A conversion failure keeps the
+  original on screen and shows `Unable to convert text` (`GLB-034`).
+
 ---
 
 ### 7. Performance
@@ -319,13 +420,19 @@ handled without index errors.
 
 ## Camera / OCR
 
-**Android and iOS only** (`PROD-022`). Read [02 — Global Conventions](02-global-conventions.md) and
-the Text Analysis part of this document first — the tap-to-word behaviour is shared.
+**Android, iOS and Web** (`PROD-021`, `PROD-022`, `PROD-052`). Every platform offers the same image
+inputs — live camera feed, picking a local file, drag and drop, and paste (`CAM-130`) — and only the
+recognition engine differs: ML Kit (bundled) on Android, Apple Vision on iOS, and the ML Kit model
+repackaged for the browser on Web (`CAM-051`, `CAM-134`). Read
+[02 — Global Conventions](02-global-conventions.md) and the Text Analysis part of this document first
+— the tap-to-word behaviour is shared.
 
-This spec contains four **new requirements** that do not exist in the reference app: tap to focus
+This spec contains **new requirements** that do not exist in the reference app: tap to focus
 (`CAM-030`), explicit flash control (`CAM-035`), saving the captured image to the photo library
-(`CAM-071`), and an auto-save setting (`CAM-080`). OCR is also a **primary destination** rather than
-the reference app's modal surface (`CAM-006`…`CAM-009`).
+(`CAM-071`), an auto-save setting (`CAM-080`), drag-and-drop and paste input with a width-dependent
+input screen (`CAM-130`…`CAM-133`), OCR on Web (`CAM-134`) and script conversion of the recognised
+text (`CAM-135`). OCR is also a **primary destination** rather than the reference app's modal surface
+(`CAM-006`…`CAM-009`).
 
 ---
 
@@ -345,31 +452,40 @@ above the bottom bar (or beside the rail).
    any retained capture. iOS has no share target in v1 (decided: `Q-042`).
 
 There are no other entry points: neither the empty Search screen nor the Reading destination has OCR
-access cards (decided: `Q-050`); recognising an existing image is done with the image-picker button
-(`CAM-007`). Shared **text** goes to Reading (`TXT-080`).
+access cards (decided: `Q-050`). Within the destination, an existing image is supplied with the
+image-picker button (`CAM-007`), by drag and drop (`CAM-131`) or by paste (`CAM-132`). Shared **text**
+goes to Reading (`TXT-080`). On Web the static shortcuts are absent (`SET-053`); the destination is
+reached from the navigation or its route `/ocr` (`GLB-110`).
 
 `CAM-003` `[MUST]` Selecting the destination from the navigation shows the retained state (`CAM-008`):
-the review of the retained capture if one exists, otherwise the live feed. Starting a new capture
-(shutter, `Retake`, picking or receiving an image) replaces any previous capture, recognition result,
-selection and error.
+the review of the retained capture if one exists, otherwise the input screen (the live feed, or the
+image-input screen at expanded width — `CAM-006`, `CAM-133`). Starting a new capture
+(shutter, `Retake`, picking, dropping, pasting or receiving an image) replaces any previous capture,
+recognition result, selection, conversion state (`CAM-135`) and error.
 
 `CAM-004` `[MUST]` The destination has exactly two phases:
-- **Capture phase** — no image yet: either the live viewfinder (source = camera) or a decode
-  spinner/error (source = gallery/share).
+- **Capture phase** — no image yet: the input screen of `CAM-006` / `CAM-133` (the live viewfinder,
+  or at expanded width the drop zone with the camera as a secondary option), or a decode
+  spinner/error (source = gallery: picked, shared, dropped or pasted).
 - **Review phase** — an image exists: the image with recognition overlay, or the text list.
 
 `CAM-005` `[MUST]` `source` is `CAMERA` or `GALLERY` and determines the review header's primary
-action and whether the image can be saved (`CAM-072`).
+action and whether the image can be saved (`CAM-072`). Picked, shared, dropped and pasted images all
+have `source = GALLERY`.
 
-`CAM-006` `[MUST]` Opening the OCR destination with no retained capture goes **straight to the live
-camera feed** — no intermediate screen. If camera access is not granted, the viewfinder frame shows
-the permission rationale panel instead (`CAM-010`…`CAM-015`); the image-picker button stays
-available.
+`CAM-006` `[MUST]` At **compact and medium widths** (below the expanded width of `GLB-125`), opening
+the OCR destination with no retained capture goes **straight to the live camera feed** — no
+intermediate screen — on every platform. If camera access is not granted, the viewfinder frame shows
+the permission rationale panel instead (`CAM-010`…`CAM-015`); the image-picker and paste buttons stay
+available. At **expanded width** it opens on the image-input screen instead, with the camera as a
+secondary option (`CAM-133`).
 
 `CAM-007` `[MUST]` An **image-picker** icon button sits on the viewfinder, bottom-leading beside the
-shutter, labelled `Choose from gallery`. It opens the platform photo picker (`CAM-016`); a picked
-image goes to review with `source = GALLERY`. It is available in every capture-phase state, including
-the permission panel and the camera-unavailable state (`CAM-015`).
+shutter, labelled `Choose from gallery` (Android, iOS) or `Choose file` (Web, `GLB-080`), with a
+`Paste image` icon button bottom-trailing (`CAM-132`). The picker opens the platform photo picker or
+file chooser (`CAM-016`); a picked image goes to review with `source = GALLERY`. Both buttons are
+available in every capture-phase state, including the permission panel and the camera-unavailable
+state (`CAM-015`).
 
 `CAM-008` `[MUST]` **State retained, hardware released.** Leaving the OCR destination for another
 destination keeps the capture state within the session: the captured image, its recognition result,
@@ -381,25 +497,35 @@ user leaves runs to completion and its result is shown on return. Nothing is per
 launches (`SET-014`).
 
 `CAM-009` `[MUST]` Re-tapping the already-selected OCR destination while reviewing a capture returns to
-the live feed (`PROD-053`); in the capture phase it has no effect. On Web the destination and all its
-entry points are absent (`PROD-022`).
+the input screen — the live feed at compact and medium widths, the image-input screen at expanded
+width (`CAM-133`) — discarding the capture (`PROD-053`); in the capture phase it has no effect. The
+destination exists on every platform (`PROD-022`); only the static shortcut is absent on Web
+(`SET-053`).
 
 ---
 
 ### 2. Permission handling
 
 `CAM-010` `[MUST]` The camera permission is requested **lazily**, only when the viewfinder is first
-shown (the first visit to the OCR destination) — never at app start.
+shown (the first visit to the OCR destination at compact width, or the first use of the camera
+option at expanded width, `CAM-133`) — never at app start. On Web the camera is opened with
+`getUserMedia` (preferring the rear camera, `facingMode: "environment"`), which shows the browser's
+own permission prompt; Web needs a secure context, which `szdict.com` provides.
 
 `CAM-011` `[MUST]` Pre-grant state shows a permission prompt panel inside the viewfinder frame: a
 camera icon, the rationale `Camera access is needed to recognize Chinese text in photos.`, and one
 button:
 - first time: `Allow camera` (triggers the system prompt);
 - after a soft denial: `Try again`;
-- after a permanent denial: `Open app settings` (deep-links to the app's settings page).
+- after a permanent denial: `Open app settings` (deep-links to the app's settings page). On Web, which
+  cannot open browser settings, the panel instead reads
+  `Camera access is blocked. Allow it in your browser's site settings, then try again.` with
+  `Try again`.
 
 `CAM-012` `[MUST]` Permanent denial is detected by the platform's "should show rationale" signal being
-false after a denial (Android) / the authorisation status being `denied` or `restricted` (iOS).
+false after a denial (Android) / the authorisation status being `denied` or `restricted` (iOS) / the
+Permissions API `camera` state being `denied`, or `getUserMedia` failing with `NotAllowedError` where
+that API is unavailable (Web).
 
 `CAM-013` `[MUST]` Permission state is re-checked on every resume and on every return to the
 destination, so granting it in system settings and returning starts the viewfinder without further
@@ -409,12 +535,19 @@ interaction.
 to `Allow camera` after a rotation.
 
 `CAM-015` `[MUST]` If the camera device cannot be bound (no camera, hardware in use, emulator without
-a camera), the frame shows `The camera is unavailable on this device.` and the image-picker path
-remains available.
+a camera, a desktop browser without a webcam — `NotFoundError` / `NotReadableError` on Web), the frame
+shows `The camera is unavailable on this device.` and the picker, drop and paste paths remain
+available.
 
 `CAM-016` `[MUST]` The gallery path uses the platform's **photo picker** (Android Photo Picker /
-iOS `PHPickerViewController`), which grants access to the single chosen image only and therefore
-requires **no** media permission. A broad photo-library read permission must not be requested.
+iOS `PHPickerViewController`; Web: a file input with `accept="image/*"` and no `capture` attribute,
+so the browser offers both files and its camera), which grants access to the single chosen image
+only and therefore requires **no** media permission. A broad photo-library read permission must not
+be requested. Picking from local **files** (not only the photo library) is offered on Android and iOS
+through the system document picker (`ACTION_OPEN_DOCUMENT` with `image/*`;
+`UIDocumentPickerViewController` for image types), which likewise needs no permission: the
+expanded-width `Choose file` button opens it, offering photos as a second button (`CAM-133`), and the
+compact viewfinder button opens the photo picker.
 
 `CAM-017` `[MUST]` Declared permissions (the merged-manifest policy and its CI check are
 `ARCH-104`…`ARCH-106`):
@@ -424,7 +557,9 @@ requires **no** media permission. A broad photo-library read permission must not
 - saving to the gallery — Android needs no permission when writing through `MediaStore` on API 29+,
   and `WRITE_EXTERNAL_STORAGE` with `android:maxSdkVersion="28"` for API 26–28 (minimum API 26:
   `PROD-025`; decided: `Q-092`); iOS needs `NSPhotoLibraryAddUsageDescription` (add-only; decided:
-  `Q-112`).
+  `Q-112`);
+- Web declares nothing: the camera is a browser permission prompt (`CAM-010`), and file pick, drop and
+  paste need no permission beyond the browser's clipboard rules (`CAM-132`).
 
 Broad photo-library read permissions must never be declared.
 
@@ -439,7 +574,8 @@ the user frames is exactly what is recognised.
 
 `CAM-021` `[MUST]` Preview scaling is fit-centre (letterboxed), never cropped.
 
-`CAM-022` `[MUST]` The rear camera is used by default. No front/rear toggle in v1.
+`CAM-022` `[MUST]` The rear camera is used by default (on Web where the device has one; a desktop
+webcam is used as is). No front/rear toggle in v1.
 
 `CAM-023` `[MUST]` A 72 dp circular accent shutter button sits bottom-centre inside the frame. While a
 capture is in flight it is disabled and shows a 30 dp progress indicator.
@@ -456,7 +592,10 @@ with the torch off. A capture that completes after release is discarded and its 
 applied, EXIF is resolved, and the longest side is capped at 2560 px (bounding a decoded frame at
 roughly 26 MB — an explicit exception to the single-allocation limit of `PERF-080`). All recognition,
 overlay and hit-testing coordinates are in this upright working image's pixel space. The original
-capture is kept separately for saving (`CAM-073`, `CAM-074`); it is never used for analysis.
+capture is kept separately for saving (`CAM-073`, `CAM-074`); it is never used for analysis. On Web
+the capture is taken with `ImageCapture.takePhoto()` where supported, otherwise as a frame grabbed
+from the video track at its highest available resolution; the preview requests a 4:3 track where the
+browser allows it and otherwise letterboxes and captures the same visible region.
 
 `CAM-027` `[MUST]` Capture failure shows `Could not take a photo. Try again.`; post-processing failure
 shows `Could not process the captured photo.` Both leave the viewfinder usable.
@@ -476,7 +615,9 @@ scale-in, then indicates the outcome (converged / failed) and fades out after ab
 continuous autofocus. Tapping again cancels and replaces an in-flight request.
 
 `CAM-034` `[MUST]` Where the device does not support point metering, the tap is a no-op with no
-reticle and no error.
+reticle and no error. On Web tap-to-focus is offered **only where the browser exposes it** (the
+`pointsOfInterest` / `focusMode` track constraints in `getCapabilities()`); elsewhere this no-op
+applies.
 
 #### 3.2 Flash / torch — NEW
 
@@ -486,7 +627,10 @@ illumination mode. Minimum required behaviour: an explicit **on/off** toggle tha
 `CAM-036` `[SHOULD]` Offer three states — `Off`, `On`, `Auto` — with icons, cycling on tap, and label
 the current state for accessibility.
 
-`CAM-037` `[MUST]` The control is hidden when the active camera reports no flash unit.
+`CAM-037` `[MUST]` The control is hidden when the active camera reports no flash unit. On Web the only
+illumination control is the **torch** (`torch` track constraint), offered as an `Off` / `On` toggle
+labelled `Torch` (`Toggle flash` for accessibility) only where `getCapabilities()` reports it; there
+is no capture flash and no `Auto` on Web, and the control is hidden elsewhere (`PROD-023`).
 
 `CAM-038` `[MUST]` The chosen state persists for the session and is re-applied when the camera is
 rebound after backgrounding or after returning to the destination. It is **not** persisted across
@@ -498,23 +642,83 @@ is released (`CAM-025`).
 
 ---
 
-### 4. Image ingestion (picker / share)
+### 4. Image ingestion (picker / share / drop / paste)
 
-`CAM-040` `[MUST]` Picking or receiving an image immediately switches the destination to the capture
-phase with `source = GALLERY` and shows a centred spinner while decoding.
+`CAM-040` `[MUST]` Picking, dropping, pasting or receiving an image immediately switches the
+destination to the capture phase with `source = GALLERY` and shows a centred spinner while decoding.
 
 `CAM-041` `[MUST]` Decoding applies EXIF orientation and downscales to the same 2560 px cap, using a
-hardware-independent (software) allocation so the bitmap can be read by the recogniser.
+hardware-independent (software) allocation so the bitmap can be read by the recogniser (Web:
+`createImageBitmap` with `imageOrientation: "from-image"`). Accepted inputs are the image formats the
+platform decodes (at least JPEG, PNG and WebP; HEIC where the platform decodes it; the first frame of
+an animated image).
 
 `CAM-042` `[MUST]` Decode failure shows the error text plus a `Choose another image` button; back (or
-the `Camera` action) returns to the live feed. Messages: `Could not open that image.` (picker) /
-`Could not open the shared image.` (share intent).
+the `Camera` action) returns to the input screen (`CAM-006`, `CAM-133`). Messages:
+`Could not open that image.` (picker) / `Could not open the shared image.` (share intent) /
+`Could not open the dropped image.` (drop) / `Could not open the pasted image.` (paste).
 
 `CAM-043` `[MUST]` A shared image (Android) is **consumed** once — the intent action is cleared on
 handling — so activity recreation, rotation or a later activation does not re-handle the same image.
 
 `CAM-044` `[MUST]` Decoding must not be tied to a composable's lifetime; it runs on a scope that
 survives the picker's own recomposition so a rotation mid-decode does not lose the image.
+
+#### 4.1 Image inputs on every platform
+
+`CAM-130` `[MUST]` **Same inputs everywhere.** Android, iOS and Web all offer the same four ways to
+supply an image, and each leads to the same review flow:
+1. the **live camera feed** (`CAM-020`…`CAM-039`; Web: `getUserMedia`, `CAM-010`) → `source = CAMERA`;
+2. **picking** an image from the photo library or local files (`CAM-007`, `CAM-016`);
+3. **drag and drop** of an image onto the destination (`CAM-131`);
+4. **paste** of an image from the clipboard (`CAM-132`).
+
+Inputs 2–4 give `source = GALLERY` and go through decoding (`CAM-040`…`CAM-044`). Any of them,
+in any phase (capture or review), replaces the current capture (`CAM-003`). Only the camera's
+hardware capabilities (focus, flash/torch) differ per platform and browser (`CAM-034`, `CAM-037`).
+
+`CAM-131` `[MUST]` **Drag and drop.** The whole OCR destination content area is a drop target in
+every phase on every platform (Android: `DragAndDropPermissions` for drops from other apps, for
+example in split screen, freeform windows or ChromeOS; iOS: `UIDropInteraction`, for example from
+Files or Photos in Split View or on iPad; Web: HTML drag-and-drop with files):
+- while an acceptable item is dragged over the destination, a full-area drop overlay with the
+  message `Drop image to recognize text` is shown (accent outline, `highlight` fill); it disappears
+  when the drag leaves or ends;
+- the first image of the dropped items is used and any others are ignored; a drop with no image
+  (text, other files) shows `That file is not an image.` and leaves the current state unchanged;
+- an image dragged from a web page that arrives only as a URL is not fetched (no network request
+  for user content, `GLB-090`): it is treated as not an image.
+
+`CAM-132` `[MUST]` **Paste.** An image on the clipboard can be pasted in every phase:
+- by the `Paste image` button (`CAM-007` on the viewfinder; `CAM-133` on the image-input screen)
+  and, wherever a hardware keyboard is present, by
+  **Ctrl+V** / **Cmd+V** while the destination is shown (Web: the document `paste` event; Android and
+  iOS: the platform paste key command); on iOS the button is the system paste control
+  (`UIPasteControl`), so no paste-permission alert is shown;
+- availability follows the clipboard rules of `TXT-053`…`TXT-055` with an image MIME type
+  (`image/*`) in place of text; on Android and iOS the button is disabled when the clipboard holds no
+  image; on Web, where availability cannot be read without a prompt, it stays enabled and reads the
+  clipboard with `navigator.clipboard.read()` on the user's gesture, surfacing a permission failure
+  inline as `Clipboard access was denied.` (as `TXT-059` for text);
+- a paste with no image on the clipboard shows `No image on the clipboard.`; text on the clipboard
+  is never sent to OCR (text is read in Reading, `TXT-052`);
+- the clipboard is only read on an explicit paste action, never polled for content.
+
+`CAM-133` `[MUST]` **Width-dependent input screen.** The capture phase's input screen depends on the
+window width (`GLB-125`):
+- **Compact and medium width (below 840):** the **camera feed is primary** — the live viewfinder of
+  `CAM-006`, with the picker and paste icon buttons on it (`CAM-007`); drop still works (`CAM-131`).
+- **Expanded width (840 and above):** the screen emphasises the non-camera inputs: a large
+  **drop zone** (dashed `border` outline, large corner rounding, an image icon and the text
+  `Drop an image here, paste it with Ctrl+V, or choose a file` — `Cmd+V` on Apple platforms; label
+  `Drop image`, `GLB-080`) with the buttons `Choose file` (filled accent), `Choose from gallery`
+  (Android and iOS only, the photo picker) and `Paste image` (outlined); below them, as a secondary
+  option, a `Use camera` text button. `Use camera` switches the screen to the live viewfinder
+  (requesting permission then, `CAM-010`), with a `Back to image inputs` action; the camera is not
+  opened while the drop zone is shown. `Use camera` is hidden when the platform reports no camera
+  (Web: no video input device), with no dead affordance (`PROD-023`).
+- A width change across 840 while in the capture phase switches the layout and releases or binds the
+  camera accordingly; an image being decoded or reviewed is unaffected.
 
 ---
 
@@ -524,10 +728,14 @@ survives the picker's own recomposition so a rotation mid-decode does not lose t
 **20 s timeout**. While it runs, the review phase shows the image with a centred spinner over it; the
 header and view toggle remain usable.
 
-`CAM-051` `[MUST]` The recogniser must be a **Chinese-capable, on-device, offline** text recogniser
-that makes no network request (mobile builds have no network permission, `ARCH-104`). Android: ML Kit
-Chinese text recognition in its **bundled** variant (model inside the app, never downloaded at
-runtime). iOS: Apple Vision (`VNRecognizeTextRequest` with `zh-Hans`/`zh-Hant`).
+`CAM-051` `[MUST]` The recogniser must be a **Chinese-capable, on-device, offline** text recogniser;
+images and recognised text never leave the device. Android: ML Kit Chinese text recognition in its
+**bundled** variant (model inside the app, never downloaded at runtime; mobile builds have no network
+permission, `ARCH-104`). iOS: Apple Vision (`VNRecognizeTextRequest` with `zh-Hans`/`zh-Hant`). Web:
+the ML Kit Chinese text-recognition model **repackaged for the browser**, run locally in the page;
+its one-time download and version checks are the only network requests OCR makes on Web and carry no
+user data (`CAM-134`). The 20 s timeout of `CAM-050` covers recognition only, never the model
+download.
 
 `CAM-052` `[MUST]` The recognition result is a list of **lines**. Each line has:
 - `text` — the concatenation of its symbol texts, **not** the platform's line text. Platform line text
@@ -557,15 +765,42 @@ the dataset while a capture is on screen must **re-run** the analysis against th
 raw image and recognition result are dataset-independent). Taps are ignored until the re-analysis
 completes.
 
+`CAM-134` `[MUST]` **Web recognition model** (`GLB-035`, `ARCH-197`, `DATA-196`; budgets `PERF-059`):
+- **Delivery.** The model (~2.61 MB) is not part of the app shell. It is downloaded from `szdict.com`
+  on the **first use of OCR** — the first time the OCR destination is opened — off the UI thread,
+  verified against the SHA-256 in the model manifest, and **stored for offline use** in persistent
+  browser storage (OPFS or Cache Storage, like the dataset, `ARCH-145`).
+- **Download state.** While no verified model is stored, the review phase shows, in place of the
+  recognition spinner, `Downloading text recognition… 45%` with progress (the size, `2.6 MB`, is
+  stated); the capture and input controls stay usable, and an image supplied meanwhile is recognised
+  as soon as the model is ready. A failed download, or opening OCR offline before the first download,
+  shows `Text recognition needs a one-time download of 2.6 MB. Check your connection and try again.`
+  with `Retry` (`GLB-034`); the image stays on screen and the rest of the app is unaffected.
+- **Versioning.** The manifest carries the model version and its SHA-256. When online, opening the
+  OCR destination fetches the manifest (at most once per session); if the published version equals
+  the stored one, nothing is downloaded; if it changed, the new model is downloaded in the
+  background, verified, and swapped in atomically for the next recognition, the stored model staying
+  in use until then. A failed check or download keeps the stored model and shows nothing. Offline,
+  the stored model is used without any check.
+- **Integrity.** A model whose hash does not match is discarded and never loaded; a stored model that
+  fails to load is deleted and re-downloaded as on first use.
+- **Loading.** The model is loaded off the UI thread when needed and may be released when the
+  destination is left or under memory pressure (`CAM-092`); reloading reads the stored copy, never
+  the network.
+
 ---
 
 ### 6. Review phase
 
 `CAM-060` `[MUST]` A translucent result header pinned to the top holds:
 - a primary action: `Retake` (source = camera, returns to the live feed) or `Pick new image`
-  (source = gallery), plus, for source = gallery, a `Camera` action returning to the live feed;
+  (source = gallery), plus, for source = gallery, an action returning to the input screen — `Camera`
+  (the live feed) at compact and medium widths, hidden when the device has no camera (`CAM-015`);
+  `New image` (the image-input screen, `CAM-133`) at expanded width;
 - the new `Save photo` action (`CAM-072`);
 - a two-segment `Image` / `Text` view toggle.
+
+Dropping or pasting an image during review replaces the capture (`CAM-130`).
 
 `CAM-061` `[MUST]` Its bottom gradient shadow fades in only when the text list can scroll up.
 
@@ -607,13 +842,31 @@ covered character (`GLB-058`, `TXT-033`) in reading order, crossing line boundar
   (newline-joined) and the sentence action row (play / translate / copy, `MED-020`; translate is the
   external hand-off of `MED-030`…`MED-033`);
 - then one card per line: the line rendered as an interactive segmented passage (word-boundary
-  underlines, tone colours, interlinear readings, tappable characters — `TXT-030`, `TXT-034`), or
-  plain muted text when the line could not be analysed; each with its own sentence action row.
+  underlines per `show_boundaries`, tone colours per `GLB-066`, interlinear readings, tappable
+  characters — `TXT-030`, `TXT-032`, `TXT-034`), or plain muted text when the line could not be
+  analysed; each with its own sentence action row.
+
+The `All text` card's action row ends with the script-conversion split button (`CAM-135`).
 
 `CAM-070` `[MUST]` Selecting a character in the text view opens the same sheet. Stepping moves to the
 nearest covered character (`GLB-058`, `TXT-033`) in reading order across lines, skipping lines with no
 covered character, and scrolls the list to the owning line, offset by the header height. A direction
 is disabled when no covered character exists in any line in that direction.
+
+`CAM-135` `[MUST]` **Script conversion of the recognised text** (`GLB-009`, `TXT-081`…`TXT-084`). The
+split button of `TXT-081` sits to the right of the `All text` card's actions (play / translate /
+copy) and applies to the whole capture:
+- detection (`TXT-082`) runs on the concatenated recognised text; the dialog (`TXT-083`) is the same;
+- when converted, every line card and the `All text` card show the converted text, each line
+  converted separately (line boundaries are kept) and re-analysed (`CAM-055`, `TXT-084`) with
+  boundaries, tone colours and readings; the sentence actions use the displayed text;
+- the recognition result keeps the original text; the **Image** view and its overlay always use the
+  original recognised lines and their analysis, since the geometry belongs to them; conversion is
+  shown in the Text view only;
+- converting, `Show original`, changing the options and switching between `Image` and `Text` while
+  converted close the word-candidate sheet and clear the selection (`GLB-009`);
+- the conversion state is part of the retained capture state (`CAM-008`), reset when the capture is
+  replaced (`CAM-003`), and re-applied when the analysis re-runs after a dataset change (`CAM-057`).
 
 #### 6.3 Save the captured image — NEW
 
@@ -647,6 +900,9 @@ replaced, when a new capture starts, or when the process ends. It is never share
 - **iOS**: `PHPhotoLibrary` add-only request (`addOnlyAccessLevel`), creating an asset in the user's
   library; if the user has previously denied add access, show the failure message with a
   `Open Settings` affordance.
+- **Web**: there is no photo library; `Save photo` saves the original capture as a JPEG **file
+  download** through the browser (timestamp-based file name), confirmed with `Photo downloaded`.
+  Auto-save does not exist on Web (`CAM-080`, `SET-084`).
 
 `CAM-076` `[MUST]` The save never blocks the UI thread and never blocks OCR.
 
@@ -654,7 +910,7 @@ replaced, when a new capture starts, or when the process ends. It is never share
 
 `CAM-080` `[MUST]` A persisted boolean setting, default **off**, labelled `Save photos to gallery`
 with the helper text `Automatically save pictures you take in the app.` It lives in Settings
-(`SET-010`).
+(`SET-010`), on Android and iOS only; the switch is absent on Web (`SET-084`).
 
 `CAM-081` `[MUST]` When enabled, every **camera** capture is saved automatically, immediately after
 capture, without further interaction. Picked and shared images are never auto-saved.
@@ -674,7 +930,9 @@ remains available. The app must not silently drop saves.
 
 `CAM-090` `[MUST]` Backgrounding during the capture phase releases the camera; returning rebinds it and
 re-checks permission (`CAM-013`) and re-applies the flash state (`CAM-038`). Leaving the destination
-behaves the same way (`CAM-008`).
+behaves the same way (`CAM-008`). On Web, "backgrounded" means the page is hidden
+(`visibilitychange`): the media stream's tracks are stopped, so the browser's camera indicator turns
+off, and a new stream is opened when the page is visible again.
 
 `CAM-091` `[MUST]` Backgrounding or leaving the destination during the review phase keeps the image
 and the recognition result; returning shows them without re-running OCR.
@@ -691,9 +949,11 @@ discarded (`CAM-003`).
 
 `CAM-100` `[MUST]` Precedence within the OCR destination (`PROD-056`):
 1. an open word-candidate sheet dismisses;
-2. reviewing a capture (any source), or a gallery/share decode spinner or error, returns to the live
-   feed, discarding that capture;
-3. in the live feed, back follows the general precedence of `PROD-056` (ultimately the platform
+2. reviewing a capture (any source), or a picker/share/drop/paste decode spinner or error, returns to
+   the input screen (the live feed, or the image-input screen at expanded width, `CAM-133`),
+   discarding that capture;
+3. at expanded width, the live viewfinder opened with `Use camera` returns to the image-input screen;
+4. on the input screen, back follows the general precedence of `PROD-056` (ultimately the platform
    default).
 
 ---
@@ -702,16 +962,26 @@ discarded (`CAM-003`).
 
 | Concern | Android | iOS | Web |
 |---------|---------|-----|-----|
-| OCR destination | Required | Required | **Absent** (`PROD-022`) |
-| Recogniser | ML Kit Chinese, bundled model (on-device) | Apple Vision | n/a |
-| Image picker | Photo Picker (no permission) | PHPicker (no permission) | n/a |
-| Save to library | MediaStore (`Pictures/<App>/`) | PHPhotoLibrary add-only | n/a |
-| Save permission | none (API 29+); `WRITE_EXTERNAL_STORAGE` `maxSdkVersion 28` (API 26–28) | add-only usage description | n/a |
-| Share-image target | `ACTION_SEND` `image/*` (`SET-054`) | none in v1 (`Q-042`) | n/a |
-| Launcher shortcut | static shortcut | Home Screen quick action | n/a |
+| OCR destination | Required | Required | Required (`PROD-022`, `PROD-052`) |
+| Input methods (`CAM-130`) | camera, pick, drop, paste | camera, pick, drop, paste | camera, pick, drop, paste |
+| Recogniser | ML Kit Chinese, bundled model (on-device) | Apple Vision | ML Kit Chinese model repackaged for the browser, run in the page (`CAM-051`) |
+| Recogniser delivery | inside the app | system framework | ~2.61 MB download on first OCR use, stored offline, versioned by manifest (`CAM-134`) |
+| Camera | CameraX | AVFoundation | `getUserMedia`, browser permission prompt (`CAM-010`) |
+| Tap to focus | supported where the device meters | supported where the device meters | only where the browser exposes focus constraints (`CAM-034`) |
+| Flash | `Off` / `On` / `Auto` (`CAM-036`) | `Off` / `On` / `Auto` | torch on/off only where supported, else hidden (`CAM-037`) |
+| Image picker | Photo Picker; document picker for files (no permission) | PHPicker; document picker for files (no permission) | file input `accept="image/*"` |
+| Drag and drop (`CAM-131`) | `DragAndDropPermissions` (split screen, freeform, ChromeOS) | `UIDropInteraction` (Split View, iPad) | HTML drag and drop |
+| Paste (`CAM-132`) | `ClipboardManager` image clip; Ctrl+V | `UIPasteControl`; Cmd+V | `navigator.clipboard.read()`, `paste` event; Ctrl/Cmd+V |
+| Save to library | MediaStore (`Pictures/<App>/`) | PHPhotoLibrary add-only | file download (`CAM-075`) |
+| Save permission | none (API 29+); `WRITE_EXTERNAL_STORAGE` `maxSdkVersion 28` (API 26–28) | add-only usage description | none |
+| Auto-save setting | yes (`CAM-080`) | yes | absent (`SET-084`) |
+| Share-image target | `ACTION_SEND` `image/*` (`SET-054`) | none in v1 (`Q-042`) | none |
+| Launcher shortcut | static shortcut | Home Screen quick action | none (`SET-053`) |
 
-`CAM-110` `[MUST]` The camera, picker, recogniser and photo-library writer are each behind a small
-platform-abstraction port so shared UI and state code are identical across platforms (`ARCH-090`).
+`CAM-110` `[MUST]` The camera, picker, drop target, image clipboard, recogniser (with, on Web, its
+model store, `ARCH-197`) and photo-library writer are each behind a small platform-abstraction port
+so shared UI and state code are identical across platforms (`ARCH-090`). Script conversion is shared
+code (`ARCH-196`), not a port.
 
 ---
 
@@ -926,8 +1196,9 @@ iOS version (the iOS minimum is 26, `PROD-025`). On Web the destination, its rou
 point are absent; its route falls back per `GLB-112`.
 
 `VOICE-002` `[MUST]` Layout, top to bottom:
-- a header with the title `Voice`, the pronunciation toggle (`GLB-120`), and the actions `Copy`,
-  `Clear` and `Open in Reading` (`VOICE-050`);
+- a header with the title `Voice`, the pronunciation toggle (`GLB-120`), the actions `Copy`,
+  `Clear` and `Open in Reading` (`VOICE-050`), and, to the right of them, the script-conversion split
+  button (`VOICE-096`);
 - the transcript area (`VOICE-030`), scrolling; with no transcript, the hint
   `Tap the microphone and speak Mandarin, Cantonese or English.`;
 - a status line (`Listening…`, `Preparing…`, or an error);
@@ -1026,8 +1297,9 @@ there is no language selector. Analysis always uses the active dictionary mode's
 (utterance, offset) position that has been displayed stays valid until the transcript is cleared.
 
 `VOICE-032` `[MUST]` A committed utterance is analysed **once** (`TXT-010`, `HANZI` run mode) when it
-is committed, and its analysis is frozen. It is re-analysed only when the dictionary mode, script or
-data generation changes (`GLB-044`), in which case every utterance is re-analysed.
+is committed, and its analysis is frozen. It is re-analysed only when the dictionary mode, script,
+transcript conversion (`VOICE-096`) or data generation changes (`GLB-044`), in which case every
+utterance is re-analysed.
 
 `VOICE-033` `[MUST]` The live utterance is re-segmented, re-coloured and given readings on **every**
 recogniser update and is **shown immediately** with segmentation underlines, tone colours and
@@ -1036,14 +1308,40 @@ latest-only (`GLB-040`); while a newer analysis is pending, the previous one sta
 prefix and newly appended characters render unmatched until it arrives (`GLB-030`).
 
 `VOICE-034` `[MUST]` **Script.** The recogniser outputs simplified characters plus Cantonese
-colloquial characters. Analysis runs on the recognised text. For display, a matched segment shows the
-matched entry's headword in the user's script (`SET-011`); an unmatched Hanzi is converted with a
-character-level OpenCC table shipped with the app (simplified → traditional in Mandarin mode,
-simplified → Hong Kong traditional in Cantonese mode). Conversion is one code point for one code
-point, so display offsets equal analysis offsets. `Copy` and `Open in Reading` use the displayed text.
+colloquial characters (to be confirmed against the model's actual output at integration). The
+transcript keeps this recognised text as its original. What is displayed is either the original or
+its script conversion (`VOICE-096`), and analysis (segmentation, readings, tone colours, boundaries,
+taps) always runs on the **displayed** text (`GLB-009`), so display offsets equal analysis offsets.
+There is no separate per-segment or per-character display conversion. `Copy` and `Open in Reading`
+use the displayed text.
 
 `VOICE-035` `[MUST]` English words are displayed as recognised but are not analysed (`HANZI` run
 mode, `TXT-011`); tapping them behaves as `TXT-023`.
+
+`VOICE-096` `[MUST]` **Transcript script conversion** (`GLB-009`, `TXT-081`…`TXT-084`). The split
+button of `TXT-081` sits to the right of the header actions and converts the whole transcript —
+every committed utterance and the live one:
+- **Default.** When the user's script for the active mode (`SET-011`) is **Traditional**, conversion
+  is **on by default**: Simplified → Traditional (Hong Kong) (`s2hk`) in Cantonese mode, Simplified
+  → Traditional (OpenCC standard) (`s2t`) in Mandarin mode, so the main action shows `Show original`.
+  When the user's script is Simplified, the transcript shows the original and the main action offers
+  `Convert to Traditional` (`TXT-082`). This replaces the earlier per-character OpenCC table.
+- **User choice.** `Show original`, the main action and the dialog (`TXT-083`) override the default
+  for the current transcript; the choice holds until `Clear` or the end of the session, after which
+  the default applies again. A script or mode change re-applies the default unless the user has
+  made a choice.
+- **Live text.** Committed utterances are converted once, at commit, with the utterance's analysis
+  (`VOICE-032`). The live utterance is converted on every recogniser update, before its re-analysis
+  (`VOICE-033`); as phrases complete, already displayed characters of the live utterance may change
+  (for example 干 → 乾 or 幹). The default configurations map code point for code point in practice,
+  so a displayed position stays valid (`VOICE-031`). When a conversion changes the length (always
+  possible with Taiwan with phrases), a selection in the live utterance whose offset no longer holds
+  the same character is cleared and the sheet closes.
+- **Sheet.** Toggling the conversion or changing its options closes the word-candidate sheet and
+  clears the selection (`GLB-009`); recogniser updates under an unchanged conversion keep it open
+  (`VOICE-041`).
+- Conversion is computed off the UI thread within the live re-segmentation family (`VOICE-080`) and
+  never delays audio capture or recognition (`VOICE-081`).
 
 ---
 

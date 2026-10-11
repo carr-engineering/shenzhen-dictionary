@@ -11,7 +11,8 @@ Section 2 (logical model) is `[MUST]`. Section 9 (physical encoding) is `[REC]` 
 evidence-based recommendation that may be replaced if the logical contract and the performance budgets
 in [08 — Engineering, performance part](08-engineering.md) are still met.
 
-Sizing figures quoted throughout are measured from the reference Mandarin dataset: 124760 entries,
+Sizing figures quoted throughout are measured from the reference Mandarin dataset (before the Unihan
+entries of `DATA-190` were added): 124760 entries,
 197616 distinct headwords, 48800 distinct English tokens, 709027 unique (token, entry) postings, 14178
 distinct characters, 427396 character postings, 11105 HSK rows (the earlier word list; the committed
 2025 list has 11,000 words, `PIPE-012`), 41319 frequency rows, and 5.4 MB of definition text.
@@ -70,8 +71,8 @@ never modified. Any per-user state (settings, widget masks) lives in separate ap
 `DATA-006` `[MUST]` `content_hash` covers the content, not the file bytes, so the same logical dataset
 built twice validates identically. The language-model companion file and every asset pack
 (`DATA-170`) reference the `dataset_version` they were built against and are rejected on mismatch.
-Non-dataset assets (voice, handwriting and OCR models, conversion table, fallback font — `DATA-170`)
-are **not** part of the dataset, are not covered by `content_hash`, and are versioned independently of
+Non-dataset assets (voice, handwriting and OCR models, OpenCC dictionaries, fallback font —
+`DATA-170`) are **not** part of the dataset, are not covered by `content_hash`, and are versioned independently of
 `dataset_version`.
 
 ---
@@ -90,10 +91,11 @@ senses — the CC-CEDICT record granularity. Fields:
 | `simplified` | string | required; may equal `traditional` |
 | `reading_display` | string | what the UI shows; empty only when `reading_source` is `none` |
 | `reading_canonical` | string | space-separated numbered syllables, lowercase, umlaut normalised |
-| `reading_source` | enum | `cedict` / `cccanto` / `cccedict_canto` / `none` — where the reading comes from; `none` only in the Cantonese dataset (`DATA-182`) |
+| `reading_source` | enum | `cedict` / `cccanto` / `cccedict_canto` / `supplement` (`PIPE-044`) / `unihan` (`DATA-190`) / `none` — where the reading comes from; `none` in the Cantonese dataset (`DATA-182`) and, in either dataset, on a Unihan-only entry without a reading for the dataset's language (`DATA-190`) |
 | `syllables` | string[] | toneless, lowercase, one per position |
 | `tones` | int8[] | parallel to `syllables`; `0` means unspecified |
 | `is_proper_noun` | bool | precomputed from the source's capitalisation (`GLB-013`) |
+| `is_unihan` | bool | the entry exists only through the Unihan fallback (`DATA-190`); ranks after dictionary entries (`SRCH-079`) |
 | `frequency_rank` | int32 | 1 is most common; `1000000` is the unranked sentinel |
 | `char_count` | int16 | code points in `simplified` |
 | `senses` | sense[] | ordered; may be empty |
@@ -102,7 +104,10 @@ senses — the CC-CEDICT record granularity. Fields:
 | `redirect` | redirect (nullable) | resolved (`DATA-055`) |
 | `merge_group_simplified` | int32 (nullable) | (`DATA-080`) |
 | `merge_group_traditional` | int32 (nullable) | (`DATA-080`) |
-| `hsk_levels` | int8[] | ascending; empty when none |
+| `hsk_levels` | int8[] | ascending; empty when none; syllabus main levels only (`DATA-125`) |
+| `hsk_levels_via_variant` | int8[] | levels received through variant relations (`DATA-193`); empty when none or when `hsk_levels` is non-empty |
+| `hsk_char_level` | int8 (nullable) | HSK recognition-character level of a single-character entry (`DATA-194`) |
+| `hsk_char_writing` | bool | the character is on the HSK writing list (`DATA-194`); false when `hsk_char_level` is null |
 | `segmentable` | bool | false for headwords excluded from the segmentation lexicon (`DATA-189`); still searchable and openable |
 | `audio_word_key` | string (nullable) | canonical audio key (`MED-005`) |
 | `lm_word_id` | int32 | language-model word id of the headword form (`DATA-152`) |
@@ -137,19 +142,21 @@ bookmarks, deep links) survive a dataset upgrade. Lookup by natural key must be 
 | `index` | int16 | 0-based position within the entry; drives the displayed number |
 | `text` | string | display text |
 | `segments` | segment[] | the parsed structure (`DATA-050`) |
-| `source` | enum | `cedict` / `cccanto` / `cccanto_adapted` (a CC-Canto line tagged `# adapted from cc-cedict`, `DATA-182`); matches the sense's block (`DATA-022`) |
+| `source` | enum | `cedict` / `cccanto` / `cccanto_adapted` (a CC-Canto line tagged `# adapted from cc-cedict`, `DATA-182`) / `supplement` (`PIPE-044`) / `unihan` (`DATA-190`); matches the sense's block (`DATA-022`) |
 | `tags` | string[] | allow-listed domain, register and part-of-speech tags lifted out of the text (`DATA-060`); may be empty |
 | `tokens` | string[] | English tokens per `SRCH-013`, precomputed |
 
 The CC-CEDICT Cantonese readings file (`PIPE-014`) supplies readings only, never senses, so it is not
-a sense source; HSK syllabus glosses are not part of the dataset (decided: `Q-032`).
+a sense source; HSK syllabus glosses are not part of the dataset (decided: `Q-032`). The project
+supplement (`PIPE-044`) and Unihan (`DATA-190`) are sense sources only for headwords that CC-CEDICT and
+CC-Canto lack.
 
 `DATA-021` `[MUST]` Sense ordering within an entry is the pipeline's decision and is final; the app
 renders in the given order and numbers from 1.
 
 `DATA-022` `[MUST]` **Provenance is labelled per block, never per sense** (decided: `Q-080`). An
 entry's `senses` are partitioned into contiguous **source blocks**, each a record of: `kind`
-(`cantonese` / `cantonese_adapted` / `mandarin`), `label_key` (into the label table, `DATA-060`),
+(`cantonese` / `cantonese_adapted` / `mandarin` / `supplement` / `unihan`), `label_key` (into the label table, `DATA-060`),
 `first_sense` and `sense_count`, and, for a `mandarin` block, one or more **reading groups** — the
 Pinyin `reading_display` and `reading_canonical` of each CC-CEDICT entry whose senses are carried, with
 its sense range — in frequency order. In the Cantonese dataset blocks are stored in this order, and
@@ -165,8 +172,18 @@ block exists** (`ENT-110`):
    each reading group; flagged `collapsed` when a Cantonese block (1 or 2) exists, expanded otherwise
    (`ENT-111`).
 
-A block is never empty; an entry with no Cantonese-sourced sense has only the `mandarin` block. The
-Mandarin dataset has a single `mandarin` block whose label is not shown. `[SHOULD]` The pipeline omits
+Two further block kinds exist in **both** datasets, each the **only** block of its entry and each
+**always labelled**:
+- `supplement` — senses of a project supplement entry (`PIPE-044`), for an HSK word CC-CEDICT lacks;
+  label `block_supplement`: "Shenzhen Dictionary supplement" (zh-Hans and zh-Hant in the label data,
+  `PIPE-079`). In the Cantonese dataset it takes the place the `mandarin` block would have;
+- `unihan` — the Unihan `kDefinition` of a Unihan-only character (`DATA-190`); label `block_unihan`:
+  "Unicode (Unihan)" / Unicode（Unihan） / Unicode（Unihan）. It is a **fallback**: it exists only on
+  entries with no CC-CEDICT, CC-Canto or supplement definition, so it never appears beside another
+  block (`ENT-126`).
+
+A block is never empty; an entry with no Cantonese-sourced sense has only the `mandarin` block. A
+Mandarin-dataset entry has a single block — `mandarin` (label not shown), `supplement` or `unihan`. `[SHOULD]` The pipeline omits
 the `mandarin` block from a Cantonese entry when at least 90 % of its normalised sense text already
 appears in the entry's Cantonese blocks (`ENT-115`), and reports the count.
 
@@ -296,8 +313,9 @@ frequent allow-listed tags:*
 | `written` | K trailing `[written]` | K 76 | Written | 书面语 | 書面語 |
 | `pos_noun`, `pos_verb`, `pos_adjective`, `pos_adverb` | K prefixes `(noun)`, `(verb)`, `(adjective)`, `(adverb)`, `n.`, `v.`, `adj.` | K 2,968 | Noun / Verb / Adjective / Adverb | 名词 / 动词 / 形容词 / 副词 | 名詞 / 動詞 / 形容詞 / 副詞 |
 
-Provenance block labels (`DATA-022`: `block_cantonese`, `block_cantonese_adapted`, `block_mandarin`)
-and `no_cantonese_reading` (`DATA-182`, `ENT-116`: "No Cantonese reading" / 无粤语读音 / 無粵語讀音)
+Provenance block labels (`DATA-022`: `block_cantonese`, `block_cantonese_adapted`, `block_mandarin`,
+`block_supplement`, `block_unihan`), the decomposition labels (`DATA-191`: `unencoded_component`
+"Unencoded component", `unknown_component` "Unknown part") and `no_cantonese_reading` (`DATA-182`, `ENT-116`: "No Cantonese reading" / 无粤语读音 / 無粵語讀音)
 are rows of the same table. A convention becomes an entry note (notes row) or stays inside its sense
 as a tag per the "Form" column; either way the label replaces the source phrase (`ENT-057`).
 
@@ -325,6 +343,10 @@ form (when different), the NFKC-plus-middle-dot **folded** form of each (when di
 ASCII-lowercased form of each (when different). One index answering exact match and prefix range over
 all of them, keyed by (key, entry id).
 Reference size: 202396 (key, entry) pairs over 197616 distinct keys.
+A **CJK Radicals Supplement** or **CJK Strokes** code point that has an equivalent unified ideograph
+(UCD `EquivalentUnifiedIdeograph.txt`, `DATA-190`) is an additional key (kind `radical_form`) for the
+entries of that ideograph, so pasting ⻊ or ⺡ finds 足 or 水. (Kangxi Radicals block code points need
+no extra key: NFKC already maps them to unified ideographs, `SRCH-010`.)
 **Key normalisation:** every matching key in the dataset (headword, reading, substring, character,
 English token and abbreviation keys) is produced with exactly the normalisation the app applies to the
 query matching key in `SRCH-010` — Unicode NFKC plus the apostrophe and middle-dot folding defined
@@ -337,6 +359,31 @@ column plus the original key is sufficient.
 
 `DATA-073` `[MUST]` **Reading index.** Keyed by the space-joined toneless syllable string, supporting
 exact match and prefix range, with the tone array available for tone filtering without a second read.
+Besides each entry's main reading it holds **alternative-reading postings** (`DATA-192`).
+
+`DATA-192` `[MUST]` **Alternative-reading postings** (`SRCH-078`). The readings given by an entry's
+`also_pr` and `taiwan_pr` notes (`DATA-060`; CC-CEDICT `also pr. [..]` 185 and `Taiwan pr. [..]` 553
+occurrences, CC-Canto 42 and 212; in the Cantonese dataset CC-Canto's `also pr.` Jyutping) are indexed
+as reading keys of that entry, extracted by `PIPE-079`:
+- **keys**: the full toneless syllable key in the reading index (`DATA-073`), with the alternative
+  reading's own tone array, and a first-letter key in `abbr_idx` (`DATA-151`), so toned, toneless,
+  prefix, abbreviated and combined input (`SRCH-050`, `SRCH-060`) all match it;
+- **flag**: every such posting is flagged `alt` and records its kind (`also_pr` / `taiwan_pr`) and the
+  ordinal of the note it comes from, so the result card can show the matched reading with its label
+  ("Also pronounced …" / "Taiwan pronunciation …") without parsing, and ranking can place an entry
+  matched **only** through an alternative reading after entries matched by their main reading within
+  the same match class (`SRCH-078`);
+- **eligibility**: an alternative reading is indexed only when it parses fully against the syllable
+  inventory and has as many syllables as the main reading; partial readings (one syllable of a longer
+  word) stay notes only and are counted in the build report;
+- **no duplicates**: no alternative posting is emitted when its (toneless key, tone array) equals the
+  entry's main reading; an alternative reading that differs only in tones gets a posting under the
+  same toneless key with its own tones, so a toned query (`qi2`) matches it; the app keeps one match
+  per entry, preferring the main reading (`SRCH-078`).
+
+Unihan-only entries (`DATA-190`) feed the reading-index postings (not `abbr_idx`, which excludes
+them): their second `kMandarin` value becomes a `taiwan_pr` note and further readings become `also_pr`
+notes.
 
 `DATA-074` `[MUST]` **Substring (CONTAINS) index.** An index that answers "headwords containing X at
 position 1 or later" **without scanning**. Contract: given a query of one or more code points, return
@@ -368,12 +415,16 @@ In the **Cantonese dataset** (decided: `Q-119`, following Pleco):
 
 The Mandarin dataset has only `mandarin` blocks, indexed per entry, without the flag.
 
+In **both** datasets, senses of a `supplement` block are indexed like `mandarin` senses, and senses of
+a `unihan` block (`DATA-190`) are indexed per entry with a **Unihan flag** on each posting, so search
+lists Unihan-only entries after dictionary entries (`SRCH-079`) without reading the entries.
+
 `DATA-077` `[MUST]` Each sense's token list is also stored **per sense** so contiguous-phrase detection
 (`EN_PHRASE`) is a local check on the candidate, not a re-tokenisation of its text.
 
 `DATA-078` `[MUST]` **Ranking projection.** For every entry, the ranking inputs — match class
-(computed at query time), frequency rank, character count, proper-noun flag, id, and the LM unigram
-(`DATA-152`) — must be readable **without** loading definitions. Ranking a 30000-candidate set must not
+(computed at query time), frequency rank, character count, proper-noun flag, Unihan-only flag
+(`DATA-190`), id, and the LM unigram (`DATA-152`) — must be readable **without** loading definitions. Ranking a 30000-candidate set must not
 hydrate 30000 full entries.
 
 `DATA-079` `[MUST]` Every posting list is stored in ascending entry-id order so intersections are
@@ -498,17 +549,18 @@ spelling stage (`SRCH-050`) uses only this table to recognise abbreviated tokens
 `DATA-151` `[MUST]` **First-letter index `abbr_idx`.** Key: the first letter of each syllable of an
 entry's toneless reading, concatenated in order, lowercase ASCII (你好 `ni hao` → `nh`; 中国人 → `zgr`;
 我哋 `ngo dei` → `nd`). Indexed entries: those with 1 to 6 syllables whose reading parses fully against
-the inventory (Latin-initial readings are excluded). Postings per key, in descending unigram order
+the inventory (Latin-initial readings and Unihan-only entries, `DATA-190`, are excluded). Postings per key, in descending unigram order
 (`DATA-079` exception), each carrying: entry id, LM word id (`DATA-152`), quantised unigram
 (`DATA-154`), and the syllable inventory indices of the reading, so the decoder can filter postings
 per token (for example `zh` versus `z`) without reading the entry. Caps: single-letter keys keep the
 300 most frequent entries; longer keys are capped by a pipeline-configured limit reported in the build
-report (`PIPE-076`).
+report (`PIPE-076`). An entry's alternative readings (`DATA-192`) add postings under their own keys,
+flagged `alt`.
 
 `DATA-152` `[MUST]` **LM word ids and unigrams.** Every distinct headword form used by the dataset's
 language model (simplified form for Mandarin, traditional form for Cantonese) has a dense LM word id
 from 0, assigned in descending unigram probability so frequent words have small ids. **Every** headword
-has a finite, smoothed unigram log-probability (natural log), including headwords absent from the
+except a Unihan-only entry (which is never a language-model edge, `DATA-190`) has a finite, smoothed unigram log-probability (natural log), including headwords absent from the
 source model (`PIPE-072`). **Licence boundary:** values derived from the libime model (LGPL-2.1+) —
 word ids, unigrams, bigrams and codebooks of the Mandarin language model — live **only** in the
 separate, replaceable language-model companion file, never in the CC BY-SA 4.0 main dataset
@@ -550,20 +602,31 @@ is a table lookup; the app performs no logarithms.
 | Field | Type | Notes |
 |-------|------|-------|
 | `row_id` | int32 | stable unique key for list identity (`HSK-026`) |
-| `level` | int8 | 1 to 7; 7 means the 7-9 band |
+| `level` | int8 | 1 to 7; 7 means the 7-9 band; the word's **main** level |
 | `simplified` | string | |
 | `traditional` | string | |
-| `parts_of_speech` | string[] | source tokens for this level, de-duplicated |
-| `entry_id` | int32 | the linked dictionary entry; never null (`DATA-124`) |
+| `homograph` | int8 | syllabus homograph index (`本1`/`本2` → 1/2); 0 when none (`HSK-003`) |
+| `parts_of_speech` | string[] | source tokens for this level, de-duplicated; empty for the 495 words without a part of speech |
+| `extra_levels` | (level, parts_of_speech[])[] | the bracketed extra levels of the word (半 `1（4）`, POS `数、（副）` → level 4, `副`); empty for all but 102 words (`HSK-003`, `HSK-080`) |
+| `entry_id` | int32 | the **primary** linked dictionary entry; never null (`DATA-124`) |
+| `also_entry_ids` | int32[] | further linked entries when one simplified word stands for several CC-CEDICT entries (后/後, 回/迴, 干/乾/幹; `HSK-050`); usually empty |
 | `sort_key` | string | precomputed pronunciation sort key (`HSK-030`) |
 
+A syllabus word is keyed by **(simplified word, syllabus pinyin, homograph index)** (`HSK-003`): 82
+rows carry a homograph index and 61 polyphones appear twice with different pinyin (还 hái / huán), so
+neither the word alone nor (word, pinyin) is unique. The key is used by the pipeline's join and mapping
+file (`PIPE-044`); the syllabus pinyin itself is not stored (below).
+
 **Every row links to a dictionary entry** (decided: `Q-118`): in the Mandarin dataset to the CC-CEDICT
-entry resolved by the join (`PIPE-041`), in the Cantonese dataset to the Cantonese dataset's copy of
-that same CC-CEDICT entry (`DATA-187`). There are no unlinked rows, no fallback fields and no
-syllabus-sourced entries. The syllabus reading is used only by the pipeline's join; it is not stored
+entry — or, for a word CC-CEDICT lacks, the **supplement** entry (`PIPE-044`) — resolved by the join
+(`PIPE-041`), in the Cantonese dataset to the Cantonese dataset's copy of that same entry
+(`DATA-187`). Where the join links several entries (`also_entry_ids`), `entry_id` is the primary one:
+the card, ordering, widget and Word of the Day use it, and every linked entry carries the level in
+`hsk_levels` (`HSK-050`). There are no unlinked rows, no fallback fields and no syllabus-sourced
+entries. The syllabus reading is used only by the pipeline's join; it is not stored
 in the dataset, never displayed and not offered as a secondary "HSK reading" (decided: `Q-031`). The
-table carries **no syllabus glosses** (decided: `Q-032`): CC-CEDICT and CC-Canto are the only
-definition sources.
+table carries **no syllabus glosses** (decided: `Q-032`): CC-CEDICT and CC-Canto (plus the
+project supplement for words CC-CEDICT lacks) are the only definition sources for HSK words.
 
 `DATA-121` `[MUST]` `sort_key` is the normalised canonical reading of the linked entry (`HSK-031`). In
 the Mandarin dataset rows are stored in (level, sort_key, simplified, row_id) order. In the Cantonese
@@ -576,24 +639,71 @@ CC-CEDICT entry as `sort_key`, and sorts **after** the Jyutping rows of its leve
 language — English, zh-Hans and zh-Hant (`HSK-044`, `GLB-100`) — so new tokens do not need an app
 release.
 
-`DATA-123` `[MUST]` The rows are already **de-duplicated per (level, word, reading)** with parts of
-speech merged (`HSK-027`). The reference Mandarin data contains 14 such collisions.
+`DATA-123` `[MUST]` The rows are already **de-duplicated per (level, syllabus key)** — the key of
+`DATA-120` — with parts of speech merged (`HSK-027`); there is **one row per syllabus word per level**.
+The earlier reference list contained 14 collisions; the count for the 2025 list is reported per build.
+Homograph rows of one level that link to the same primary entry stay separate rows (the syllabus
+count needs them); the app merges them into one card (`HSK-027`).
 
 `DATA-124` `[MUST]` **Zero unlinked rows** (decided: `Q-118`; `HSK-056`). The pipeline links every row
 through normalisation and a committed manual mapping file (`PIPE-040`, `PIPE-044`); a row that still
 fails to link fails the build (`DATA-200` gate 8). No syllabus-sourced dictionary entries are created.
 
-`DATA-125` `[MUST]` The entry's `hsk_levels` is derived from these rows, ascending and de-duplicated.
+`DATA-125` `[MUST]` The entry's `hsk_levels` is derived from the main `level` of the rows that link
+it (`entry_id` or `also_entry_ids`), ascending and de-duplicated. Extra levels (`extra_levels`) are not
+part of `hsk_levels`: they are read with the per-level parts of speech (`DATA-126`) and shown as an
+additional badge (`HSK-080`); they never add a grid card.
 
-`DATA-126` `[MUST]` Per-entry, per-level parts of speech must be readable **with the entry** (one read),
-not by a second query at entry-open time.
+`DATA-126` `[MUST]` Per-entry, per-level parts of speech — including those of extra levels and of
+levels received through variants (`DATA-193`) — must be readable **with the entry** (one read), not by
+a second query at entry-open time.
+
+`DATA-193` `[MUST]` **HSK levels through variants** (`HSK-097`; built by `PIPE-082`). An entry related
+to an HSK-linked entry by a **plain**, **old** or **erhua** variant relation (`variant_of`,
+`old_variant_of`, `erhua_variant_of` notes or redirects with a resolved target, `DATA-054`,
+`DATA-055`), in **either direction** — the entry is a variant of the HSK word, or the HSK word is a
+variant of the entry — receives that HSK word's levels and per-level parts of speech in
+`hsk_levels_via_variant` (`DATA-010`):
+- propagation follows at most **two hops**; other variant kinds (`contracted_form`,
+  `japanese_variant_of`) and unresolved references do not propagate;
+- an entry with its own `hsk_levels` **never** receives propagated levels;
+- when an entry is reached from several HSK words with different levels, it takes the levels of the
+  source with the **lowest** level (ties: the fewest hops, then the lowest source entry id);
+- the app shows the badge exactly as for `hsk_levels` (`HSK-040`, `HSK-097`), but propagated entries
+  have **no HSK row**: they never appear in the HSK grid, the widget or Word of the Day (`DATA-130`);
+- in the Cantonese dataset the propagation is computed on the CC-CEDICT entries as in Mandarin, and
+  every Cantonese entry carrying a receiving CC-CEDICT entry in its `mandarin` block carries the same
+  `hsk_levels_via_variant` (`HSK-094`).
+
+Current data (2026-10 analysis): 3,716 CC-CEDICT entries carry 3,767 variant relations (plain 2,709,
+old 723, erhua 258, other); propagation gives **630** extra entries a level — 622 at hop 1, 8 at hop 2,
+none deeper — of which 370 are single characters (mostly obscure old forms, 宍 → 肉) and 260 words
+(抵銷 → 抵消, 骨董 → 古董, 39 erhua forms); 2 entries receive conflicting levels.
+
+`DATA-194` `[MUST]` **HSK character list** (`HSK-098`; data only in v1, presentation open: `Q-120`).
+The 2025 syllabus's character list (汉字) is stored as data:
+- a table `hsk_char` of (character, recognition level 1–7, `writing` flag, writing level band) — 3,088
+  **recognition characters** (认读字: L1 246, L2 125, L3 284, L4 441, L5 431, L6 413, L7-9 1,148) and
+  the **1,200 writing characters** (书写字, a subset: L1-2 100, L3-6 150 each, L7-9 500);
+- on every **single-character entry** whose simplified form is a listed character (in the Cantonese
+  dataset: whose simplified field is), the entry fields `hsk_char_level` and `hsk_char_writing`
+  (`DATA-010`).
+
+The character level is **not** a word level: it never feeds `hsk_levels`, `hsk_levels_via_variant`,
+badges, the grid, propagation, the widget or Word of the Day. Analysis figures, for the build report
+and `Q-120`: a character's level equals the first word level containing it for 3,085 of 3,088
+(exceptions 店, 饺, 留); 1,503 characters are also single-character syllabus words, 414 of them with a
+word level different from the character level (白: character L1, word L5); 1,585 characters occur
+only inside multi-character words. Every listed character must have at least one single-character
+entry (a Unihan-only entry counts, `DATA-190`), else the build fails (`DATA-200` gate 8).
 
 `DATA-130` `[MUST]` A separate, tiny **widget projection** (`SET-066`) carrying only what the
 word-of-the-day widget renders: entry id, natural key, levels, both scripts, both readings, header
 notes, senses, notes, for every HSK row (all rows are linked, `DATA-124`). One is emitted per dataset,
 Mandarin and Cantonese, since the widget follows the dictionary mode (`SET-062`) and the Word of the
 Day card (`SRCH-115`) uses the same deterministic pick (`SET-063`) over it. Reference size about 0.55 MB compressed for 11k
-words. The widget must never open the main dataset.
+words. The widget must never open the main dataset. Entries that hold a level only through variants
+(`DATA-193`) are not in the projection.
 
 ---
 
@@ -613,20 +723,26 @@ Main dataset file:
 - `entry(id INTEGER PRIMARY KEY, trad TEXT, simp TEXT, reading_display TEXT, reading_canonical TEXT,
   reading_source INTEGER, syllables BLOB, tones BLOB, flags INTEGER, freq_rank INTEGER,
   char_count INTEGER, natural_key BLOB, merge_simp INTEGER, merge_trad INTEGER, hsk_levels BLOB,
-  audio_key TEXT, lm_word INTEGER, lm_unigram INTEGER, senses BLOB, blocks BLOB, notes BLOB,
-  redirect BLOB)` — `flags`: proper noun, `segmentable`; `blocks`: `DATA-022`; `lm_word`/`lm_unigram`:
-  `DATA-152`
+  hsk_via_variant BLOB, hsk_char INTEGER, audio_key TEXT, lm_word INTEGER, lm_unigram INTEGER,
+  senses BLOB, blocks BLOB, notes BLOB, redirect BLOB)` — `flags`: proper noun, `segmentable`,
+  Unihan-only (`DATA-190`), HSK writing character (`DATA-194`); `blocks`: `DATA-022`;
+  `hsk_via_variant`: levels plus per-level parts of speech (`DATA-193`); `hsk_char`: `DATA-194`;
+  `lm_word`/`lm_unigram`: `DATA-152`
 - `entry_natural(natural_key BLOB PRIMARY KEY, entry_id INTEGER)`
-- `headword(key TEXT, entry_id INTEGER, kind INTEGER)` — kind: exact / folded / lowercased
-- `reading(key TEXT, entry_id INTEGER)`
+- `headword(key TEXT, entry_id INTEGER, kind INTEGER)` — kind: exact / folded / lowercased /
+  radical_form (`DATA-071`)
+- `reading(key TEXT, entry_id INTEGER, alt INTEGER, alt_note INTEGER, tones BLOB)` — `alt`: 0 main,
+  1 `also_pr`, 2 `taiwan_pr`; `alt_note` and `tones` only on alternative postings (`DATA-192`)
 - `substr_idx(key TEXT PRIMARY KEY, postings BLOB)` — `DATA-074`
 - `char_idx(ch TEXT PRIMARY KEY, postings BLOB)` — `DATA-075`
 - `en_token(token TEXT PRIMARY KEY, postings BLOB)` — `DATA-076`, entry plus sense pairs (plus the
-  CC-Canto flag in the Cantonese dataset)
+  CC-Canto flag in the Cantonese dataset, and the Unihan flag in both)
 - `merge_group(id INTEGER PRIMARY KEY, members BLOB, variants TEXT)`
 - `within(entry_id INTEGER PRIMARY KEY, rows BLOB)` — `DATA-101`
 - `word_freq(key TEXT PRIMARY KEY, freq INTEGER, log_prob REAL)`
-- `hsk_row(row_id INTEGER PRIMARY KEY, level INTEGER, ...)` — `DATA-120`, stored in sort order
+- `hsk_row(row_id INTEGER PRIMARY KEY, level INTEGER, ...)` — `DATA-120` (including `homograph`,
+  `extra_levels`, `also_entry_ids`), stored in sort order
+- `hsk_char(ch TEXT PRIMARY KEY, level INTEGER, writing INTEGER, writing_band INTEGER)` — `DATA-194`
 - `hsk_pos_label(token TEXT PRIMARY KEY, label TEXT)`
 - `label(key TEXT PRIMARY KEY, en TEXT, zh_hans TEXT, zh_hant TEXT)` — note kinds, sense tags, block
   labels (`DATA-060`, `DATA-022`)
@@ -638,7 +754,8 @@ Main dataset file:
 Language-model companion file:
 
 - `meta(key TEXT PRIMARY KEY, value TEXT)` — `dataset_id`, `dataset_version` it targets
-- `abbr_idx(key TEXT PRIMARY KEY, postings BLOB)` — `DATA-151`
+- `abbr_idx(key TEXT PRIMARY KEY, postings BLOB)` — `DATA-151`; postings from alternative readings
+  carry the `alt` kind (`DATA-192`)
 - `bigram(left INTEGER PRIMARY KEY, block BLOB)` — `DATA-153`
 
 `DATA-142` `[REC]` Indexes: exactly the ones the queries need, and **no reverse indexes**. Required:
@@ -710,6 +827,7 @@ the voice model**, the only separately delivered asset (`DATA-215`, `VOICE-095`;
 | `strokes` | outlines, medians, radical indices | about 30 MB | code point |
 | `sentences` | Mandarin example pairs plus a word index | about 5.5 MB | simplified headword |
 | `sentences-yue` | Cantonese example sentences with English translations plus a word index (`DATA-188`) | about 0.5 MB (estimate; measure) | traditional headword |
+| `decomposition` (shared by both datasets) | per-character IDS per region, radical and stroke data, synthetic-component SVG glyphs, curated radical names (`DATA-191`) | about 1 to 2 MB (estimate; measure) | code point / synthetic id |
 
 **Non-dataset assets.** These are app assets, not part of any dataset: they are not covered by
 `content_hash`, are versioned independently of `dataset_version` (each pinned by version and SHA-256 in
@@ -718,10 +836,50 @@ the repository lock file, `PIPE-162`), and are credited in `SET-040`.
 | Asset | Approx. size | Licence | Platforms and delivery |
 |-------|--------------|---------|------------------------|
 | Voice model: sherpa-onnx streaming Paraformer, trilingual zh/yue/en, int8 (`VOICE-001`…) | about 240 MB | Apache-2.0 (per the model's ModelScope page; decided: `Q-101`) | **The only separate download on mobile** (`VOICE-095`): Google Play — on-demand Play Asset Delivery pack, requested when Voice is first opened and downloaded by Play (no app networking); iOS — Apple-hosted Background Assets pack (`Q-116`); direct APK — bundled. Not on Web |
-| OpenCC conversion table for voice output (`VOICE-001`…) | about 1 MB | Apache-2.0 | Android, iOS: installed with the app |
+| OpenCC dictionaries (`DATA-195`) — shipped by the OpenCC Kotlin Multiplatform library (`ARCH-196`), used at runtime for script conversion on Reading, OCR text and Voice transcript (`TXT-081`…, `CAM-130`…, `VOICE-096`) | about 1.35 MB raw text for all configurations used (under about 0.5 MB gzipped, estimate) | Apache-2.0 | Android, iOS: installed with the app (bundled with the library); Web: fetched lazily per configuration when conversion is first used, browser-cached, not guaranteed offline |
 | Handwriting model: ML Kit Digital Ink, simplified / traditional / Hong Kong (`HW-001`…) | about 20 MB per script model (measure) | ML Kit terms (`SET-040`) | Android, iOS: installed with the app; Web: repackaged, fetched on demand |
-| OCR model: ML Kit Chinese text recognition (`CAM-001`…) | about 15 to 20 MB | ML Kit terms (`SET-040`) | Android: installed with the app (iOS uses Apple Vision; not Web) |
+| OCR model: ML Kit Chinese text recognition (`CAM-001`…, `DATA-196`) | Android about 15 to 20 MB; Web about 2.61 MB | ML Kit terms (`SET-040`) | Android: installed with the app. iOS: none (Apple Vision). Web: the model repackaged for the browser (`ARCH-197`), downloaded on first use of OCR, **stored offline** and updated only when its manifest version changes (`DATA-196`) |
 | CJK fallback font for characters missing from platform fonts (decided: `Q-109`) — an OFL-1.1 CJK font, subset by the pipeline to dataset code points the platform fonts lack | measure; budget line in `PERF-070` | SIL OFL 1.1 | Android, iOS: installed with the app. Not on Web: no CJK font is bundled there; Compose Multiplatform's web font fallback fetches its font from a third-party font server when needed, outside the offline set (decided: `Q-117`; `GLB-090`); it is not a pipeline artefact |
+
+`DATA-195` `[MUST]` **OpenCC dictionaries.** Runtime script conversion (`TXT-081`…`TXT-084`,
+`CAM-130`…, `VOICE-096`) uses the OpenCC dictionaries packaged by the project's OpenCC Kotlin
+Multiplatform library (`opencc-kmp`, `ARCH-196`): the dictionaries of a **pinned OpenCC release**
+(Apache-2.0), including the generated ones (`STPhrases` from regional phrases, `TSCharactersExt`, the
+reversed tables), in the library's compact format. They are a non-dataset asset: pinned by the
+library's version (and its SHA-256 through Gradle dependency verification), not by the lock file;
+not a pipeline artefact; not covered by `content_hash`. Size: about 1.35 MB raw text for every
+configuration the app uses (`t2s`, `tw2s`, `hk2s`, `tw2sp`, `s2t`, `tw2t`, `hk2t`, `s2hk`, `t2hk`,
+`s2tw`, `t2tw`, `s2twp`), under about 0.5 MB gzipped (estimate; measure, `PERF-059`). They are
+**loaded lazily per configuration** — for example the about 1 MB `STPhrases` only when a Simplified →
+Traditional conversion is first used. Mobile: bundled with the app. Web: each configuration's
+dictionaries are fetched from `szdict.com` when that conversion is first used, verified against the
+build manifest (`PIPE-150`), browser-cached and **not guaranteed offline** (`GLB-035`). This replaces
+the earlier Voice-only "OpenCC conversion table". (Build-time conversions — example sentences,
+`PIPE-065`; HSK traditional forms, `PIPE-040`; Cantonese corpus normalisation, `PIPE-074` — use the
+same pinned OpenCC release inside the pipeline.)
+
+`DATA-196` `[MUST]` **Web OCR model and manifest** (`ARCH-197`, `CAM-130`…). The Web OCR engine's
+model — the ML Kit text-recognition model repackaged for the browser, about 2.61 MB — is published
+with the Web deployment together with a small **OCR model manifest**:
+
+| Manifest field | Notes |
+|----------------|-------|
+| `model_version` | version of the repackaged model, independent of `dataset_version` |
+| `url` | location of the model file(s) on `szdict.com` |
+| `size` | bytes |
+| `sha256` | of each model file |
+| `min_app_version` | oldest Web app build that can run this model |
+
+Behaviour:
+- the model is downloaded on the **first use of OCR**, verified against the manifest's SHA-256 and
+  stored for offline use (OPFS or Cache Storage, with the persistent storage already requested for the
+  dataset, `DATA-215`);
+- when online, opening OCR fetches the manifest and downloads the model again **only when
+  `model_version` changed**; an up-to-date model triggers no download; offline, the stored model is
+  used without any check;
+- a new version is downloaded and verified completely before it replaces the stored one (`DATA-210`);
+  a failed download or a hash mismatch leaves the stored model in use;
+- Android bundles its ML Kit model and iOS uses Apple Vision, so neither has a manifest or a download.
 
 `DATA-171` `[MUST]` Each pack declares an index that maps its access key to a record location, so
 reading one record costs one seek plus one decode. The reference packs are 256 whole-JSON shards that
@@ -734,8 +892,9 @@ as the datasets (`PIPE-061`).
 `DATA-173` `[MUST]` On mobile every pack, companion file and non-dataset asset **except the voice
 model** is present after install; a missing or unreadable one is a defect, but the app still degrades
 gracefully (`GLB-035`). A missing voice model (Play and iOS before its download completes) is a normal state shown by the Voice destination's download state (`VOICE-095`). On Web,
-everything except the offline dataset (`DATA-215`) is fetched on demand, and a not-yet-fetched, evicted
-or failed file is a normal state handled by `GLB-035`.
+everything except the offline set (`DATA-215`: app shell, dataset and, once downloaded, the OCR model)
+is fetched on demand, and a not-yet-fetched, evicted or failed file is a normal state handled by
+`GLB-035`; a not-yet-downloaded OCR model is the OCR destination's download state (`DATA-196`).
 
 ---
 
@@ -858,8 +1017,13 @@ Jyutping and sorts after the Jyutping rows of its level by its CC-CEDICT entry's
    difference caused by de-duplication (`DATA-123`) or multi-reading rows enumerated in the build
    report; the Cantonese row set equals the Mandarin one (`DATA-187`); **every row in both datasets
    links to an entry** (zero allowance, `DATA-124`) — in the Cantonese dataset to the copy of its
-   Mandarin row's CC-CEDICT entry; every line of the manual mapping file (`PIPE-044`) is used and
-   resolves; no duplicate (level, word, reading); no row carries a gloss (`DATA-120`).
+   Mandarin row's entry; every line of the manual mapping file (`PIPE-044`) is used and resolves; no
+   duplicate (level, syllabus key) (`DATA-123`); no row carries a gloss (`DATA-120`); every
+   `also_entry_ids` member carries the row's level; every supplement entry is the target of a mapping
+   line and no supplement headword (with its reading) is also a CC-CEDICT entry (`PIPE-044`); no entry
+   has both `hsk_levels` and `hsk_levels_via_variant` (`DATA-193`); the HSK character table has 3,088
+   recognition characters and 1,200 writing characters with the per-level counts of `DATA-194`, each
+   with a single-character entry in both datasets.
 9. The popular list has 50 ids, all multi-character, all resolvable.
 10. Reading round-trip: `reading_canonical` regenerates `reading_display` for every entry, or the entry
     is on an explicit exception list.
@@ -869,7 +1033,8 @@ Jyutping and sorts after the Jyutping rows of its level by its CC-CEDICT entry's
     pipeline run, and every catalogue key resolves to a record in the audio packs.
 13. Size budget: the dataset, its language-model companion file and every pack are at or under their
     budgets (`PERF-070`; per-flavour totals `PERF-073`).
-14. Language model: every headword has an LM word id and a finite unigram; every `abbr_idx` posting and
+14. Language model: every headword except Unihan-only entries (`DATA-190`) has an LM word id and a
+    finite unigram; every `abbr_idx` posting and
     bigram successor references valid ids; each codebook has at most 256 entries; `has_bigram_model`
     matches the presence of bigram data; the quality gate passes (`PIPE-075`).
 15. Normalisation: every matching key equals its own `SRCH-010` normalisation (`DATA-071`).
@@ -879,6 +1044,14 @@ Jyutping and sorts after the Jyutping rows of its level by its CC-CEDICT entry's
     label table (`DATA-060`).
 18. Cantonese: the frequency table (`DATA-189`) is present and non-empty; no `segmentable` headword is
     a pronoun + 嘅 form; every `sentences-yue` record has an English translation (`DATA-188`).
+19. Unihan (`DATA-190`): every Unihan-only entry has at least one sense and exactly one `unihan` block;
+    no Unihan-only entry shares a headword with a CC-CEDICT, CC-Canto or supplement entry; no other
+    entry has a `unihan` block.
+20. Decomposition (`DATA-191`): every component id resolves (code point or synthetic id with an SVG
+    glyph); expansion is acyclic and terminates at roots; every radical form maps to a unified
+    ideograph; every curated primitive has a radical-name row in all three UI languages.
+21. Alternative readings (`DATA-192`): every `alt` posting references an existing `also_pr` or
+    `taiwan_pr` note of its entry and parses fully against the syllable inventory.
 
 `DATA-201` `[MUST]` The build emits a machine-readable report: counts per table, index sizes, HSK join
 tiers, normalisation steps and manual mappings used (`PIPE-041`, `PIPE-044`) and Cantonese HSK
@@ -887,8 +1060,12 @@ romanisation-parse exceptions, entries with no senses, language-model size and c
 source-hygiene counts (`PIPE-078`), note-convention and tag counts (`PIPE-079`), Cantonese join counts
 (`PIPE-053`: R matches, polyphones, suppressed adapted senses, dropped Mandarin blocks, `none`
 entries, readings-only headwords without an entry), Cantonese frequency and example coverage
-(`DATA-188`, `DATA-189`), Web changeset sizes (`PIPE-167`), and the diff in each of these against the
-previous version. A regression beyond declared thresholds
+(`DATA-188`, `DATA-189`), Web changeset sizes (`PIPE-167`), alternative readings indexed and skipped
+(`DATA-192`), Unihan entries, senses and readings per dataset (`DATA-190`, `PIPE-080`), decomposition
+coverage, region fallbacks, unencoded and unknown parts and parts without an entry (`DATA-191`,
+`PIPE-081`), HSK propagation counts per hop and conflicts (`DATA-193`, `PIPE-082`), HSK
+multi-entry links and supplement entries used (`PIPE-041`, `PIPE-044`), HSK character-list counts
+(`DATA-194`), and the diff in each of these against the previous version. A regression beyond declared thresholds
 fails the build.
 
 `DATA-202` `[MUST]` The app **validates cheaply at open**: `schema_version` in range, required tables
@@ -928,13 +1105,14 @@ crosses a `schema_version` change; that always takes a full download.
   downloaded by Play when Voice is first opened, an Apple-hosted Background Assets pack on iOS, and
   bundled in the direct APK (`VOICE-095`). Those downloads are performed by the store's mechanism; the
   app itself makes no network requests (`PROD-071`).
-- **Web**: **only the dataset is kept offline.** The dataset for a mode is fetched on first use of
+- **Web**: **the offline set is exactly the app shell, the dataset and the OCR model.** The dataset for a mode is fetched on first use of
   that mode — including when a mode link (`/zh/…`, `/yue/…`) opens a route in a mode whose dataset is
   not yet cached, without changing the saved mode preference (`GLB-110`) — verified against the SHA-256 in the build manifest (`PIPE-150`), stored in OPFS with
-  persistent storage requested, and kept current through changesets (`DATA-216`, `ARCH-145`). Every
+  persistent storage requested, and kept current through changesets (`DATA-216`, `ARCH-145`).
+  The OCR model is stored offline once downloaded and versioned by its own manifest (`DATA-196`). Every
   other Web file — the language-model companion file (fetched on the first query that needs it,
-  `SRCH-050`, `SRCH-060`; single-word results never wait for it), the asset packs and the handwriting
-  model — is fetched on demand, verified against the manifest (or `DATA-155` `lm_file`), discarded on mismatch, held in the browser cache, and **not guaranteed offline**
+  `SRCH-050`, `SRCH-060`; single-word results never wait for it), the asset packs (audio, strokes,
+  sentences, decomposition), the handwriting model and the OpenCC dictionaries (`DATA-195`) — is fetched on demand, verified against the manifest (or `DATA-155` `lm_file`), discarded on mismatch, held in the browser cache, and **not guaranteed offline**
   (`GLB-035`; media gaps are covered by TTS, `MED-011`).
 
 `DATA-216` `[MUST]` **Web dataset changeset format.** For each release the pipeline publishes, per
@@ -967,10 +1145,92 @@ publishing, `PIPE-167`), a `rebase`, a `schema_version` change, or any verificat
 it downloads the full file. A failed update never damages the cached dataset, which
 stays usable offline.
 
+---
+
+### 15. Character data: Unihan and decomposition
+
+`DATA-190` `[MUST]` **Unihan as a fallback source** (built by `PIPE-080`; `ENT-126`, `SRCH-079`).
+The Unicode Character Database's **Unihan** data (Unicode License v3, `Unicode-3.0`; notice kept in
+the attributions, `SET-040`) is a dictionary source in both datasets, used **only as a fallback**:
+- **Unihan-only entries.** Every CJK unified or compatibility ideograph (Unihan of the pinned Unicode
+  version — Unicode 18: 102,999 ideographs, URO, Ext A–J, compatibility) that has a `kDefinition`
+  and is **not** a headword (either script) of any CC-CEDICT, CC-Canto or supplement entry of that
+  dataset becomes a **full entry**: searchable (ranked after dictionary entries, `SRCH-079`),
+  openable and tappable everywhere, with `is_unihan` true (`DATA-010`) and one `unihan` block
+  (`DATA-022`) labelled "Unicode (Unihan)". A character that has any dictionary entry — including a
+  redirect-only variant entry — gets **no** Unihan senses: the Unihan definition is never shown beside
+  a CC-CEDICT, CC-Canto or supplement definition. The count is measured per build (estimate 20k+) and
+  reported.
+- **Senses**: `kDefinition` split into senses at `;`; commas stay inside a sense; `U+XXXX` mentions
+  become `REF` segments to that character (`DATA-050`); source `unihan` (`DATA-020`); English tokens
+  per `SRCH-013`, indexed with the Unihan flag (`DATA-076`). Since Unihan senses exist only on
+  Unihan-only entries, `kDefinition` text of characters that have a dictionary entry is neither
+  stored nor indexed.
+- **Readings**: Mandarin dataset — the first `kMandarin` value (the zh-Hans reading) is the entry's
+  reading; a different second value (the zh-Hant/Taiwan reading) becomes a `taiwan_pr` note; when
+  `kMandarin` is absent, the first `kHanyuPinyin` reading is used and further distinct ones become
+  `also_pr` notes. Cantonese dataset — the first `kCantonese` value is the reading and further values
+  become `also_pr` notes (one entry per character, not one per Jyutping, since Unihan gives one
+  definition per character). `reading_source` is `unihan`; a character without a reading for the
+  dataset's language has `reading_source` `none` (`DATA-010`, as in `DATA-182`). Alternative readings
+  feed `DATA-192`. No reading is ever derived from another language's field.
+- **Script forms**: both fields carry the character (`DATA-012`), except that a single
+  `kSimplifiedVariant` (resp. `kTraditionalVariant`) value different from the character fills the
+  simplified (resp. traditional) field.
+- **Ranking and language model**: `frequency_rank` is the unranked sentinel (lowest), never filled
+  from an LM unigram (`DATA-111`). Unihan-only entries are **never language-model or combination
+  edges**: they have no LM word id (`lm_word_id` is the sentinel `-1`, `lm_unigram` the codebook's
+  lowest code), no bigrams and no `abbr_idx` postings, an exception to `DATA-151` and `DATA-152`, so
+  abbreviated input and combinations (`SRCH-050`, `SRCH-060`) never produce them; they are found by
+  Hanzi, full or toneless reading (including alternative readings, `DATA-192`) and English.
+- **Character metadata**: `kRSUnicode` (radical and residual strokes) and `kTotalStrokes` are stored
+  for **every** character in the decomposition pack (`DATA-191`), not only for Unihan-only ones.
+- **Radicals and strokes**: the Kangxi Radicals, CJK Radicals Supplement and CJK Strokes blocks are
+  not in Unihan. They are mapped to their unified ideograph through UCD
+  `EquivalentUnifiedIdeograph.txt` and `CJKRadicals.txt` (same Unicode version as Unihan): searching
+  the radical form finds that ideograph's entries (`DATA-071`), and decomposition shows the ideograph's
+  entry with a curated radical name (`DATA-191`).
+
+`DATA-191` `[MUST]` **Character decomposition table** (built by `PIPE-081`; `ENT-120`…`ENT-125`).
+The `decomposition` pack (`DATA-170`), shared by both datasets, holds for each character:
+- **IDS per region** from BabelStone `IDS.TXT` (Andrew West; free use for any purpose, no permission
+  or attribution required — credited anyway, `SET-040`; file date pinned): the Ideographic
+  Description Sequence for the source regions G, T and H plus the source's default sequence. The app
+  picks **G** for the Simplified script, **T** for Traditional in Mandarin mode and **H** in Cantonese
+  mode, falling back to the default sequence when the region has none. Each sequence is stored parsed
+  — operator plus component ids, nested — never as text to be re-parsed.
+- **Component ids**: a code point, or a **synthetic id** for an unencoded component (`{nn}` in the
+  source), which carries a bundled **SVG glyph** and the label `unencoded_component`
+  ("Unencoded component"); it has no reading, no definition and no entry.
+- **Root rule**: a component is a **root** (not expanded further) when its own IDS is the character
+  itself, when it is a single stroke (CJK Strokes block, U+31C0…), or when it is a **curated
+  primitive** — the 214 Kangxi radicals and their positional forms (氵 扌 亻 忄 艹 ⺍ …), listed in a
+  committed data file (`PIPE-081`). Expansion to strokes is not offered in v1. A source `？` part is an
+  "unknown part" (`unknown_component`), shown and not expanded.
+- **Radical forms** (U+2E80–U+2FDF): mapped to the unified ideograph (`DATA-190`); the part shows that
+  ideograph's entry plus a **curated radical name** in the UI languages (氵 → 三点水 / 三點水, "water"),
+  from a committed, reviewed data file. `〾X` (variation indicator) links to X. Overlay (⿻), subtraction
+  (㇯) and mirror operators are stored as such; the app shows their parts without positional claims.
+- **Character metadata**: radical number and residual strokes (`kRSUnicode`) and total strokes
+  (`kTotalStrokes`, `DATA-190`); for a component that has no entry in a dataset, its Unihan readings
+  (`kMandarin`, `kCantonese`).
+
+Coverage: every character of either dataset's headwords, every Unihan-only entry and, recursively,
+every component reached from them. Readings and short definitions of parts are **not** duplicated in
+the pack: the app looks each encoded part up in the active dataset's headword index (one batched
+lookup per expansion level, `ARCH-020`) and shows the part's reading and first sense from its
+CC-CEDICT, CC-Canto, supplement or Unihan entry; a part with no entry (no `kDefinition` and no
+dictionary entry) shows its glyph and, when Unihan has one, its reading from the pack, and is not
+tappable. Licences: the pack carries the BabelStone terms, the Unicode licence for the UCD-derived
+mappings and metadata, and CC BY-SA 4.0 for the project's radical names and SVG glyphs (`PIPE-018`).
+Character origins (etymology, historical forms) remain deferred; the decomposition does not depend on
+them.
+
 ### Deferred (post-v1) and withdrawn — Data Contract
 
-- `origins` pack (former `DATA-170` row: IDS, components, notes, historical glyphs) — deferred with
-  Character origins.
+- `origins` pack (former `DATA-170` row: etymology notes, historical glyphs) — deferred with Character
+  origins. Decomposition (IDS and components) is no longer part of it: it ships in v1 as the
+  `decomposition` pack (`DATA-191`).
 - `DATA-185` — withdrawn: the Cantonese dataset now carries HSK rows (`DATA-187`).
 
 ## Data Pipeline Requirements
@@ -1023,8 +1283,11 @@ levels, per-level parts of speech and the syllabus reading (used only for the jo
 both datasets — **no glosses** (decided: `Q-032`). It follows the **2025 HSK
 syllabus** (新版HSK考试大纲, CTI, released 2025-11-15, effective 2025-11-18; decided: `Q-110`):
 11,000 words, new per level 300 / 200 / 500 / 1,000 / 1,600 / 1,800 / 5,600 for levels 1–6 and 7-9.
-Only facts (word, level, reading, part of speech) are stored; the official syllabus document is not
-redistributed, and CTI is cited (`SET-040`).
+Each word is keyed by word + syllabus pinyin + homograph index and may carry bracketed extra levels
+(`DATA-120`). A second committed file holds the syllabus **character list** — 3,088 recognition
+characters and the 1,200 writing characters with their levels (`DATA-194`). Only facts (word, level,
+reading, homograph index, part of speech, extra levels; character, level, writing flag) are stored;
+the official syllabus document is not redistributed, and CTI is cited (`SET-040`).
 
 #### 2.2 Cantonese
 
@@ -1054,8 +1317,9 @@ Cantonese entries (`DATA-182`).
 with OpenCC at build time; Cantonese — Tatoeba `yue` sentences (`yue_sentences.tsv`) with English
 from Tatoeba's links and English sentences exports, all pinned (`DATA-188`, CC BY 2.0 FR). Recorded
 audio (audio-cmn / Shtooka), stroke data (hanzi-writer-data), the OFL CJK fallback font (`DATA-170`).
-Language-model and Cantonese corpus sources: `PIPE-070`, `PIPE-077`. Full attribution table:
-`SET-040`.
+Language-model and Cantonese corpus sources: `PIPE-070`, `PIPE-077`. Character sources: Unihan and
+the UCD radical mappings (`PIPE-080`), BabelStone IDS (`PIPE-081`). The project supplement dictionary
+(`PIPE-044`). Full attribution table: `SET-040`.
 
 `PIPE-018` `[MUST]` **Licences** (decided: `Q-100`, `Q-103`). The app code is **Apache-2.0**; datasets,
 models and other data ship as **separate files under their own licences** and are never compiled into
@@ -1066,12 +1330,22 @@ app code:
   (`PIPE-070`), is a separate, replaceable file under **LGPL-2.1-or-later**; the Cantonese one is
   CC BY-SA 4.0 (`PIPE-074`, `PIPE-077`);
 - asset packs and non-dataset assets keep their sources' licences (for example Tatoeba CC BY 2.0 FR,
-  the Arphic-licensed stroke data, CC BY-SA Cantonese tables, the OFL fallback font; `DATA-170`).
+  the Arphic-licensed stroke data, CC BY-SA Cantonese tables, the OFL fallback font, the Apache-2.0
+  OpenCC dictionaries; `DATA-170`);
+- the **Unihan** data and UCD radical mappings (`PIPE-080`) are under the Unicode License v3
+  (`Unicode-3.0`), compatible with the CC BY-SA dataset; the notice is kept in the attributions;
+- the `decomposition` pack (`DATA-191`) combines BabelStone IDS (free use, no attribution required;
+  credited anyway), Unicode-3.0 mappings and the project's own radical names and component glyphs
+  (CC BY-SA 4.0); the copyleft decomposition sources CHISE and CJKVI IDS (GPL) are **not** used;
+- the project **supplement** dictionary (`PIPE-044`) is the project's own work under CC BY-SA 4.0,
+  credited as "Shenzhen Dictionary supplement".
 
 Licence compatibility is checked at build time and the resolved licence text and source metadata are
 emitted into each file (`DATA-002`, `SET-042`). Any further copyleft source needs an explicit
 allow-list decision; the libime model is on that allow-list (decided: `Q-103`). Non-commercial or
-unclear-rights sources are never used (`PIPE-077`).
+unclear-rights sources are never used in v1 (`PIPE-077`). The only planned exception is v2 grammar
+content (`PIPE-083`): non-commercial-licensed lessons may be imported there, but only as separately
+licensed data files, flagged per item and excludable by a build flag.
 
 #### 2.4 Source hygiene and note conventions
 
@@ -1125,6 +1399,33 @@ CC-CEDICT and CC-Canto, and emits the label table (`DATA-060`) from a reviewed d
    CEDICT `[pin1]` or `{jyutping}` reference form exists in CC-Canto.
 5. Counts of every note kind and tag are reported and diffed (`DATA-062`, `DATA-201`); keys without a
    complete label row fail the build (`DATA-200` gate 17).
+6. **Alternative readings** (`DATA-192`): the bracketed reading of every `also_pr` and `taiwan_pr`
+   note (CC-CEDICT Pinyin; CC-Canto Pinyin and, where given, Jyutping) is normalised to canonical
+   numbered form with the reading rules of `PIPE-021` / `PIPE-078`, and, when it parses fully and has
+   as many syllables as the entry's main reading, emitted as reading-index and `abbr_idx` postings
+   flagged `alt` (kind and note ordinal), skipping exact duplicates of the main reading. A note with
+   several readings yields one posting per reading. Indexed, partial and unparseable readings are
+   counted per kind and source (`DATA-201`). (Mandarin readings are indexed in the Mandarin dataset,
+   Jyutping readings in the Cantonese dataset; a Mandarin `also_pr` carried in a Cantonese entry's
+   `mandarin` block is not a Jyutping key.)
+
+`PIPE-080` `[MUST]` **Unihan import** (`DATA-190`). Inputs, pinned in the lock file (`PIPE-162`) at one
+Unicode version: `Unihan.zip`, `EquivalentUnifiedIdeograph.txt` and `CJKRadicals.txt`. Steps:
+1. Read `kDefinition`, `kMandarin`, `kCantonese`, `kHanyuPinyin` (used only when `kMandarin` is
+   missing), `kSimplifiedVariant`, `kTraditionalVariant`, `kRSUnicode` and `kTotalStrokes`; ignore
+   every other field.
+2. Normalise readings: `kMandarin` / `kHanyuPinyin` tone-marked Pinyin → canonical numbered Pinyin
+   (`PIPE-021`); `kCantonese` Jyutping as given; a reading that does not parse against the dataset's
+   inventory is dropped and counted.
+3. After the CC-CEDICT, CC-Canto and supplement entries of a dataset are built, create a Unihan-only
+   entry for every ideograph with a `kDefinition` that is not a headword in either script of that
+   dataset (`DATA-190`), with senses, readings, notes and script forms as defined there.
+4. Map Kangxi Radicals, CJK Radicals Supplement and CJK Strokes code points to unified ideographs from
+   `EquivalentUnifiedIdeograph.txt`, cross-checked with `CJKRadicals.txt`; emit the `radical_form`
+   headword keys (`DATA-071`) and pass the mapping to `PIPE-081`.
+5. Report: ideographs read, `kDefinition` count, Unihan-only entries per dataset, entries without a
+   reading per dataset, alternative readings, unmapped radical forms (`DATA-201`). Gate: `DATA-200`
+   gate 19.
 
 ---
 
@@ -1180,15 +1481,20 @@ popular-words list (`DATA-090`).
 
 ### 4. HSK build
 
-`PIPE-040` `[MUST]` Normalise each syllabus row before the join: split `/`-separated alternative
-readings (each alternative is tried); normalise the syllabus reading to canonical numbered form;
-normalise the traditional form (derive it with OpenCC `s2t` when the list gives none or it does not
+`PIPE-040` `[MUST]` Normalise each syllabus row before the join: read the row key (word, syllabus
+pinyin, homograph index; `DATA-120`) and the bracketed extra levels with their parts of speech
+(`1（4）` with `数、（副）` → main level 1 `数`, extra level 4 `副`); split `/`-separated alternative
+readings (each alternative is tried); strip hyphens and apostrophes and lowercase; normalise the
+syllabus reading to canonical numbered form; normalise the traditional form (derive it with OpenCC `s2t` when the list gives none or it does not
 match a CC-CEDICT traditional form for the simplified word); strip an erhua `儿` suffix when the
 erhua form is not itself a CC-CEDICT headword (口哨儿 → 口哨); split the part-of-speech field on the
 ideographic comma and de-duplicate.
 
-`PIPE-041` `[MUST]` Join each row to exactly one Mandarin dictionary (CC-CEDICT) entry, preferring, in
-order:
+`PIPE-041` `[MUST]` Join each row to exactly one **primary** Mandarin dictionary entry — a CC-CEDICT
+entry, or a supplement entry (`PIPE-044`) — and to any **further** entries it legitimately stands for.
+Before the tiers, candidate entries that are capitalised (proper-noun / surname readings) or
+**pure-variant** (whose only content is a variant cross-reference) are dropped when another candidate
+remains. Tiers, preferring, in order:
 1. an entry matching (simplified, traditional, reading) exactly (tone-sensitive);
 2. an entry matching (simplified, traditional) with a tone-insensitive reading match;
 3. an entry matching simplified only with a tone-sensitive, then a tone-insensitive, reading match;
@@ -1198,35 +1504,81 @@ order:
 Each tier is tried on the normalised forms of `PIPE-040`. Record which tier and which normalisation
 steps matched, per row, in the build report. The Cantonese link is `DATA-187`.
 
+Multiple links: where one simplified syllabus word stands for several CC-CEDICT entries with
+**different traditional forms** (后/後, 回/迴, 干/乾/幹), the row links **all** of them
+(`also_entry_ids`, `DATA-120`); the primary is the tone-exact candidate, then the one with the most
+senses, then the lowest id; a mapping line (`PIPE-044`) may override it, and every choice is listed in
+the build report for review. Any other remaining tie takes the tone-exact reading, then the most
+frequent entry. A word whose only candidates are pure-variant entries (21 in the 2025 list: 14 erhua
+forms such as 一点儿 → 一点, 7 others such as 辞典 → 词典) links to that variant entry, whose resolved
+redirect shows the target's senses (`DATA-056`).
+
+Join figures for the 2025 list (2026-10 analysis, for the build report baseline): 10,997 of 11,000
+words link automatically by simplified form and toneless Pinyin after these normalisations; 嗯
+(syllabus `ǹg`) links to CC-CEDICT `en4` by a documented simplified-only rule; 口哨儿 needs a mapping
+line and 精彩纷呈, absent from CC-CEDICT, a supplement entry (`PIPE-044`). 866 words match more than
+one entry; after dropping capitalised and pure-variant candidates 10,863 have one candidate, 127 two
+and 8 three.
+
 `PIPE-042` `[MUST]` Tolerate the systematic syllabus-vs-dictionary reading differences: tone sandhi
 (`bú` for `bù`, `yí`/`yì` for `yī`), neutral-tone conventions (`nàbiān` vs `nà bian`,
-`xuéshēng` vs `xué sheng`), and syllable-joining. About 257 of 11105 rows of the earlier list differ
-this way (`HSK-052`); the count for the 2025 list is reported per build.
+`xuéshēng` vs `xué sheng`), and syllable-joining. About 257 of 11105 rows of the earlier list differed
+this way; in the 2025 list 246 of 11,000 words differ in tones (148 一/不 sandhi rows, about 99
+neutral-tone conventions; `HSK-052`), and the count is reported per build.
 
-`PIPE-043` `[MUST]` De-duplicate rows per (level, simplified, reading), merging parts of speech
-(`DATA-123`). The reference data has 14 collisions.
+`PIPE-043` `[MUST]` De-duplicate rows per (level, syllabus key), merging parts of speech
+(`DATA-123`); polyphones (还 hái / huán) and homograph-indexed words (本1 / 本2) stay separate rows. The
+earlier reference list had 14 collisions; the count is reported per build.
 
 `PIPE-044` `[MUST]` **Every row links; zero allowance** (decided: `Q-118`). Rows that the automatic
 tiers of `PIPE-041` cannot link are resolved by a reviewed, committed **manual mapping file**,
 `data-sources/hsk-mapping` (REUSE-annotated like every committed input, `PIPE-161`). One mapping per
-line: the HSK row key (simplified word and syllabus reading, as written in the HSK word list) → the
-CC-CEDICT entry's natural key (`DATA-014`) in readable form (traditional, simplified, numbered
-Pinyin, as in the CC-CEDICT line), each line followed by a `#` comment giving the reason, for example:
+line: the HSK row key (simplified word, syllabus reading and homograph index, as written in the HSK
+word list) → the target entry's natural key (`DATA-014`) in readable form (traditional, simplified,
+numbered Pinyin, as in the CC-CEDICT or supplement line), each line followed by a `#` comment giving
+the reason, for example:
 
 ```
 口哨儿	kǒushàor	→	口哨 口哨 [kou3 shao4]	# erhua form; CC-CEDICT lists only the base word
-致力于	zhìlìyú	→	致力 致力 [zhi4 li4]	# no 致力于 headword; closest CC-CEDICT entry
+精彩纷呈	jīngcǎi fēnchéng	→	精彩紛呈 精彩纷呈 [jing1 cai3 fen1 cheng2]	# not in CC-CEDICT; supplement entry
 ```
 
+**Supplement dictionary** (pending confirmation: `Q-121`). Words required by the syllabus that
+CC-CEDICT lacks are added to `data-sources/supplement.u8`, a small project-maintained file in
+**CC-CEDICT format** with the project's own definitions, under **CC BY-SA 4.0**, credited as
+"Shenzhen Dictionary supplement" (`SET-040`); each entry is also submitted upstream to CC-CEDICT. Its
+lines are parsed with the CC-CEDICT parser (`PIPE-020`…`PIPE-025`, `PIPE-079`) into entries of both
+datasets with `reading_source` `supplement`, senses of source `supplement` and a `supplement` block
+(`DATA-022`); in the Cantonese build a supplement entry is treated like a CC-CEDICT entry for the
+Jyutping join (`PIPE-053`), normally ending as a `reading_source` `none` entry with the supplement
+block in place of the `mandarin` block. Supplement entries exist only as targets of mapping lines: a
+supplement line that no mapping uses, or whose headword and reading have since appeared in CC-CEDICT
+(the scheduled update, `PIPE-165`, reports it so the line is removed), fails the build (`DATA-200`
+gate 8).
+
 A line without a comment, a line whose row key matches no row, or a line whose target is not a current
-CC-CEDICT entry fails the build. Any row still unlinked after the mapping file **fails the build**
+CC-CEDICT or supplement entry fails the build. Any row still unlinked after the mapping file **fails the build**
 (`DATA-200` gate 8); the fix is a new normalisation step or a new mapping line, never an unlinked row,
-a fallback card or a syllabus-sourced dictionary entry (`DATA-124`). The reference dataset shipped 9
-unlinked rows; all of them are linked this way.
+a fallback card or a syllabus-sourced dictionary entry (`DATA-124`); a supplement entry is added only
+when CC-CEDICT lacks the word. The reference dataset shipped 9 unlinked rows; against the 2025 list all
+but 口哨儿 and 精彩纷呈 link automatically, and those two are linked this way.
 
 `PIPE-045` `[MUST]` Emit the sort keys and store rows in final order (`DATA-121`).
 
-`PIPE-046` `[MUST]` Emit the widget projection (`DATA-130`) for each dataset, covering every row.
+`PIPE-046` `[MUST]` Emit the widget projection (`DATA-130`) for each dataset, covering every row, and
+the HSK character table and entry fields (`DATA-194`) from the committed character list, validating
+its per-level counts (`DATA-200` gate 8).
+
+`PIPE-082` `[MUST]` **HSK propagation through variants** (`DATA-193`, `HSK-097`). After the HSK rows
+are linked: build an undirected graph over CC-CEDICT and supplement entries whose edges are resolved
+`variant_of`, `old_variant_of` and `erhua_variant_of` relations (notes and redirects, `DATA-055`,
+`DATA-060`); from every entry with `hsk_levels`, walk at most **two hops**; assign to each reached
+entry without its own `hsk_levels` the levels and per-level parts of speech of the source with the
+lowest level (ties: fewer hops, then lower source id) as `hsk_levels_via_variant`. Run once on the
+Mandarin build and copy the result onto the Cantonese entries carrying each receiving entry
+(`DATA-193`). Report the entries reached per hop, single characters versus words, erhua cases,
+conflicts and the hop-3 count (expected 0; a non-zero count is reported, not propagated). Baseline
+(2026-10): 630 entries (622 hop 1, 8 hop 2), 2 conflicts.
 
 ---
 
@@ -1314,6 +1666,27 @@ pairs, indexed by simplified headword. Cantonese (`sentences-yue`, `DATA-188`): 
 sentences exports, exclude sentences without an English translation, segment with the Cantonese
 headword list (pronoun + 嘅 forms excluded, `DATA-189`), and index by traditional headword. Report
 selected, excluded-untranslated and per-word coverage counts.
+
+`PIPE-081` `[MUST]` **Decomposition build** (`DATA-191`). Inputs: BabelStone `IDS.TXT` (pinned by
+file date and SHA-256 in the lock file; about 97.7k entries, Unicode 16), the radical mappings of
+`PIPE-080`, and committed data files (`PIPE-161`): the **curated primitive list** (214 Kangxi radicals
+plus positional forms such as 氵 扌 亻 忄 艹 ⺍), the **radical names** (en / zh-Hans / zh-Hant, for
+example 氵 三点水 / 三點水 / "water"), and one **SVG glyph** per unencoded component used. Steps:
+1. Parse every line into per-region sequences (G, T, H, default); parse each sequence into a tree of
+   operators and components; reject malformed sequences into the report.
+2. Map radical-form components to unified ideographs (`PIPE-080`); turn `〾X` into a link to X; give
+   each distinct `{nn}` an id from a committed synthetic-id table and require its SVG glyph (a missing
+   glyph fails the build); mark `？` parts unknown.
+3. Apply the root rule (`DATA-191`): the sequence is the character itself, a single stroke, or a
+   curated primitive.
+4. Select the coverage set — every character of both datasets' headwords and Unihan-only entries,
+   closed under components — and attach `kRSUnicode`, `kTotalStrokes` and, for components with no
+   entry, Unihan readings.
+5. Validate (`DATA-200` gate 20: ids resolve, no cycles, radical forms mapped, names complete) and
+   report coverage per region, region fallbacks, unencoded, unknown and entry-less parts and the
+   maximum depth (`DATA-201`).
+CHISE and CJKVI IDS (GPL) are not used; Make Me a Hanzi etymology (LGPL-3.0) is a possible later,
+separate file for origins only (deferred).
 
 `PIPE-066` `[MUST]` The legacy Hanzi-keyed audio directory (a generator input in the reference build)
 must never be packaged. Any build-only input must be excluded from shipping artefacts by an explicit
@@ -1453,7 +1826,16 @@ asserting exact ordered top-N entry ids. It must cover at least:
 - Cantonese join (`PIPE-053`): 銀行 reaching `ngan4 hong4` with the Mandarin block `yín háng`; 行 with
   its five Jyutping entries sharing one Mandarin block; a `reading_source` `none` headword found by
   Hanzi and English but not by Jyutping; a pronoun + 嘅 form never produced by segmentation;
-- every previously unlinked HSK row now resolving (口哨儿 → 口哨, 致力于 → 致力), in both datasets;
+- every previously unlinked HSK row now resolving (口哨儿 → 口哨 through the mapping file, 精彩纷呈 → its
+  supplement entry), in both datasets; 后 linking both its 后 and 後 entries, one marked primary; 半 at
+  level 1 with extra level 4 (`副`);
+- alternative readings (`DATA-192`): 垃圾 found by `lese` and `le4 se4` (Taiwan pronunciation),
+  after entries whose main reading matches;
+- Unihan-only entries (`DATA-190`): a character with only a `kDefinition` found by Hanzi and English
+  and ranked after dictionary entries, never produced by `abbr_idx` or combinations; a radical form
+  (⻊) finding its unified ideograph;
+- HSK through variants (`DATA-193`): 骨董 carrying 古董's level, absent from the HSK grid;
+- decomposition (`DATA-191`): 想 → ⿱相心 → 相 → ⿰木目, stopping at the primitives 木, 目 and 心;
 - 行 `hang4` keeping its adapted "to walk" sense (`DATA-182`); in Cantonese mode "walk" lists 行
   `hang4` among the CC-Canto results and adds at most one 行 row for 行 `xíng` from the Mandarin block,
   never one per Jyutping entry (`DATA-076`).
@@ -1473,7 +1855,9 @@ per mode, one file per asset pack, the Web changesets and changeset manifests (`
 word-page data for the edge-rendered SEO pages (`PIPE-167`), a machine-readable build report
 (`DATA-201`), and a manifest listing every artefact with its size, SHA-256 and target
 `dataset_version`. The manifest also lists the non-dataset assets (`DATA-170`) with their own versions
-and SHA-256 from the lock file.
+and SHA-256 from the lock file (the OpenCC dictionaries with the library version, `DATA-195`). The Web
+OCR model and its manifest (`DATA-196`) are published with the Web deployment, model files first and
+the manifest last, and change only when the repackaged model's version changes.
 
 `PIPE-151` `[MUST]` The manifest is consumed by the app build, which packages every artefact for each
 flavour (`DATA-215`; the voice model goes into the Play on-demand pack and the iOS Background Assets
@@ -1516,15 +1900,18 @@ The data contract remains the module boundary: `app/` and `pipeline/` each depen
 never on each other.
 
 `PIPE-161` `[MUST]` **Committed inputs.** `data-sources/` holds the small, redistributable inputs:
-CC-CEDICT, CC-Canto, the CC-CEDICT Cantonese readings file, the HSK word list file (2025 syllabus,
-`PIPE-012`), the frequency lists, the HSK manual mapping file (`PIPE-044`), the hygiene override files (`PIPE-078`), the note-label data
-(`PIPE-079`), and the syllable, alias and abbreviation tables. Each source has a note giving its origin URL, version or release date,
+CC-CEDICT, CC-Canto, the CC-CEDICT Cantonese readings file, the HSK word list and character list
+files (2025 syllabus, `PIPE-012`), the frequency lists, the HSK manual mapping file and the supplement
+dictionary `supplement.u8` (`PIPE-044`), the hygiene override files (`PIPE-078`), the note-label data
+(`PIPE-079`), the decomposition data files — primitive list, radical names, synthetic-id table and
+component SVG glyphs (`PIPE-081`) — and the syllable, alias and abbreviation tables. Each source has a note giving its origin URL, version or release date,
 retrieval date and licence, and every file is REUSE-annotated.
 
 `PIPE-162` `[MUST]` **Large third-party inputs are never committed.** The libime ARPA archive (about
 78 MB zst), the Cantonese corpora (`PIPE-077`), the Tatoeba exports (sentences, links, `yue` and English
-sentences), the previous releases' dataset files used for changesets (`PIPE-167`), the fallback font,
-and the voice and handwriting models (`DATA-170`) are pinned in a
+sentences), the previous releases' dataset files used for changesets (`PIPE-167`), the fallback font, Unihan and
+the UCD radical files (`PIPE-080`), BabelStone `IDS.TXT` (`PIPE-081`), and the voice, handwriting and
+OCR models (`DATA-170`, including the Web OCR model's source, `DATA-196`) are pinned in a
 lock file (URL plus SHA-256, with version and licence) and fetched and cached by CI. A hash mismatch
 fails the build.
 
@@ -1541,7 +1928,7 @@ falling back to a stale copy.
 `PIPE-165` `[MUST]` **Scheduled source updates.** A scheduled workflow (weekly) fetches the latest
 CC-CEDICT, CC-Canto and CC-CEDICT Cantonese readings releases (the latter two have not changed since
 2017 and 2015, `PIPE-013`, `PIPE-014`), updates `data-sources/` and their version notes, runs
-the pipeline, and opens a pull request whose description carries the build-report diff (entry counts,
+the pipeline (flagging any supplement entry that CC-CEDICT now contains, `PIPE-044`), and opens a pull request whose description carries the build-report diff (entry counts,
 changed headwords, golden-query changes, gate results). No pull request is opened when nothing
 changed. Merging it is what ships updated data in the next release.
 
@@ -1557,5 +1944,29 @@ Settings and the attributions (`SET-042`).
 ### Deferred (post-v1) — Data Pipeline
 
 - `PIPE-064` — Origins: re-encoding historical glyph images (deferred with Character origins, as are
-  the origin sources Make Me a Hanzi decompositions, CJKVI IDS, chinese-lexicon, the Xiaoxuetang
-  mirror and Wikimedia glyph images).
+  the origin sources Make Me a Hanzi etymology, chinese-lexicon, the Xiaoxuetang mirror and Wikimedia
+  glyph images). Decomposition itself is in v1 from BabelStone IDS (`PIPE-081`); CJKVI IDS is not used
+  (GPL).
+- `PIPE-083` — **Grammar data (v2, not in v1;** `ARCH-198`, `HSK-099`, `ENT-127`**).** v1 builds
+  nothing; the design is recorded so v1 does not block it:
+  - **Skeleton**: the 2025 HSK grammar list, committed as facts like the word list (`PIPE-012`): 593
+    items (L1 70, L2 78, L3 96, L4 95, L5 70, L6 50, L7-9 134) in the hierarchy 类别 / 类别名称 / 细目 /
+    语法内容, with no numbering or examples; 178 items are word lists (词类 / 语素), the rest patterns
+    (`A比B+形容词`); grammar sense indices (都1, 了1, 吧1) are distinct from vocabulary homograph
+    indices; 17 topics are staged across levels (比较句1–5, 把字句1–4). Model: GrammarPoint (id, HSK
+    level, optional CEFR, category / subcategory / detail, topic key and stage, kind
+    `pattern` / `word_list` / `concept`, titles and explanations per UI language, typed pattern slots,
+    examples, related points, linked words, sources, provenance, review status, version), Example,
+    Lesson (ordered points, prerequisites) and SourceRef (name, URL, SPDX licence, attribution).
+  - **Imported sources** (for example the AllSet Chinese Grammar Wiki, CC BY-NC-SA 3.0) are stored as
+    **separately licensed data files**, never merged into the dataset, each item carrying its source
+    and licence. Non-commercial content is flagged, and a **build flag** excludes it (forks and
+    commercial builds), with the build failing if a flagged item would ship under the flag.
+  - **Project content** — explanations (en, zh-Hans, zh-Hant) and generated example sentences —
+    carries provenance (imported / authored / generated with model and date) and a **review status**
+    (`draft` / `machine_generated` / `reviewed` / `approved`, with reviewer and date); only reviewed or
+    approved items ship.
+  - **Links**: grammar points link to words by natural key (`DATA-014`), resolved per dataset at build
+    time; an unresolved link fails the build. Example tokens link to words the same way.
+  - Flashcards and spaced repetition (card ids from point and example ids, FSRS state, review log)
+    need user-data storage that v1 excludes (`PROD-017`) and are later still.
