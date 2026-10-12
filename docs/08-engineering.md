@@ -66,8 +66,8 @@ app-<platform>        entry point, DI wiring, platform integrations (widget, sho
 web-edge              Worker rendering the SEO word pages (ARCH-146); not part of the app bundle
   feature-search      search UI + its state reducer
   feature-entry       entry detail UI + route stack, incl. the Characters decomposition section of
-                      the DICT tab (ENT-120…)
-  feature-hsk         HSK UI
+                      the DICT tab and its glyph-highlight component (ENT-120…, ARCH-200)
+  feature-hsk         HSK UI (word grid and Characters section)
   feature-camera      OCR destination UI and the shared image-input layer (all platforms, ARCH-197)
   feature-voice       Voice destination UI (mobile only)
   feature-reading     reading UI
@@ -114,6 +114,25 @@ with its native dependencies (sherpa-onnx, onnxruntime) and the voice model (`PR
 (`ARCH-093`, `ARCH-143`). Both modules depend on ports only (`ARCH-093`…`ARCH-095`), never on a platform SDK
 directly.
 
+`ARCH-200` `[MUST]` **Decomposition glyph component** (`feature-entry`, `ENT-120`…, `DATA-191`). The
+Characters section (not collapsible, always last on the DICT tab) draws each character's glyph large
+and, for the selected or hovered part of the tree, highlights the strokes or region of the glyph that
+part occupies, linked to its tree row by a matching colour and a connector. The geometry is computed in
+shared `domain` code (`Decompose` returns, per part, either stroke indices or a region) and drawn by one
+shared renderer, so all platforms behave alike:
+- **Exact strokes** when the character has Make Me a Hanzi `matches` (stroke → component path; a
+  separate LGPL-3.0 data file, ~9k characters) and the stroke graphics already used for stroke order:
+  the glyph is drawn from those stroke paths and a part's strokes are those whose match path leads to
+  it. `matches` are used only where their component split equals the IDS being shown (`ENT-124`);
+  otherwise the region fallback applies.
+- **Approximate regions** otherwise, from the IDS operator applied recursively to the character's
+  bounding box: ⿰ left/right halves, ⿱ top/bottom halves, ⿲ / ⿳ thirds, ⿴ ⿵ ⿶ ⿷ ⿸ ⿹ ⿺ the outer
+  enclosure and its inner rectangle; any other operator highlights the whole box. Without stroke
+  graphics the glyph is drawn from the font and the region is shown as a tinted overlay.
+- Highlight colours come from `ui-kit` and meet the `GLB-086` contrast in both themes; the link between
+  row and region never relies on colour alone (connector plus the row's selected state). Hover applies
+  where a pointer exists; touch uses selection.
+
 ---
 
 ### 3. Data-access layer
@@ -139,14 +158,17 @@ within(entryId): List<SubSpan>
 decompositions(chars): Map<Char, Decomposition> // batched, one level per call (DATA-191)
 mergeGroup(id): MergeGroup
 frequencies(words): Map<String, FreqInfo>  // batched
-hskRows(range): List<HskRow>
+hskRows(range): List<HskRow>               // one row per syllabus row: level + part of speech
+hskCharRows(range): List<HskCharRow>       // recognition characters by character level
 popular(): List<Id>
 syllableInventory(): Inventory             // incl. abbreviation table (DATA-150)
 ```
 
 Unihan-only characters (`DATA-190`) are ordinary entries with source `unihan` and need no query shape
-of their own; the HSK level reached through variants (`DATA-193`) and the HSK character level
-(`DATA-194`) are entry fields, not extra queries.
+of their own; the HSK word levels of an entry — several when the word has several syllabus rows, each
+with its own part of speech — and the HSK level reached through variants (`DATA-193`) are entry fields,
+not extra queries. The HSK character level (`DATA-194`) is read only by `hskCharRows` for the HSK
+destination's Characters section; entry detail never reads or shows it.
 
 `ARCH-021` `[MUST]` **Every** multi-key operation is batched. Single-key convenience methods must be
 implemented in terms of the batch form so an accidental N+1 is impossible (`SRCH-152`, `TXT-014`).
@@ -355,8 +377,10 @@ dependency PR (`REL-031`). It is used at runtime on **all platforms** and replac
 **Options → configs** (the dialog of `TXT-082`): Simplified ← `t2s` / `tw2s` / `hk2s` (`tw2sp` when the
 source is Taiwan text with Taiwan vocabulary); Traditional (OpenCC standard) ← `s2t` / `tw2t` / `hk2t`;
 Traditional (Hong Kong) ← `s2hk` / `t2hk`; Traditional (Taiwan) ← `s2tw` / `t2tw`; Traditional (Taiwan,
-with phrases) ← `s2twp`. Hong Kong ↔ Taiwan chains `hk2t` → `t2tw` (and the mirror). `s2hkp` / `hk2sp`
-are not used (upstream marks them in development).
+with phrases) ← `s2twp` **only**: the option is offered only when the source is Simplified and is
+disabled for any Traditional source — it is never produced by chaining through Simplified. Hong Kong ↔
+Taiwan chains `hk2t` → `t2tw` (and the mirror). `s2hkp` / `hk2sp` are not used (upstream marks them in
+development).
 
 **In the app**, `DetectScript` and `ConvertScript` (`domain`) wrap the library and run on the CPU
 dispatcher (`ARCH-130`), cancellable. When detection is Neutral, Mixed or low confidence, the split
@@ -452,15 +476,19 @@ when Voice is entered and releases it when Voice is left. Absent on Web.
   loads. Offline, the cached model is used without a check. With no cached model and no network, OCR
   shows its absent state (`GLB-035`); a failed download is retried on the next OCR use, never in a
   loop. If the browser evicts the model, the next OCR use repeats the first download.
-- **Shared image-input layer** (`feature-camera`). Every platform offers the same four inputs: the live
+- **Shared image-input layer** (`feature-camera`). Every platform accepts the same four inputs: the live
   camera feed (`CameraController`), pick from local files (`ImagePicker`), drag and drop an image
-  (`ImageDropTarget`), and paste an image (`Clipboard`; Ctrl/Cmd+V while the OCR destination has focus,
-  or the platform paste action). On Android a shared image (`ACTION_SEND image/*`, `SET-054`) enters the
-  same layer. Each source yields encoded image bytes or a URI; all go through `ImageDecoder` (upright,
-  capped, `CAM-026`) into the **same** capture-review and recognition path, so behaviour after input is
-  source-independent. At expanded width (`GLB-125`) the OCR screen leads with a large drop zone plus pick
-  and paste buttons and shows the camera as a secondary option; at compact width the camera feed stays
-  primary (`CAM-006`…`CAM-009`). Non-image drops and pastes are rejected per `CAM-130`….
+  (`ImageDropTarget`), and paste an image (`Clipboard`). On Android a shared image (`ACTION_SEND image/*`,
+  `SET-054`) enters the same layer. Each source yields encoded image bytes or a URI; all go through
+  `ImageDecoder` (upright, capped, `CAM-026`) into the **same** capture-review and recognition path, so
+  behaviour after input is source-independent. On every screen size and platform the OCR screen has
+  one layout (`CAM-006`…`CAM-009`): the **camera feed is the main element**, with a visible **pick
+  button**; where there is no camera or permission is denied, the camera area shows its
+  permission/unavailable state and the pick button stays. Drag and drop and paste have **no dedicated UI
+  element**: the `ImageDropTarget` covers the whole OCR screen (a subtle highlight while an image is
+  dragged over it), and paste (Ctrl/Cmd+V or the platform paste action) is handled anywhere on the OCR
+  screen while it has focus. A successful drop or paste is announced to assistive technology.
+  Non-image drops and pastes are rejected per `CAM-130`….
 - **Web camera.** `getUserMedia` with the browser's own permission prompt at the moment of use
   (`ARCH-100`); capture via `ImageCapture.takePhoto()` where available, otherwise the current video frame
   at full track resolution. Flash is offered only when `getCapabilities().torch` is true and tap-to-focus
@@ -593,8 +621,8 @@ a small margin.
 dataset handle, and the restored query's results. The voice model, the handwriting model and the OCR
 recogniser (on Web, the cached OCR model, `ARCH-197`) are loaded only when their surface is first used
 and released when it is left. OpenCC dictionaries are loaded per config on first conversion or
-detection (`ARCH-196`), and decomposition rows only when a Characters section is expanded
-(`ENT-120`…).
+detection (`ARCH-196`), and decomposition rows only when the DICT tab's Characters section (always
+shown, not collapsible) is rendered, after the rest of the entry (`ENT-120`…).
 
 `ARCH-134` `[MUST]` Header collapse, list scrolling and pager paging (including the EN/ZH result
 pager, `SRCH-180`…`SRCH-184`) must not trigger re-measure storms (`ENT-022`).
@@ -621,7 +649,8 @@ processed artefact.
 `ARCH-141` `[MUST]` **Mobile installs everything except the voice model** (`PROD-070`). Android and
 iOS builds contain every other asset the app uses — both mode datasets with their language-model and
 abbreviation data, recorded audio, strokes, example sentences, the OCR model (Android), the handwriting
-models, the OpenCC dictionaries (`ARCH-196`), the decomposition data (`DATA-191`), the Unihan data
+models, the OpenCC dictionaries (`ARCH-196`), the decomposition data with its Make Me a Hanzi
+`matches` file (`DATA-191`, `ARCH-200`), the Unihan data
 (`DATA-190`) and the bundled fonts. The **voice model is the only separate
 download**, made through the store's own mechanism the first time the user opens Voice (`VOICE-095`);
 the direct APK bundles it. There is no in-app downloader and no app-initiated network request on
@@ -654,13 +683,15 @@ Web build (`ARCH-013`); Web uses its own repackaged model (`ARCH-197`).
 (first open of the handwriting sheet), the abbreviation and combination data (first multi-syllable
 pinyin query; single-word results never wait for it), the OpenCC dictionaries per config (`ARCH-196`;
 first text that shows the conversion split button — until the detection sets arrive, detection reports
-low confidence and the main action follows the script setting), the decomposition data (first expansion
-of a Characters section, `DATA-191`), and the media families at the granularity defined by the data
+low confidence and the main action follows the script setting), the decomposition data with its
+Make Me a Hanzi `matches` file and the stroke graphics the Characters section draws (first display of
+a Characters section, `DATA-191`), and the media families at the granularity defined by the data
 contract (`DATA-170`…`DATA-173`). Every fetched file is verified against the SHA-256
 recorded in the dataset metadata or build manifest before use and discarded on mismatch. These files are
-kept in the browser (HTTP or service-worker) cache but are **not guaranteed offline**: only the app
-shell, the dataset (`ARCH-145`) and the OCR model once fetched (`ARCH-197`) are. The OCR model is the
-one fetched-on-first-use file kept offline and versioned by its own manifest. The Web CJK font is fetched by Compose's font fallback from its
+kept in the browser (HTTP or service-worker) cache but are **not guaranteed offline**, except the
+members of the offline set (`ARCH-145`): the OCR model once fetched (`ARCH-197`, versioned by its own
+manifest) and the decomposition data with its `matches` file and stroke graphics once fetched
+(versioned with the dataset). The Web CJK font is fetched by Compose's font fallback from its
 third-party host when text needs it and is likewise not guaranteed offline (`ARCH-005`). A fetch that fails or cannot run offline shows the feature's loading,
 absent or error state (`GLB-035`; recorded audio falls back to TTS, `MED-011`) and is retried on next
 use, never in a loop.
@@ -689,8 +720,15 @@ new directory adds.
 - A failed or interrupted update leaves the installed dataset untouched and in use; it is retried at
   the next check, never in a loop.
 - The Web offline set is exactly: the app shell (code and bundled text such as the privacy policy,
-  `ARCH-199`; the CJK font is not part of it, `ARCH-005`), the dataset, and the OCR model once first
-  used (`ARCH-197`). Everything else is fetched when needed and only browser-cached (`ARCH-143`).
+  `ARCH-199`; the CJK font is not part of it, `ARCH-005`), the dataset, the OCR model once first
+  used (`ARCH-197`), and the decomposition data — with the Make Me a Hanzi `matches` file and the
+  stroke graphics the Characters section has drawn — once first used (`ENT-120`…, `DATA-191`).
+  Everything else is fetched when needed and only browser-cached (`ARCH-143`).
+- The decomposition files are written to OPFS after their first verified fetch, covered by the same
+  `navigator.storage.persist()` request, and **versioned with the dataset**: their hashes are recorded
+  in the dataset metadata, so a dataset update that changes them re-fetches them on the next
+  Characters section (the old copies stay in use until then); unchanged files are kept. If the browser
+  evicts them, the next Characters section repeats the first fetch.
 
 `ARCH-146` `[MUST]` **Edge-rendered SEO word pages** (`GLB-113`):
 - A Cloudflare Worker on szdict.com answers `/zh/word/{natural-key}` and `/yue/word/{natural-key}` —
@@ -720,7 +758,7 @@ new directory adds.
 
 | Level | What | Where |
 |-------|------|-------|
-| Unit (host) | normalisation, classification, romanisation parsing, abbreviation spelling (token DAG), lattice decoder, ranking comparator, merge logic, segment parsing, sub-span ordering, HSK sorting, audio-plan selection, stroke recognition, OCR hit-testing geometry, handwriting candidate filtering and re-ranking, transcript commit and live re-segmentation, route parsing (including route-scoped link mode, `ARCH-053`), widget word selection, Android share-intent routing, Web dataset update (changeset apply, hash check, swap, full-download fallback), script detection thresholds and conversion view state (original kept, segment map, show original), decomposition tree building and root rule, image-input routing (camera, pick, drop, paste → one capture-review path), Web OCR model manifest check (unchanged → no download, changed → verify and swap, mismatch → discard), alternative-reading and Unihan ranking order, privacy text present in all three languages | shared, no platform |
+| Unit (host) | normalisation, classification, romanisation parsing, abbreviation spelling (token DAG), lattice decoder, ranking comparator, merge logic, segment parsing, sub-span ordering, HSK sorting, audio-plan selection, stroke recognition, OCR hit-testing geometry, handwriting candidate filtering and re-ranking, transcript commit and live re-segmentation, route parsing (including route-scoped link mode, `ARCH-053`), widget word selection, Android share-intent routing, Web dataset update (changeset apply, hash check, swap, full-download fallback), script detection thresholds and conversion view state (original kept, segment map, show original, Taiwan-with-phrases offered only for a Simplified source), decomposition tree building and root rule, decomposition glyph regions (`matches` → strokes, IDS operator → regions, fallback when they disagree; `ARCH-200`), image-input routing (camera, pick, drop, paste → one capture-review path), Web OCR model manifest check (unchanged → no download, changed → verify and swap, mismatch → discard), alternative-reading and Unihan ranking order, privacy text present in all three languages | shared, no platform |
 | Engine contract (host) | the golden-query suite of `PIPE-140` (including abbreviation and combination queries) against a small fixture dataset **and** against the real dataset in CI | shared |
 | State-holder (host) | latest-only behaviour, generation guards, route stack transitions, error recovery, settings restoration, voice transcript updates from a scripted fake `SpeechRecognizer` | shared |
 | Library conformance | OpenCC's own test cases on JVM, iOS and Wasm (`ARCH-196`) | `opencc-kmp` CI, before a version is pinned |
@@ -729,8 +767,10 @@ new directory adds.
 | Macrobenchmark | the budgets of the performance part (`PERF-101`) | Android first, iOS second |
 
 `ARCH-151` `[MUST]` A **fixture dataset** small enough to live in the repository (a few hundred entries,
-covering variants, redirects, HSK rows, HSK levels reached through variants, multi-reading words,
-alternative readings, Unihan-only characters, decomposition rows down to root components, Latin
+covering variants, redirects, HSK rows, a word with several HSK levels each with its own part of
+speech, HSK recognition characters, HSK levels reached through variants, multi-reading words,
+alternative readings, Unihan-only characters, decomposition rows down to root components with and
+without Make Me a Hanzi `matches`, an "HSK parser patch" entry, Latin
 headwords, supplementary-plane characters, and a tiny bigram table) must be buildable by the pipeline in CI, so engine tests do not
 need the full dataset.
 
@@ -743,8 +783,10 @@ in-flight operation must not clobber newer state.
 language, including tone colouring on and off, boundary underlines on and off, and pronunciation shown
 and hidden (`GLB-120`), with and without ruby readings (`GLB-121`), and for converted text
 (`ARCH-196`) with boundaries and tone colouring, so both keep working on Reading passages, OCR text and
-Voice transcripts after conversion. Also snapshot the Characters decomposition section and the OCR
-screen at compact and expanded width (`ARCH-197`).
+Voice transcripts after conversion. Also snapshot the Characters decomposition section with a part
+highlighted (from `matches` and from IDS regions, `ARCH-200`), and the OCR screen — camera feed with
+the pick button, the camera-unavailable state, and the drag-over highlight — at compact and expanded
+width (`ARCH-197`).
 
 `ARCH-154` `[MUST]` The pipeline's tokenisation, folding, and reading-normalisation rules are pinned by
 **shared test vectors** consumed by both the pipeline tests and the app tests (`PIPE-024`).
@@ -846,7 +888,8 @@ lessons are v2; the readiness rules are `ARCH-198`.
 records the v2 design so v1 does not block it; no v1 module, table or UI depends on it.
 - **Data model sketch** (built by `PIPE-083`; schema owned by the data contract when v2 starts):
   - `GrammarPoint` — id; `hsk_level`; optional `cefr`; `category` / `subcategory` / `detail` (the HSK
-    2025 grammar hierarchy, 593 rows as the skeleton); `topic_key` + `stage` (staged topics such as
+    3.0 grammar rules per level, as output by the pinned HSK parser repository — `REL-042` — form the
+    skeleton); `topic_key` + `stage` (staged topics such as
     比较句1–5); `kind` (`pattern` | `word_list` | `concept`); title per UI language; `patterns` (typed
     slots Subj / V / N / Adj / Num / MW / Clause, literal word links, optional parts, alternatives);
     explanations per UI language (Markdown); examples; related points (similar / contrast /
@@ -858,6 +901,10 @@ records the v2 design so v1 does not block it; no v1 module, table or UI depends
     name, URL, SPDX licence, attribution. `GrammarTopic` groups the stages of one topic.
   - Word links use the natural key (`DATA-014`), never `entry_id`, so they survive dataset versions.
     Grammar sense indices (都1, 了1) are distinct from vocabulary homograph indices.
+- **Sources.** The grammar rules per level and the integration of external grammar-lesson sources per
+  level come from the HSK parser repository (`https://github.com/Punpuf/hsk-syllabus-vocabulary-parser`)
+  at its pinned version (`REL-042`); `PIPE-083` consumes its outputs and does not re-implement the
+  syllabus parsing or the lesson-source matching.
 - **Licensing.** Imported content (the HSK list, AllSet Chinese Grammar Wiki under CC BY-NC-SA 3.0, and
   other sources) ships as **separately licensed data files** with source and licence **per item**, never
   merged into the CC BY-SA dataset file; each source feeds the attribution source (`REL-052`). A **build
@@ -1073,13 +1120,15 @@ enforced by `PERF-004` from that point.
 | Script conversion of a 1,000-character passage (dictionaries loaded) | 10 ms | 30 ms | 60 ms | reference phone and Web |
 | First conversion with a config's dictionaries loaded lazily (mobile, from bundled files) | 60 ms | 120 ms | 250 ms | reference phone |
 | Converted 1,000-character passage re-analysed and rendered | within the `Analyse 500 characters` row of `PERF-050`, scaled linearly | | | reference phone |
-| Characters section expand to first decomposition level rendered | 30 ms | 60 ms | 120 ms | reference phone |
+| Characters section shown to large glyph and first decomposition level rendered | 30 ms | 60 ms | 120 ms | reference phone |
 | Expand one component to its sub-components rendered | 20 ms | 50 ms | 100 ms | reference phone |
+| Part selected or hovered to its strokes or region highlighted in the glyph | 8 ms | 16 ms | 33 ms | reference phone and Web |
 
 On Web the first fetch of OpenCC dictionaries or decomposition data (`ARCH-143`) is excluded from the
-conversion and decomposition rows and shown as a loading state. Conversion and decomposition never
-block a frame (`PERF-022`); the Characters section does not count toward "Tap to content rendered" of
-`PERF-030`, since it is collapsed and at the bottom of the DICT tab.
+conversion and decomposition rows and shown as a loading state; later uses read the decomposition data
+from OPFS (`ARCH-145`) and are within the rows. Conversion and decomposition never block a frame
+(`PERF-022`); the Characters section does not count toward "Tap to content rendered" of `PERF-030`,
+since it renders after the rest of the entry, at the bottom of the DICT tab.
 
 ---
 
@@ -1113,7 +1162,7 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | Dataset, per mode (entries and indexes, excluding the items below), installed | 16 MB | mobile: both modes; Web: active mode |
 | Language model + abbreviation index, per mode (`DATA-150`…`DATA-155`) | ≤ 4 MB | mobile: in the dataset; Web: lazy |
 | Recorded audio (words plus syllables) | 65 MB | mobile; Web: lazy |
-| Strokes | 20 MB re-encoded | mobile; Web: lazy |
+| Strokes | 20 MB re-encoded | mobile; Web: lazy (those a Characters section needs are then kept offline, `ARCH-145`) |
 | Example sentences (Mandarin, and Cantonese per `MED-048`) | 6 MB | mobile; Web: lazy |
 | OCR model (ML Kit Chinese) | 20 MB | Android only (iOS uses Vision; Web uses the next line) |
 | Web OCR model (ML Kit text recognition repackaged for the browser, `DATA-196`) + manifest | ~2.6 MB download | Web only: lazy on first OCR use, then kept offline in OPFS / Cache Storage and replaced only when the manifest version changes (`ARCH-197`) |
@@ -1121,7 +1170,7 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | Voice model (trilingual streaming Paraformer, int8: encoder, decoder, tokens) | ~240 MB | Play: on-demand asset pack; iOS: Background Assets pack; direct APK: bundled (`ARCH-142`) |
 | sherpa-onnx + onnxruntime native libraries | 10–15 MB per ABI | mobile only |
 | OpenCC dictionaries for every config used (`ARCH-196`, `DATA-195`) | ~1.35 MB raw text, < ~0.5 MB gzipped (estimate; measure the compact binaries) | mobile: bundled; Web: lazy per config, browser-cached |
-| Decomposition data (BabelStone IDS + radical mappings, `DATA-191`) | ≤ 2 MB (estimate; measure when built) | mobile: bundled; Web: lazy, browser-cached |
+| Decomposition data (BabelStone IDS + radical mappings, `DATA-191`) plus the Make Me a Hanzi stroke → component `matches` as a separate LGPL-3.0 file (~9k characters) | ≤ 3 MB (estimate; measure when built) | mobile: bundled; Web: lazy on first Characters section, then kept offline in OPFS, versioned with the dataset (`ARCH-145`) |
 | Unihan data: fallback definitions and Unihan-only entries, per mode (`DATA-190`) | ≤ 2 MB (estimate; measure in the pipeline report) | in the dataset — mobile: both modes; Web: active mode |
 | Rare-character fallback font (OFL CJK, subset to dataset characters the platform fonts may lack; text tagged `zh-Hans` / `zh-Hant` / `zh-HK` — decided: `Q-109`) | ≤ 8 MB (estimate; re-baseline when the subset is built) | all mobile builds |
 
@@ -1143,8 +1192,9 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | Web — initial payload | code only | 4 MB compressed | — |
 | Web — first visit, one mode | code + active-mode dataset (incl. its Unihan data) into OPFS | 22 MB | 22 MB in OPFS |
 | Web — dataset update per release (`ARCH-145`) | changeset (`DATA-216`); the full dataset when the changeset would exceed half of it | ≤ 50% of the dataset line | in place in OPFS |
-| Web — on first use | LM + abbreviation data, handwriting model, OpenCC dictionaries, decomposition data, media (`ARCH-143`) | per `PERF-070` line | browser cache, not guaranteed offline |
+| Web — on first use | LM + abbreviation data, handwriting model, OpenCC dictionaries, media (`ARCH-143`) | per `PERF-070` line | browser cache, not guaranteed offline |
 | Web — OCR model on first OCR use (`ARCH-197`) | model + manifest; afterwards only a changed version | ~2.6 MB | OPFS / Cache Storage, kept offline |
+| Web — decomposition on first Characters section (`ARCH-143`, `ARCH-145`) | decomposition data, `matches` file and the stroke graphics shown; afterwards only on a dataset version change | per `PERF-070` lines | OPFS, kept offline |
 
 The voice model is the largest single asset. Play and iOS installs leave it out and fetch it once,
 through the store's own delivery, when the user first opens Voice; from then on Voice works offline.
@@ -1290,7 +1340,8 @@ or remotely.
 `REL-031` `[SHOULD]` Dependency updates arrive as PRs from **Renovate or Dependabot** (grouped, with
 pinned versions and lock files) and pass the same checks; this includes new versions of the project's
 own `opencc-kmp` library (`ARCH-196`), pinned only after its conformance suite passes. Data-source
-updates arrive through the scheduled pipeline PR (`PIPE-160`…`PIPE-166`).
+updates arrive through the scheduled pipeline PR (`PIPE-160`…`PIPE-166`), including a new pin of the
+HSK parser repository (`REL-042`), which passes the pipeline's HSK verification before it is merged.
 
 ---
 
@@ -1330,6 +1381,12 @@ only to tag-triggered release jobs. PR workflows never see it, and no key is com
 the source language model and corpora, and other large third-party inputs are fetched by CI from
 pinned, checksummed storage listed in the lock file (`PIPE-160`…`PIPE-166`), cached by checksum, and a
 SHA-256 mismatch fails the build. `[REC]` A pre-commit or CI guard rejects new files above a few MB.
+The **HSK parser repository** (`https://github.com/Punpuf/hsk-syllabus-vocabulary-parser`; code MIT,
+CC-CEDICT-derived data CC BY-SA 4.0) is a pinned external input in the same lock file: its commit (or
+tag) and the SHA-256 of every output the pipeline consumes — `hsk_word_list.tsv`,
+`data/disambiguation.tsv`, `data/cedict_patch.u8`, and the recognition and writing character lists,
+grammar rules and grammar-lesson sources per level once that repository provides them. The pipeline
+consumes these outputs instead of re-implementing the HSK join; it is not vendored or copied by hand.
 
 `REL-043` `[SHOULD]` Release builds are reproducible from the tag: toolchain versions are pinned
 (Gradle wrapper with checksum, JDK, Kotlin, Xcode), and the published SHA-256 sums let anyone compare a
@@ -1341,10 +1398,11 @@ rebuild.
 
 `REL-050` `[MUST]` The repository contains: `LICENSE` — the app's own code and assets under
 **Apache-2.0** (decided: `Q-100`); datasets and models are separate files under their own licences
-(CC BY-SA 4.0 dictionaries and the derived dataset, the project's CC BY-SA 4.0 supplementary dictionary
-file, the LGPL-2.1+ language-model table as a separate replaceable file, the Arphic stroke data, the
-CC BY-SA Cantonese tables, the Unicode-3.0 Unihan and UCD data, the BabelStone IDS decomposition data as
-its own file, and the Apache-2.0 OpenCC dictionaries carried by `opencc-kmp` with their `NOTICE`), each
+(CC BY-SA 4.0 dictionaries and the derived dataset, the HSK parser's CC BY-SA 4.0 patch entries
+merged as the labelled source "HSK parser patch" (`REL-042`), the LGPL-2.1+ language-model table as a
+separate replaceable file, the Arphic stroke data, the CC BY-SA Cantonese tables, the Unicode-3.0
+Unihan and UCD data, the BabelStone IDS decomposition data as its own file, the LGPL-3.0 Make Me a
+Hanzi `matches` as its own replaceable file (`ARCH-200`), and the Apache-2.0 OpenCC dictionaries carried by `opencc-kmp` with their `NOTICE`), each
 with its licence text
 alongside and listed in the attribution source of `REL-052` — `README`, `CONTRIBUTING` (workflow of `REL-020`, DCO, how to run the pipeline),
 `CODE_OF_CONDUCT`, `SECURITY.md` (private vulnerability reporting), issue and PR templates,
@@ -1358,5 +1416,7 @@ including committed data sources.
 (`SET-040`, `SET-043`), the README credits and the release notes. CI fails when a shipped asset or
 dependency has no entry. Entries include **BabelStone** (IDS data, Andrew West; credited although not
 required), **Unicode** (Unihan and UCD files, Unicode License v3 notice), **OpenCC** (dictionaries,
-Apache-2.0, via `opencc-kmp`), and the Web OCR model alongside the Android one. The source supports
+Apache-2.0, via `opencc-kmp`), **Make Me a Hanzi** (stroke → component `matches`, LGPL-3.0), the
+**HSK syllabus vocabulary parser** (MIT; its CEDICT patch CC BY-SA 4.0), and the Web OCR model alongside
+the Android one. The source supports
 per-item licences, so v2 grammar content can be attributed item by item (`ARCH-198`).

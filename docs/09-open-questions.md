@@ -8,53 +8,30 @@ meaningful; their full discussion is in the git history of this file.
 
 ## 1. Still open
 
-### `Q-120` — How to show HSK character levels
-**Facts (2025 syllabus PDF):** besides the 11,000 words, the syllabus lists 3,088 recognition characters
-(认读字) and 1,200 writing characters (书写字, a subset) by level. A character's level equals the first
-word level that contains it for 3,085 of them. 1,503 characters are also single-character words, but
-414 of those have a **different** word level (e.g. 白: character level 1 through 白天, word level 5), and
-1,585 characters occur only inside longer words.
-**Current spec:** the levels are stored as data (`DATA-194`, `HSK-098`); no UI in v1 yet.
-**Options:** (a) a separate "HSK character Lx" badge on single-character entries, shown only when it
-differs from the word level or the character is not an HSK word; (b) also a per-level character list in
-the HSK destination, each character linking to the words that contain it; (c) no UI.
-**Recommendation:** (a) in v1, (b) together with the v2 grammar work. A single combined badge would
-mislabel about 27 % of single-character words.
-
-### `Q-121` — HSK words missing from CC-CEDICT (confirm)
-Every HSK word must link to a dictionary entry (`Q-118`). 10,997 of 11,000 link automatically; 口哨儿
-maps to 口哨 through the mapping file; **精彩纷呈 does not exist in CC-CEDICT.**
-**Current spec:** a small project-maintained supplement file (`data-sources/supplement.u8`, CC-CEDICT
-format, our own definitions under CC BY-SA 4.0, credited as "Shenzhen Dictionary supplement") holds such
-words, and each one is also submitted upstream to CC-CEDICT.
-**Needs:** confirmation of this approach.
-
 ### `Q-122` — Choices made while applying the 2026-10-12 notes (confirm)
 - **Alternative readings** (`also pr.` / `Taiwan pr.`) appear on a muted line under the main reading
   in the entry header and are then left out of the notes row (`ENT-020`, `ENT-057`).
-- **Characters section** (decomposition) is collapsed by default and loads when first expanded
-  (`ENT-120`). On Web it needs the network until its data is cached (it is not in the offline set).
 - **Unicode-only entries:** one entry per character; they rank after all dictionary matches; in
   Cantonese mode the English page gets a third section `Unicode (Unihan)` (`SRCH-079`, `DATA-190`). In
   passages they count as covered single characters (tappable, included in stepping) (`TXT-012`).
-- **Unencoded components** in decomposition trees use SVG glyphs drawn by the project (CC BY-SA 4.0)
-  (`DATA-191`).
-- **Script conversion:**
-  - in Mandarin mode the Traditional target is OpenCC standard; Cantonese mode uses Hong Kong
-    (`TXT-082`, `VOICE-096`);
-  - "Traditional (Taiwan, with phrases)" from a Traditional source goes through Simplified, because
-    OpenCC's phrase conversion only starts from Simplified (`TXT-083`);
-  - on OCR it applies to the Text view only; the Image view and its boxes keep the recognised text
-    (`CAM-135`);
-  - in Reading the conversion stays on while you keep typing, and resets on Clear, Paste, shared text
-    and `Open in Reading` (`TXT-084`); Voice `Open in Reading` passes the displayed (converted) text.
+- **Decomposition highlighting:** exact stroke highlighting uses Make Me a Hanzi's per-stroke component
+  `matches` (LGPL-3.0, separate data file, ~9,000 characters); other characters get regions estimated from
+  the IDS structure (left/right, top/bottom, enclosure). Unencoded components use SVG glyphs drawn by the
+  project (CC BY-SA 4.0) (`ENT-120`…, `DATA-191`).
+- **Script conversion:** in Mandarin mode the Traditional target is OpenCC standard; Cantonese mode uses
+  Hong Kong (`TXT-082`, `VOICE-096`). On OCR it applies to the Text view only; the Image view and its boxes
+  keep the recognised text (`CAM-135`). In Reading the conversion stays on while you keep typing and resets
+  on Clear, Paste and shared text (`TXT-084`).
+- **OCR pick button** on Android and iOS opens a small menu with `Photos` and `Files`; on Web it opens the
+  file chooser directly (`CAM-016`).
+- **Paste on touch devices:** without a keyboard, long-pressing the camera area opens the system menu with
+  `Paste`, so phone users can paste an image too (`CAM-132`).
 - **Save photo on Web** downloads the original capture as a JPEG; there is no auto-save on Web
   (`CAM-073`).
-- **HSK:** an extra bracketed level (e.g. 半 `1（4）`) adds a badge but no extra grid card; homograph rows
-  of the same level linking to the same entry show as one card; an entry with its own HSK level does
-  not also receive a level through a variant (`HSK-027`, `HSK-040`, `DATA-193`).
+- **HSK:** homograph rows of the same level linking to the same entry show as one card; an entry with its
+  own HSK level does not also receive a level through a variant (`HSK-027`, `DATA-193`).
 - **Privacy page** on szdict.com shows all three languages on one indexable page (`GLB-114`).
-- **Inside-words button:** not shown on `Within` rows in the WORDS tab or on combination cards
+- **Words-inside button:** not shown on `Within` rows in the WORDS tab or on combination cards
   (`ENT-073`, `SRCH-105`).
 
 ---
@@ -105,13 +82,12 @@ words, and each one is also submitted upstream to CC-CEDICT.
 | `Q-115` No-Jyutping headwords | (a) shown in Cantonese mode with their Mandarin senses and a "No Cantonese reading" note; no guessed readings | `ENT-116`, `DATA-022` |
 | `Q-116` iOS voice | iOS minimum raised to **26**; the voice model is an Apple-hosted Background Assets pack; Voice available on every supported iOS version | `PROD-025`, `VOICE-095`, `ARCH-142` |
 | `Q-117` Web CJK font | Web uses Compose Multiplatform's automatic font fallback, downloaded from a third-party font host when needed; no bundled Web font. Mobile keeps the bundled OFL rare-character font | `GLB-008`, `GLB-090`, `ARCH-005` |
-| `Q-118` Choices | Shared text (Android) replaces the Reading draft. Links to `/zh/…` or `/yue/…` show that content in the link's mode **for that route only** — the saved mode preference never changes. **Every HSK word links to a CC-CEDICT entry**: normalisation plus a committed manual mapping file; the build fails on any unlinked row (no fallback cards). Cantonese mode shows Cantonese example sentences only. Chinese block headings are used when the UI language is Chinese. Translate hand-off text is capped at 1,500 characters. CC-Canto lines adapted from CC-CEDICT are never hidden for characters with several Cantonese readings | `TXT-080`, `GLB-110`, `HSK-056`, `PIPE-044`, `MED-048`, `ENT-110`, `MED-030`, `ENT-114` |
+| `Q-118` Choices | Shared text (Android) replaces the Reading draft. Links to `/zh/…` or `/yue/…` show that content in the link's mode **for that route only** — the saved mode preference never changes. **Every HSK word links to a CC-CEDICT entry**: linking comes from the project's HSK parser (`Q-121`); the build fails on any unresolved row (no fallback cards). Cantonese mode shows Cantonese example sentences only. Chinese block headings are used when the UI language is Chinese. Translate hand-off text is capped at 1,500 characters. CC-Canto lines adapted from CC-CEDICT are never hidden for characters with several Cantonese readings | `TXT-080`, `GLB-110`, `HSK-056`, `PIPE-044`, `MED-048`, `ENT-110`, `MED-030`, `ENT-114` |
 | `Q-119` Cantonese search order | Like Pleco: CC-Canto entries first, then CC-CEDICT entries; a CC-CEDICT match is listed once per CC-CEDICT entry, not once per Cantonese reading | `SRCH-076`, `SRCH-077`, `SRCH-033`, `SRCH-049`, `DATA-076` |
 | HSK edition (update) | The 2025 syllabus was published 2025-11 and is in force from 2026-07; the word key is word + pinyin + homograph index | `HSK-003`, `HSK-051` |
 | Alternative pronunciations | `also pr.` and `Taiwan pr.` readings are search keys; matches rank after main-reading matches and show the matched reading with its label | `SRCH-078`, `DATA-192` |
 | Web OCR | OCR is available on Web with the ML Kit text-recognition model repackaged for the browser (~2.6 MB), stored offline and versioned (re-downloaded only when a new version is published). iOS keeps Apple Vision | `CAM-130`…, `ARCH-197`, `DATA-196` |
-| OCR inputs | Every platform supports camera, file pick, drag-and-drop and paste; wide layouts emphasise the non-camera inputs | `CAM-130`… |
-| Script conversion | M3 split button on Reading, OCR text and Voice: main action from the detected script, then "Show original"; options dialog with source and target (Simplified, Traditional, Hong Kong, Taiwan, Taiwan with phrases). Voice converts by default when the script setting is Traditional. Built on a separate OpenCC Kotlin Multiplatform library | `TXT-081`…, `CAM-130`…, `VOICE-096`, `ARCH-196` |
+| Script conversion | M3 split button on Reading, OCR text and Voice: main action from the detected script, then "Show original"; options dialog with source and target (Simplified, Traditional, Hong Kong, Taiwan, Taiwan with phrases — only from Simplified). Voice converts by default when the script setting is Traditional. Built on a separate OpenCC Kotlin Multiplatform library | `TXT-081`…, `CAM-130`…, `VOICE-096`, `ARCH-196` |
 | Reading display | Word boundaries and tone colours stay, on all passage views | `GLB-066`, `SET-010` |
 | Privacy policy | One `/privacy` page, identical in the app (bundled text) and on szdict.com | `SET-090`, `GLB-110` |
 | Character decomposition | Collapsible "Characters" section at the bottom of the DICT tab: each hanzi's parts down to root components, each with reading and definition (BabelStone IDS). Separate from the card button below. Origins stay deferred | `ENT-120`…`ENT-125`, `DATA-191` |
@@ -119,6 +95,13 @@ words, and each one is also submitted upstream to CC-CEDICT.
 | HSK via variants | Variants (plain, old, erhua; up to two hops) of an HSK word, and words an HSK word is a variant of, show the same HSK badge; the grid lists only syllabus words | `HSK-097`, `DATA-193` |
 | Inside-words button | Every word card with 2+ hanzi has the same button showing the sub-words and characters inside it, in all result types | `SRCH-105`, `ENT-073` |
 | Grammar lessons | v2, not v1. HSK grammar list (593 items) plus imported lessons (AllSet and others) as separately licensed data files; own explanations and examples reviewed before shipping; linked to word ids; discovery in HSK and entry detail. Flashcards later (need user-data storage) | `ARCH-198`, `PIPE-083`, `HSK-099`, `ENT-127` |
+| `Q-120` HSK characters | The HSK destination gets a **Characters** section listing recognition characters by HSK character level; those cards show no level badge, and no screen shows a character level — entries show only word levels. The writing list is kept as data | `HSK-098`, `DATA-194` |
+| `Q-121` HSK data source | HSK data comes from the project's own parser, [hsk-syllabus-vocabulary-parser](https://github.com/Punpuf/hsk-syllabus-vocabulary-parser) (pinned): it links every word to CC-CEDICT (disambiguation file + CEDICT-format patch file for missing words such as 精彩纷呈) and will also provide the character lists, grammar rules and grammar-lesson sources per level | `HSK-051`, `PIPE-040`…, `PIPE-160`… |
+| HSK levels on screens | A word can have several HSK levels; the entry page shows each level with its grammatical class from the syllabus, cards show only the level badges | `ENT-020`, `HSK-040` |
+| OCR inputs (correction) | On every screen the camera feed is the main element, with a button to pick an image from storage. Drag and drop (the whole OCR screen is a drop target) and paste work without any dedicated UI element | `CAM-130`… |
+| Decomposition (correction) | Always visible (not collapsible); shows which region of the character each part is, by highlighting it on a large glyph; on Web it stays available offline after its first load | `ENT-120`…, `DATA-191` |
+| Taiwan phrases | "Traditional (Taiwan, with phrases)" is offered only from Simplified text; never chained through Simplified | `TXT-083` |
+| Voice | No "Open in Reading" action; the transcript is already tappable | `VOICE-*` |
 | Cantonese example sentences | Tatoeba Cantonese (`yue`) sentences, short subset, with English through Tatoeba links | `MED-048`, `DATA-188` |
 | Normalisation | Matching key uses NFKC; dataset keys use the same form | `SRCH-010`, `DATA-071` |
 | Navigation | Search · OCR · Voice · Reading · HSK (Web: Search · Reading · HSK); Settings is a card on the empty Search screen | `PROD-050`, `SRCH-115`, `SRCH-116` |

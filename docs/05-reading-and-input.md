@@ -282,8 +282,7 @@ broken.
 `TXT-080` `[MUST]` **Shared text** (`SET-056`; **Android only** — iOS has no share target in v1,
 decided: `Q-042`). Text received from another app — `ACTION_SEND` `text/plain` or
 `ACTION_PROCESS_TEXT` from a text-selection menu — selects the Reading destination and:
-- **replaces** the current draft with the received text, exactly as `Open in Reading` does from Voice
-  (`VOICE-050`); there is no merge and no prompt;
+- **replaces** the current draft with the received text; there is no merge and no prompt;
 - closes an open word-candidate sheet (`TXT-045`) and analyses the new draft automatically
   (`TXT-051`), chunked like any long passage (`TXT-015`);
 - does not focus the field, so no keyboard or handwriting sheet appears by itself;
@@ -341,19 +340,22 @@ two single-choice groups and the buttons `Cancel` / `Convert`:
   Neutral, Mixed or low-confidence text);
 - `Convert to:` — `Simplified`, `Traditional (OpenCC standard)`, `Traditional (Hong Kong)`,
   `Traditional (Taiwan)`, `Traditional (Taiwan, with phrases)` (converts vocabulary too, e.g.
-  软件 → 軟體); the option equal to the selected source is greyed out (disabled) and, if it was
-  selected, the selection moves to the main action's default target.
+  软件 → 軟體); the option equal to the selected source is greyed out (disabled), and
+  `Traditional (Taiwan, with phrases)` is enabled **only when the source is `Simplified`** (OpenCC
+  `s2twp`) — with any Traditional source it is greyed out (disabled); conversion never chains through
+  Simplified to reach it. If a source change disables the selected target, the selection moves to the
+  main action's default target.
 
 `Convert` applies the conversion to the original text (never to an already converted text) and the
 main action becomes `Show original`. OpenCC configurations used (upstream configurations marked
-"in development", such as `s2hkp` / `hk2sp`, are not used):
+"in development", such as `s2hkp` / `hk2sp`, are not used; "disabled" marks a greyed-out target):
 
 | Text is ↓ / Convert to → | Simplified | Traditional (OpenCC) | Traditional (HK) | Traditional (Taiwan) | Taiwan, with phrases |
 |---|---|---|---|---|---|
 | Simplified | — | `s2t` | `s2hk` | `s2tw` | `s2twp` |
-| Traditional (OpenCC) | `t2s` | — | `t2hk` | `t2tw` | `t2s` → `s2twp` |
-| Traditional (HK) | `hk2s` | `hk2t` | — | `hk2t` → `t2tw` | `hk2s` → `s2twp` |
-| Traditional (Taiwan) | `tw2s` | `tw2t` | `tw2t` → `t2hk` | — | `tw2s` → `s2twp` |
+| Traditional (OpenCC) | `t2s` | — | `t2hk` | `t2tw` | disabled |
+| Traditional (HK) | `hk2s` | `hk2t` | — | `hk2t` → `t2tw` | disabled |
+| Traditional (Taiwan) | `tw2s` | `tw2t` | `tw2t` → `t2hk` | — | disabled |
 
 `TXT-084` `[MUST]` **Conversion on the Reading passage** (`GLB-009`):
 - the passage card shows the converted text; the text field always holds the **original** draft,
@@ -368,7 +370,7 @@ main action becomes `Show original`. OpenCC configurations used (upstream config
 - the sentence actions (play, translate, copy — `MED-020`) act on the displayed text;
 - the conversion state belongs to the passage while it is on screen: editing the draft keeps it and
   converts the edited text with the same source and target; a new passage (`Clear`, `Paste`, shared
-  text `TXT-080`, `Open in Reading` from Voice) starts unconverted with fresh detection; it is not
+  text `TXT-080`) starts unconverted with fresh detection; it is not
   persisted across launches (`SET-014`) and never appears in a URL (`GLB-112`);
 - conversion runs off the UI thread, is latest-only (`GLB-040`) and loads the OpenCC dictionaries it
   needs lazily on first use (`ARCH-196`); budgets: `PERF-059`. A conversion that changes nothing
@@ -429,7 +431,7 @@ repackaged for the browser on Web (`CAM-051`, `CAM-134`). Read
 
 This spec contains **new requirements** that do not exist in the reference app: tap to focus
 (`CAM-030`), explicit flash control (`CAM-035`), saving the captured image to the photo library
-(`CAM-071`), an auto-save setting (`CAM-080`), drag-and-drop and paste input with a width-dependent
+(`CAM-071`), an auto-save setting (`CAM-080`), drag-and-drop and paste input on a camera-first
 input screen (`CAM-130`…`CAM-133`), OCR on Web (`CAM-134`) and script conversion of the recognised
 text (`CAM-135`). OCR is also a **primary destination** rather than the reference app's modal surface
 (`CAM-006`…`CAM-009`).
@@ -453,39 +455,41 @@ above the bottom bar (or beside the rail).
 
 There are no other entry points: neither the empty Search screen nor the Reading destination has OCR
 access cards (decided: `Q-050`). Within the destination, an existing image is supplied with the
-image-picker button (`CAM-007`), by drag and drop (`CAM-131`) or by paste (`CAM-132`). Shared **text**
+image-picker button (`CAM-007`), by dropping it anywhere on the destination (`CAM-131`) or by
+pasting it anywhere on it (`CAM-132`). Shared **text**
 goes to Reading (`TXT-080`). On Web the static shortcuts are absent (`SET-053`); the destination is
 reached from the navigation or its route `/ocr` (`GLB-110`).
 
 `CAM-003` `[MUST]` Selecting the destination from the navigation shows the retained state (`CAM-008`):
-the review of the retained capture if one exists, otherwise the input screen (the live feed, or the
-image-input screen at expanded width — `CAM-006`, `CAM-133`). Starting a new capture
+the review of the retained capture if one exists, otherwise the input screen (the live feed,
+`CAM-006`, `CAM-133`). Starting a new capture
 (shutter, `Retake`, picking, dropping, pasting or receiving an image) replaces any previous capture,
 recognition result, selection, conversion state (`CAM-135`) and error.
 
 `CAM-004` `[MUST]` The destination has exactly two phases:
 - **Capture phase** — no image yet: the input screen of `CAM-006` / `CAM-133` (the live viewfinder,
-  or at expanded width the drop zone with the camera as a secondary option), or a decode
-  spinner/error (source = gallery: picked, shared, dropped or pasted).
+  or its permission or camera-unavailable state, with the pick button), or a decode spinner/error
+  (source = gallery: picked, shared, dropped or pasted).
 - **Review phase** — an image exists: the image with recognition overlay, or the text list.
 
 `CAM-005` `[MUST]` `source` is `CAMERA` or `GALLERY` and determines the review header's primary
 action and whether the image can be saved (`CAM-072`). Picked, shared, dropped and pasted images all
 have `source = GALLERY`.
 
-`CAM-006` `[MUST]` At **compact and medium widths** (below the expanded width of `GLB-125`), opening
-the OCR destination with no retained capture goes **straight to the live camera feed** — no
-intermediate screen — on every platform. If camera access is not granted, the viewfinder frame shows
-the permission rationale panel instead (`CAM-010`…`CAM-015`); the image-picker and paste buttons stay
-available. At **expanded width** it opens on the image-input screen instead, with the camera as a
-secondary option (`CAM-133`).
+`CAM-006` `[MUST]` At **every window width** and on every platform, opening the OCR destination with
+no retained capture goes **straight to the live camera feed** — no intermediate screen; the camera
+feed is the main element of the input screen (`CAM-133`). If camera access is not granted, the
+viewfinder frame shows the permission rationale panel instead (`CAM-010`…`CAM-014`), and where there
+is no usable camera it shows the unavailable state (`CAM-015`); the image-picker button stays
+available in both.
 
 `CAM-007` `[MUST]` An **image-picker** icon button sits on the viewfinder, bottom-leading beside the
-shutter, labelled `Choose from gallery` (Android, iOS) or `Choose file` (Web, `GLB-080`), with a
-`Paste image` icon button bottom-trailing (`CAM-132`). The picker opens the platform photo picker or
-file chooser (`CAM-016`); a picked image goes to review with `source = GALLERY`. Both buttons are
-available in every capture-phase state, including the permission panel and the camera-unavailable
-state (`CAM-015`).
+shutter, always visible, labelled `Choose from gallery` (Android, iOS) or `Choose file` (Web,
+`GLB-080`). The picker opens the platform photo picker or file chooser (`CAM-016`); a picked image
+goes to review with `source = GALLERY`. The button is available in every capture-phase state,
+including the permission panel and the camera-unavailable state (`CAM-015`). It is the only
+image-input control besides the shutter: drop and paste have no button or label of their own
+(`CAM-131`, `CAM-132`).
 
 `CAM-008` `[MUST]` **State retained, hardware released.** Leaving the OCR destination for another
 destination keeps the capture state within the session: the captured image, its recognition result,
@@ -497,8 +501,7 @@ user leaves runs to completion and its result is shown on return. Nothing is per
 launches (`SET-014`).
 
 `CAM-009` `[MUST]` Re-tapping the already-selected OCR destination while reviewing a capture returns to
-the input screen — the live feed at compact and medium widths, the image-input screen at expanded
-width (`CAM-133`) — discarding the capture (`PROD-053`); in the capture phase it has no effect. The
+the input screen — the live feed (`CAM-133`) — discarding the capture (`PROD-053`); in the capture phase it has no effect. The
 destination exists on every platform (`PROD-022`); only the static shortcut is absent on Web
 (`SET-053`).
 
@@ -507,8 +510,7 @@ destination exists on every platform (`PROD-022`); only the static shortcut is a
 ### 2. Permission handling
 
 `CAM-010` `[MUST]` The camera permission is requested **lazily**, only when the viewfinder is first
-shown (the first visit to the OCR destination at compact width, or the first use of the camera
-option at expanded width, `CAM-133`) — never at app start. On Web the camera is opened with
+shown (the first visit to the OCR destination, `CAM-006`) — never at app start. On Web the camera is opened with
 `getUserMedia` (preferring the rear camera, `facingMode: "environment"`), which shows the browser's
 own permission prompt; Web needs a secure context, which `szdict.com` provides.
 
@@ -536,8 +538,8 @@ to `Allow camera` after a rotation.
 
 `CAM-015` `[MUST]` If the camera device cannot be bound (no camera, hardware in use, emulator without
 a camera, a desktop browser without a webcam — `NotFoundError` / `NotReadableError` on Web), the frame
-shows `The camera is unavailable on this device.` and the picker, drop and paste paths remain
-available.
+shows `The camera is unavailable on this device.`; the pick button stays visible (`CAM-007`) and
+drop and paste keep working (`CAM-131`, `CAM-132`).
 
 `CAM-016` `[MUST]` The gallery path uses the platform's **photo picker** (Android Photo Picker /
 iOS `PHPickerViewController`; Web: a file input with `accept="image/*"` and no `capture` attribute,
@@ -546,8 +548,8 @@ only and therefore requires **no** media permission. A broad photo-library read 
 be requested. Picking from local **files** (not only the photo library) is offered on Android and iOS
 through the system document picker (`ACTION_OPEN_DOCUMENT` with `image/*`;
 `UIDocumentPickerViewController` for image types), which likewise needs no permission: the
-expanded-width `Choose file` button opens it, offering photos as a second button (`CAM-133`), and the
-compact viewfinder button opens the photo picker.
+on Android and iOS the viewfinder's pick button (`CAM-007`) opens a small menu with `Photos` (the
+photo picker) and `Files` (the document picker); on Web it opens the file input directly.
 
 `CAM-017` `[MUST]` Declared permissions (the merged-manifest policy and its CI check are
 `ARCH-104`…`ARCH-106`):
@@ -670,55 +672,48 @@ survives the picker's own recomposition so a rotation mid-decode does not lose t
 supply an image, and each leads to the same review flow:
 1. the **live camera feed** (`CAM-020`…`CAM-039`; Web: `getUserMedia`, `CAM-010`) → `source = CAMERA`;
 2. **picking** an image from the photo library or local files (`CAM-007`, `CAM-016`);
-3. **drag and drop** of an image onto the destination (`CAM-131`);
-4. **paste** of an image from the clipboard (`CAM-132`).
+3. **drag and drop** of an image anywhere onto the OCR screen (`CAM-131`);
+4. **paste** of an image from the clipboard anywhere on the OCR screen (`CAM-132`).
 
 Inputs 2–4 give `source = GALLERY` and go through decoding (`CAM-040`…`CAM-044`). Any of them,
 in any phase (capture or review), replaces the current capture (`CAM-003`). Only the camera's
 hardware capabilities (focus, flash/torch) differ per platform and browser (`CAM-034`, `CAM-037`).
 
-`CAM-131` `[MUST]` **Drag and drop.** The whole OCR destination content area is a drop target in
-every phase on every platform (Android: `DragAndDropPermissions` for drops from other apps, for
-example in split screen, freeform windows or ChromeOS; iOS: `UIDropInteraction`, for example from
-Files or Photos in Split View or on iPad; Web: HTML drag-and-drop with files):
-- while an acceptable item is dragged over the destination, a full-area drop overlay with the
-  message `Drop image to recognize text` is shown (accent outline, `highlight` fill); it disappears
-  when the drag leaves or ends;
+`CAM-131` `[MUST]` **Drag and drop.** The **entire OCR screen** (the destination's whole content
+area, viewfinder or review included) is a drop target in every phase on every platform (Android:
+`DragAndDropPermissions` for drops from other apps, for example in split screen, freeform windows or
+ChromeOS; iOS: `UIDropInteraction`, for example from Files or Photos in Split View or on iPad; Web:
+HTML drag-and-drop with files). Drop has **no dedicated UI element** — no drop zone, button or label:
+- while an acceptable item is dragged over the screen, a subtle highlight of the whole content area
+  (a thin accent outline, no text) is the only feedback; it disappears when the drag leaves or ends;
 - the first image of the dropped items is used and any others are ignored; a drop with no image
   (text, other files) shows `That file is not an image.` and leaves the current state unchanged;
 - an image dragged from a web page that arrives only as a URL is not fetched (no network request
-  for user content, `GLB-090`): it is treated as not an image.
+  for user content, `GLB-090`): it is treated as not an image;
+- a successful drop is announced to assistive technologies as `Image dropped` (`GLB-084`).
 
-`CAM-132` `[MUST]` **Paste.** An image on the clipboard can be pasted in every phase:
-- by the `Paste image` button (`CAM-007` on the viewfinder; `CAM-133` on the image-input screen)
-  and, wherever a hardware keyboard is present, by
-  **Ctrl+V** / **Cmd+V** while the destination is shown (Web: the document `paste` event; Android and
-  iOS: the platform paste key command); on iOS the button is the system paste control
-  (`UIPasteControl`), so no paste-permission alert is shown;
-- availability follows the clipboard rules of `TXT-053`…`TXT-055` with an image MIME type
-  (`image/*`) in place of text; on Android and iOS the button is disabled when the clipboard holds no
-  image; on Web, where availability cannot be read without a prompt, it stays enabled and reads the
-  clipboard with `navigator.clipboard.read()` on the user's gesture, surfacing a permission failure
-  inline as `Clipboard access was denied.` (as `TXT-059` for text);
+`CAM-132` `[MUST]` **Paste.** An image on the clipboard can be pasted **anywhere on the OCR screen**
+in every phase. Paste has **no dedicated UI element** — no `Paste image` button or label:
+- wherever a hardware keyboard is present, by **Ctrl+V** / **Cmd+V** while the destination is shown,
+  whatever has focus within it (Web: the document `paste` event; Android and iOS: the platform paste
+  key command, a user-initiated paste, so iOS shows no paste-permission alert);
+- on Android and iOS without a keyboard, a long-press on the viewfinder area in the capture phase
+  opens the platform's standard edit menu with `Paste` (system UI, not an app control), enabled only
+  when the clipboard holds an image (`image/*`, following the clipboard rules of
+  `TXT-053`…`TXT-055`); on Web the browser's `paste` event is the only path;
 - a paste with no image on the clipboard shows `No image on the clipboard.`; text on the clipboard
-  is never sent to OCR (text is read in Reading, `TXT-052`);
+  is never sent to OCR (text is read in Reading, `TXT-052`); on Web the image is taken from the
+  `paste` event's data, so no clipboard permission is requested;
+- a successful paste is announced to assistive technologies as `Image pasted` (`GLB-084`);
 - the clipboard is only read on an explicit paste action, never polled for content.
 
-`CAM-133` `[MUST]` **Width-dependent input screen.** The capture phase's input screen depends on the
-window width (`GLB-125`):
-- **Compact and medium width (below 840):** the **camera feed is primary** — the live viewfinder of
-  `CAM-006`, with the picker and paste icon buttons on it (`CAM-007`); drop still works (`CAM-131`).
-- **Expanded width (840 and above):** the screen emphasises the non-camera inputs: a large
-  **drop zone** (dashed `border` outline, large corner rounding, an image icon and the text
-  `Drop an image here, paste it with Ctrl+V, or choose a file` — `Cmd+V` on Apple platforms; label
-  `Drop image`, `GLB-080`) with the buttons `Choose file` (filled accent), `Choose from gallery`
-  (Android and iOS only, the photo picker) and `Paste image` (outlined); below them, as a secondary
-  option, a `Use camera` text button. `Use camera` switches the screen to the live viewfinder
-  (requesting permission then, `CAM-010`), with a `Back to image inputs` action; the camera is not
-  opened while the drop zone is shown. `Use camera` is hidden when the platform reports no camera
-  (Web: no video input device), with no dead affordance (`PROD-023`).
-- A width change across 840 while in the capture phase switches the layout and releases or binds the
-  camera accordingly; an image being decoded or reviewed is unaffected.
+`CAM-133` `[MUST]` **One camera-first input screen.** The capture phase has the same input screen at
+every window width and on every platform: the **camera feed is the main element** (the viewfinder of
+`CAM-020`…`CAM-039`, `CAM-006`) with the always-visible pick button (`CAM-007`). There is no
+width-dependent layout, no drop zone and no secondary camera option; drop and paste act on the whole
+screen without controls (`CAM-131`, `CAM-132`). Where there is no camera (for example a desktop
+without a webcam) or access is denied, the camera area shows the permission or unavailable state
+(`CAM-011`, `CAM-015`) and the pick button stays.
 
 ---
 
@@ -794,9 +789,8 @@ completes.
 
 `CAM-060` `[MUST]` A translucent result header pinned to the top holds:
 - a primary action: `Retake` (source = camera, returns to the live feed) or `Pick new image`
-  (source = gallery), plus, for source = gallery, an action returning to the input screen — `Camera`
-  (the live feed) at compact and medium widths, hidden when the device has no camera (`CAM-015`);
-  `New image` (the image-input screen, `CAM-133`) at expanded width;
+  (source = gallery), plus, for source = gallery, a `Camera` action returning to the input screen
+  (the live feed, `CAM-133`), hidden when the device has no camera (`CAM-015`);
 - the new `Save photo` action (`CAM-072`);
 - a two-segment `Image` / `Text` view toggle.
 
@@ -950,10 +944,8 @@ discarded (`CAM-003`).
 `CAM-100` `[MUST]` Precedence within the OCR destination (`PROD-056`):
 1. an open word-candidate sheet dismisses;
 2. reviewing a capture (any source), or a picker/share/drop/paste decode spinner or error, returns to
-   the input screen (the live feed, or the image-input screen at expanded width, `CAM-133`),
-   discarding that capture;
-3. at expanded width, the live viewfinder opened with `Use camera` returns to the image-input screen;
-4. on the input screen, back follows the general precedence of `PROD-056` (ultimately the platform
+   the input screen (the live feed, `CAM-133`), discarding that capture;
+3. on the input screen, back follows the general precedence of `PROD-056` (ultimately the platform
    default).
 
 ---
@@ -971,7 +963,7 @@ discarded (`CAM-003`).
 | Flash | `Off` / `On` / `Auto` (`CAM-036`) | `Off` / `On` / `Auto` | torch on/off only where supported, else hidden (`CAM-037`) |
 | Image picker | Photo Picker; document picker for files (no permission) | PHPicker; document picker for files (no permission) | file input `accept="image/*"` |
 | Drag and drop (`CAM-131`) | `DragAndDropPermissions` (split screen, freeform, ChromeOS) | `UIDropInteraction` (Split View, iPad) | HTML drag and drop |
-| Paste (`CAM-132`) | `ClipboardManager` image clip; Ctrl+V | `UIPasteControl`; Cmd+V | `navigator.clipboard.read()`, `paste` event; Ctrl/Cmd+V |
+| Paste (`CAM-132`, no button) | `ClipboardManager` image clip; Ctrl+V; long-press edit menu | `UIEditMenuInteraction` / paste key command; Cmd+V | document `paste` event; Ctrl/Cmd+V |
 | Save to library | MediaStore (`Pictures/<App>/`) | PHPhotoLibrary add-only | file download (`CAM-075`) |
 | Save permission | none (API 29+); `WRITE_EXTERNAL_STORAGE` `maxSdkVersion 28` (API 26–28) | add-only usage description | none |
 | Auto-save setting | yes (`CAM-080`) | yes | absent (`SET-084`) |
@@ -1196,9 +1188,9 @@ iOS version (the iOS minimum is 26, `PROD-025`). On Web the destination, its rou
 point are absent; its route falls back per `GLB-112`.
 
 `VOICE-002` `[MUST]` Layout, top to bottom:
-- a header with the title `Voice`, the pronunciation toggle (`GLB-120`), the actions `Copy`,
-  `Clear` and `Open in Reading` (`VOICE-050`), and, to the right of them, the script-conversion split
-  button (`VOICE-096`);
+- a header with the title `Voice`, the pronunciation toggle (`GLB-120`), the actions `Copy`
+  and `Clear` (`VOICE-050`), and, to the right of them, the script-conversion split button
+  (`VOICE-096`);
 - the transcript area (`VOICE-030`), scrolling; with no transcript, the hint
   `Tap the microphone and speak Mandarin, Cantonese or English.`;
 - a status line (`Listening…`, `Preparing…`, or an error);
@@ -1312,8 +1304,8 @@ colloquial characters (to be confirmed against the model's actual output at inte
 transcript keeps this recognised text as its original. What is displayed is either the original or
 its script conversion (`VOICE-096`), and analysis (segmentation, readings, tone colours, boundaries,
 taps) always runs on the **displayed** text (`GLB-009`), so display offsets equal analysis offsets.
-There is no separate per-segment or per-character display conversion. `Copy` and `Open in Reading`
-use the displayed text.
+There is no separate per-segment or per-character display conversion. `Copy` uses the displayed
+text.
 
 `VOICE-035` `[MUST]` English words are displayed as recognised but are not analysed (`HANZI` run
 mode, `TXT-011`); tapping them behaves as `TXT-023`.
@@ -1373,10 +1365,8 @@ scrolled away from the end or the word sheet is open — then nothing moves unde
 - `Copy` copies the transcript as displayed, one line per utterance, including the live utterance.
 - `Clear` empties the transcript, closes the word sheet and, if listening, continues with a fresh
   live utterance.
-- `Open in Reading` stops listening, switches to the Reading destination, replaces its draft with the
-  transcript and analyses it (`TXT-051`).
 
-All three are disabled while the transcript is empty.
+Both are disabled while the transcript is empty.
 
 ---
 

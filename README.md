@@ -45,14 +45,16 @@ Desktop-native targets, user accounts, cloud sync, user-curated data (search his
 favourites, saved words, notes), SRS/flashcards, a system-wide input method and pronunciation scoring
 are out of scope for v1. The screen-assistant integration has been removed from the product;
 character origins are deferred to a later release (character decomposition ships in v1); grammar
-lessons are designed for v2, and an HSK character-level UI is pending (`Q-120`). See `PROD-030` and
-`PROD-017`.
+lessons are designed for v2. See `PROD-030` and `PROD-017`.
 
 ## Licence
 
 The application code is licensed under **Apache-2.0**. Datasets and models are shipped as separate files
 under their own licences (CC BY-SA 4.0 dictionary data and derived datasets, LGPL-2.1+ Mandarin
 language-model file, Arphic Public License stroke data, Apache-2.0 voice model and OpenCC
-dictionaries, Unicode License v3 Unihan data, BabelStone IDS decomposition data, and others), all
-listed in the attribution source (`REL-052`, `SET-040`). Script conversion uses OpenCC through a
+dictionaries, Unicode License v3 Unihan data, BabelStone IDS decomposition data, LGPL-3.0 Make Me a
+Hanzi stroke-to-component matches, CC BY-SA 4.0 HSK parser patch entries, and others), all listed in
+the attribution source (`REL-052`, `SET-040`). HSK word data comes from the
+[HSK syllabus vocabulary parser](https://github.com/Punpuf/hsk-syllabus-vocabulary-parser) (code
+MIT), consumed at a pinned version (`PROD-095`). Script conversion uses OpenCC through a
 separate Kotlin Multiplatform library, imported at a pinned version (`ARCH-196`).

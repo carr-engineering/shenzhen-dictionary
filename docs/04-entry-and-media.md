@@ -85,11 +85,19 @@ drawn, matching the real header.
    are not repeated in the notes row (`ENT-057`); partial alternative readings (one syllable of a
    longer word) and the Pinyin alternatives inside a Cantonese entry's Mandarin block stay notes. The
    line is part of the header's measured height, so collapse (`ENT-022`) is unaffected by visibility.
-4. A wrapping row of **HSK badges**, one per level, each reading `HSK n` — or `HSK 7-9` for level 7 —
-   and, when a part of speech is known for that level, `HSK n • Noun` (`HSK-040`). The levels are the
-   entry's direct syllabus levels, its extra bracketed levels (`HSK-003`) and the levels it receives
-   through variant relations (`HSK-097`, `DATA-193`); all render **identically** — a propagated badge
-   carries the same pill and part of speech and has no marker distinguishing it.
+4. A wrapping row of **HSK badges** showing **every** HSK word level of the entry, one badge per
+   level, each with **its own grammatical class**: `HSK n` — or `HSK 7-9` for level 7 — followed by
+   ` • ` and that level's part of speech from the HSK syllabus (the parser's `part_of_speech`, e.g. 动、
+   名; several rows of one level de-duplicated and joined, translated for display), e.g.
+   `HSK 1 • Measure word`, `HSK 2 • Verb` for 点 (`HSK-040`…`HSK-043`). Part of speech is per level,
+   never aggregated across levels; a level whose rows have no part of speech (phrases, chengyu,
+   `HSK-082`) shows `HSK n` alone. The levels are the entry's direct syllabus levels (one per syllabus
+   row level), its extra bracketed levels (`HSK-003`) and the levels it receives through variant
+   relations (`HSK-097`, `DATA-193`); all render **identically** — a propagated badge carries the same
+   pill and part of speech and has no marker distinguishing it. Only **word** levels are shown: the
+   entry page **never** shows an HSK character level (recognition or writing list), not even for a
+   single-character entry. This is the only place grammatical classes appear; cards show bare level
+   badges (`ENT-070`).
 5. Optional inline status text (e.g. a failed word-candidate lookup message).
 
 `ENT-021` `[MUST]` Headword, alternate form and pronunciation are inside a text-selection container so
@@ -144,11 +152,11 @@ provider. Key the pager subtree on the immutable tab list.
    `bodyLarge` body, each sense selectable and with tappable Chinese references; domain and register
    tags lead the sense (`ENT-058`). In Cantonese mode the list is split into source blocks
    (`ENT-110`);
-   An entry whose only source is Unihan (or the project supplement) shows its single labelled block
+   An entry whose only source is Unihan (or the HSK parser patch) shows its single labelled block
    (`ENT-126`);
 3. **structured notes** joined by ` • `, muted, also with tappable references (`ENT-057`);
 4. **Examples** section (`MED-040`; Cantonese mode `MED-048`);
-5. the collapsible **Characters** section (`ENT-120`), always last.
+5. the **Characters** section (`ENT-120`), always last and always visible (not collapsible).
 
 `ENT-041` `[MUST]` Senses are never truncated in the DICT tab.
 
@@ -343,7 +351,7 @@ colouring is off for the headword; the play button follows `MED-001` (TTS may st
 #### 4.7 Unicode (Unihan) fallback block
 
 `ENT-126` `[MUST]` **Unihan as a fallback source** (`DATA-190`, `DATA-022`). A character with no
-CC-CEDICT, CC-Canto or supplement definition — including components and radicals mapped to unified
+CC-CEDICT, CC-Canto or HSK parser patch definition — including components and radicals mapped to unified
 ideographs — is a **full entry** whose senses come from the Unicode `kDefinition` (`unihan` block). It
 opens, renders and links exactly like any other entry, in both modes:
 - **Block.** The senses form one source block labelled `Unicode (Unihan)` (`Unicode（Unihan）` in both
@@ -352,7 +360,7 @@ opens, renders and links exactly like any other entry, in both modes:
   from 1 and parsed like other senses: a `U+XXXX` mention is a tap target to that character
   (`ENT-051`, `ENT-053`).
 - **Fallback only.** The block is the primary (and only) definition of such an entry; it never appears
-  beside a CC-CEDICT, CC-Canto or supplement block. A character that has any dictionary entry —
+  beside a CC-CEDICT, CC-Canto or HSK parser patch block. A character that has any dictionary entry —
   including a redirect-only variant entry — shows its dictionary content and no Unihan text. The app
   renders blocks as stored; the pipeline guarantees exclusivity (`DATA-022`).
 - **Readings.** The header reading comes from `kMandarin` (Mandarin mode) or `kCantonese` (Cantonese
@@ -366,58 +374,68 @@ opens, renders and links exactly like any other entry, in both modes:
   follows `MED-001`/`MED-011` (TTS only; no recording exists); the Characters section applies
   (`ENT-120`).
 
-The project **supplement** block (`DATA-022`, `PIPE-044`; an HSK word CC-CEDICT lacks, e.g. 精彩纷呈) is
-presented the same way: one block labelled `Shenzhen Dictionary supplement`, shown in both modes,
-never beside another block.
+The **HSK parser patch** block (`DATA-022`, `PIPE-044`) is presented the same way: an HSK word
+CC-CEDICT lacks (e.g. 精彩纷呈) gets its definition from the pinned HSK parser's `cedict_patch.u8`
+(CC BY-SA 4.0), merged into both datasets as a labelled source; it is one block labelled
+`HSK parser patch`, shown in both modes, never beside another block.
 
 #### 4.8 Characters (decomposition)
 
-Each Hanzi of the displayed headword can be broken down into its components. This is **not** the
-deferred Character origins feature (`MED-050`…`MED-058`: etymology, historical forms): decomposition
-ships in v1 from the `decomposition` pack (`DATA-191`, built by `PIPE-081` from BabelStone IDS), and no
-rule here depends on origin data. It is separate from the inside-words button (`ENT-073`), which lists
-dictionary *words* inside a word.
+Each Hanzi of the displayed headword can be broken down into its components, and the section shows
+**which region of the character each component occupies**. This is **not** the deferred Character
+origins feature (`MED-050`…`MED-058`: etymology, historical forms): decomposition ships in v1 from the
+`decomposition` pack (`DATA-191`, built by `PIPE-081` from BabelStone IDS) with the stroke-to-part
+matches of `DATA-197`, and no rule here depends on origin data. It is separate from the inside-words
+button (`ENT-073`), which lists dictionary *words* inside a word.
 
-`ENT-120` `[MUST]` **Section.** A collapsible section titled `Characters` (`汉字构成` / `漢字構成`;
-label table, `DATA-060`) with the count of its characters is the **last** section of the DICT tab
-(`ENT-040`), after Examples, in both modes and for single- and multi-character headwords alike:
+`ENT-120` `[MUST]` **Section.** A section titled `Characters` (`汉字构成` / `漢字構成`; label table,
+`DATA-060`) is the **last** section of the DICT tab (`ENT-040`), after Examples, in both modes and for
+single- and multi-character headwords alike:
+- It is **not collapsible**: its label and content are always shown at the bottom of the DICT tab,
+  with no chevron and no expanded flag.
 - It lists the **distinct Hanzi** of the displayed headword (active script), in headword order, each
   once; Latin letters, digits and punctuation are skipped. The section is omitted when the headword has
   no Hanzi or when no listed character has a decomposition record.
-- It is **collapsed by default**: only its label row (label, count, expand chevron) is shown. Tapping
-  the row expands or collapses it with the 180 ms size animation of `ENT-111` (instant with reduce
-  motion, `GLB-085`); collapsed content is not focusable. The section's expanded flag and every
-  expanded part (keyed by its path of component positions) are route-scoped saved state (`GLB-050`).
-- Decomposition data is read **only when the section is expanded** (`ARCH-133`), never as part of the
-  entry read (`ENT-080`, `ENT-081`).
+- Each listed character is one **character block**: its glyph panel (`ENT-128`) and its tree
+  (`ENT-121`). At compact width the glyph panel sits above the tree, centred; at medium and expanded
+  widths it sits at the leading side with the tree beside it. Blocks are separated by 16 dp.
+- Decomposition data is read **after the rest of the entry** has rendered (`ARCH-133`), never as part of
+  the entry read (`ENT-080`, `ENT-081`); the section shows its loading state meanwhile (`ENT-125`).
+- Every expanded part (keyed by its path of component positions) and the selected part (`ENT-128`) are
+  route-scoped saved state (`GLB-050`).
 
 `ENT-121` `[MUST]` **Tree per character.** Each listed character is a top-level row (`ENT-122`)
 followed by its **structure line** — the Ideographic Description Sequence's operator and its immediate
 components, e.g. `⿰ 亻 木` for 休, drawn in `titleMedium` with the operator muted — and then one row per
-immediate component, in IDS order. A component that is not a root has an expand chevron; expanding it
-shows its own structure line and component rows beneath it, recursively, until **root** components:
+immediate component, in IDS order, always shown. A component that is not a root has an expand chevron;
+expanding it shows its own structure line and component rows beneath it, recursively, until **root**
+components. Expanding or collapsing a part uses the 180 ms size animation of `ENT-111` (instant with
+reduce motion, `GLB-085`); collapsed content is not focusable.
 - **Root rule** (`DATA-191`): a component is a root when its IDS is the character itself, when it is a
   single stroke (CJK Strokes block), or when it is a curated primitive (the 214 Kangxi radicals and
   their positional forms, e.g. 氵 扌 亻 忄 艹 ⺍). Roots have no chevron and no structure line.
   Expansion down to strokes is not offered in v1.
-- A top-level character that is itself a root (木) shows only its row, without chevron.
+- A top-level character that is itself a root (木) shows only its glyph panel and row, without chevron
+  and without part colours.
 - Nested levels are indented 16 dp per level behind a 2 dp `border` indent bar (as `SRCH-105`), with
   the visual indent capped at four levels; deeper levels still expand.
 - A component that recurs on its own path (a malformed cycle in the data) is shown as a root.
-- The tree is read-only: no selection (long press does nothing), no drag.
+- The tree is read-only: no text selection (long press does nothing), no drag.
 
 Example (Simplified): 想 → `⿱ 相 心`; 相 → `⿰ 木 目`; 木, 目 and 心 are roots.
 
 `ENT-122` `[MUST]` **Part row.** Every row — top-level character or component — shows, on one line
 that wraps:
-1. the **glyph** (`titleLarge` for top-level characters, `titleMedium` for components), tone-coloured
+1. for a component, its **part marker**: a 12 dp swatch in the part's colour (`ENT-128`) followed by
+   its **position** in muted `labelSmall` (`ENT-129`), e.g. `left`, `right`, `top`, `outer`, `inner`;
+2. the **glyph** (`titleLarge` for top-level characters, `titleMedium` for components), tone-coloured
    per `GLB-066` when its reading is shown;
-2. its **reading** in the active romanisation (Pinyin in Mandarin mode, Jyutping in Cantonese mode),
+3. its **reading** in the active romanisation (Pinyin in Mandarin mode, Jyutping in Cantonese mode),
    accent, following `GLB-120` (not drawn, width kept);
-3. a **short definition** — the first sense of the part's entry — in muted `bodyMedium`, clamped to
+4. a **short definition** — the first sense of the part's entry — in muted `bodyMedium`, clamped to
    two lines: from the CC-CEDICT entry in Mandarin mode; in Cantonese mode the first sense of its
-   first block (CC-Canto first, else the Mandarin block); from the supplement or the Unihan block when
-   that is the entry's only source (`ENT-126`), with the muted `Unicode (Unihan)` tag before it.
+   first block (CC-Canto first, else the Mandarin block); from the HSK parser patch or the Unihan block
+   when that is the entry's only source (`ENT-126`), with the muted `Unicode (Unihan)` tag before it.
 
 Reading choice: when a character has several entries (readings), the row shows the entry first in
 `GLB-013` order; for a **top-level** character whose position aligns with the headword's reading
@@ -428,8 +446,10 @@ The whole row is one **tap target** (except unencoded, unknown and entry-less pa
 with exactly one entry for the part it pushes that entry as a nested route (`ENT-056`); with several,
 it opens the word-candidate sheet (`TXT-040`) listing them in `ENT-054` order, the row's shown entry
 marked default. The expand chevron is a separate tap target (at least 48 dp, `GLB-080`) and never
-opens the entry. Parts are looked up in the active dataset's headword index with **one batched lookup
-per expansion level** (`DATA-191`, `ARCH-020`), never one read per part.
+opens the entry. Hovering a component row with a pointer, or focusing it with the keyboard or a screen
+reader, highlights its region in the glyph (`ENT-128`) without opening anything. Parts are looked up
+in the active dataset's headword index with **one batched lookup per tree level shown** (`DATA-191`,
+`ARCH-020`), never one read per part.
 
 `ENT-123` `[MUST]` **Special parts** (`DATA-191`):
 - **Radical forms** (Kangxi Radicals / CJK Radicals Supplement, U+2E80–U+2FDF) are shown with their
@@ -440,37 +460,101 @@ per expansion level** (`DATA-191`, `ARCH-020`), never one read per part.
 - A `〾X` (variation indicator) part is shown and linked as X.
 - **Unencoded components** (synthetic ids) are drawn from their bundled SVG glyph at the glyph size
   of the row, in `fg` (tinted like text in both themes), with the muted label `Unencoded component`
-  (`未编码部件` / `未編碼部件`). They have no reading, definition, tap target or chevron.
+  (`未编码部件` / `未編碼部件`). They have no reading, definition, tap target or chevron, but keep their
+  part marker and highlight like any part.
 - **Unknown parts** (`？` in the source) show `？` muted with the label `Unknown part` (`未知部件` /
   `未知部件`); they are never expanded.
 - An encoded part with **no entry** in the active dataset (no dictionary entry and no `kDefinition`)
   shows its glyph and, when the pack has one, its Unihan reading for the active language; it has no
   definition and is not tappable, but expands when it is not a root.
-- **Overlay, subtraction and mirror** operators (⿻, ㇯, mirror forms) are shown in the structure line
-  as stored; their parts are listed without any claim about position.
+- **Overlay, subtraction, mirror and other operators** without a defined layout (⿻, ㇯, mirror and
+  unary forms) are shown in the structure line as stored; their parts get the position `part`, and
+  without exact strokes their highlight is the whole parent region (`ENT-129`).
+
+`ENT-128` `[MUST]` **Glyph panel and part highlighting** (`ARCH-200`). Each character block starts
+with the character drawn **large** — 128 dp square at compact width, 160 dp at medium and expanded
+widths — on a `surface` tile with a 1 dp `border`:
+- **Drawing.** When the character has stroke graphics (`MED-061`, the record used by the STROKES tab),
+  the glyph is drawn from its stroke outlines, so individual strokes can be coloured; otherwise it is
+  drawn from the font in `fg`.
+- **Part colours.** The sibling components of a structure line take, in IDS order, the theme's three
+  **part colours** (`part1`…`part3`; an IDS operator has at most three operands), defined in both
+  themes with at least 3:1 contrast against `surface` (`GLB-086`). The colour of a component is the
+  same in its row swatch (`ENT-122`) and in the glyph.
+- **Rest state** (nothing selected or hovered): the character's immediate components are shown in their
+  part colours — their strokes coloured when exact strokes are known, otherwise a tinted overlay of
+  their approximate regions (`ENT-129`); strokes belonging to no part stay `fg`.
+- **Selected or hovered part**, at any depth: its strokes are drawn in its part colour at full
+  strength (or its approximate region is shown as a tinted overlay with a 2 dp dashed outline in that
+  colour), and every other stroke is drawn in `fg` at 30% opacity. Its row gets the `highlight`
+  background, and a 1.5 dp **connector** in the part colour links the row's swatch to the region's
+  nearest edge while both are on screen (at compact width, where the panel is above the tree, the
+  connector is drawn only while the row is visible below the panel). A pointer hover or keyboard /
+  screen-reader focus on a row highlights transiently and takes precedence over the selection while it
+  lasts.
+- **Selecting on touch.** Tapping inside the glyph selects the deepest part currently shown in the tree
+  whose strokes or region contain the tap point; tapping the selected part again, or a point inside
+  no part, clears the selection. Tapping a row still opens its entry (`ENT-122`); expanding a part
+  selects it.
+- Highlight changes cross-fade in 120 ms (instant with reduce motion, `GLB-085`). The glyph panel
+  is not a text-selection target.
+- Colour is never the only link between a row and its region: the position text (`ENT-129`), the
+  row's selected state and the connector carry it too.
+
+`ENT-129` `[MUST]` **Region of each part.** Which part of the glyph a component occupies is computed
+once per character in shared code (`ARCH-200`) from, best first:
+1. **Exact strokes** — the `decomposition-matches` file (`DATA-197`, derived from Make Me a Hanzi
+   `dictionary.txt` `matches`; LGPL-3.0, a separate data file, about 9k characters) gives the stroke
+   indices of each part for the IDS sequence being shown (`ENT-124`), indexed into the stroke graphics
+   of `ENT-128`. Used only where that file covers the sequence and part and the glyph is drawn from
+   stroke graphics.
+2. **Approximate region** otherwise — the IDS operator applied recursively to the parent's region,
+   starting from the character's bounding box: ⿰ left / right halves, ⿱ top / bottom halves, ⿲ left /
+   middle / right thirds, ⿳ top / middle / bottom thirds; for the enclosures ⿴ ⿵ ⿶ ⿷ ⿸ ⿹ ⿺ the
+   enclosing part is the parent box minus the inner rectangle and the enclosed part the inner
+   rectangle, offset toward the open side or corner; any other operator gives each part the whole
+   parent region.
+
+Each component also gets a **position** from its operator and slot, shown in its row (`ENT-122`) and
+read by screen readers: `left`, `right`, `top`, `bottom`, `middle`, `outer` and `inner`, and `part`
+for operators without a layout; Chinese UI uses `左` `右` `上` `下` `中` `外` `内`/`內` `部件` (label
+table, `DATA-060`). The position is derived from the operator only, so it is the same whether the
+highlight is exact or approximate.
 
 `ENT-124` `[MUST]` **Regional IDS.** The sequence used depends on the script and mode (`DATA-191`):
 the **G** (mainland) sequence for the Simplified script, **T** (Taiwan) for Traditional in Mandarin
 mode, **H** (Hong Kong) in Cantonese mode, each falling back to the source's default sequence when the
-region has none. The listed characters follow the displayed headword in the active script, so
-changing script refreshes the section (`ENT-092`) and may change both characters and structures;
-expanded paths that no longer exist are dropped.
+region has none. Exact strokes (`ENT-129`) apply to a sequence only when its component split equals
+Make Me a Hanzi's (`DATA-197`); otherwise that sequence uses approximate regions. The listed
+characters follow the displayed headword in the active script, so changing script refreshes the
+section (`ENT-092`) and may change characters, structures and highlights; expanded and selected paths
+that no longer exist are dropped.
 
-`ENT-125` `[MUST]` **States, accessibility and absence.**
-- While an expansion's data is loading, the expanded area shows a skeleton of one row per expected
-  part (or one row when unknown); failures and an absent `decomposition` pack (Web before or after a
-  failed fetch, `MED-084`) follow `GLB-035`: expanding the section (or a part) shows the muted text
-  `Not available` in place of the tree, and the rest of the entry is unaffected (`ENT-108`). On Web
-  the pack is fetched on the first expansion and the tree replaces the skeleton when it arrives.
-- Accessibility (`GLB-080`): each row's label reads the glyph, its reading (unless hidden,
-  `GLB-122`), its short definition, the radical name or special-part label, and the expanded state;
-  the structure line is announced as the operator's spoken name followed by its parts (⿰ "left to
-  right", ⿱ "top to bottom", ⿴ "surrounding"…; ⿻ "overlaid"; the full operator list with names in the
-  three UI languages comes from the label table).
-- Expanding or collapsing keeps the tapped row where it is on screen (content below it moves) and does
-  not change the header collapse fraction (`ENT-022`).
-- Performance: reading and rendering one expansion level is the trace section `entry.decompose`
-  (`PERF-100`) and never blocks the UI thread (`MED-082`).
+`ENT-125` `[MUST]` **States, accessibility, offline and absence.**
+- While data is loading, the section shows its label and, per listed character, a glyph-panel-sized
+  placeholder tile beside a skeleton of one row per expected part (or one row when unknown); a part's
+  expansion shows the same row skeleton. Failures and an absent `decomposition` pack (Web before the
+  first fetch completes or after a failed one, `MED-084`) follow `GLB-035`: the section shows the
+  muted text `Not available` beneath its label, and the rest of the entry is unaffected (`ENT-108`).
+  Missing stroke graphics or matches never make the section unavailable: the glyph falls back to the
+  font and approximate regions (`ENT-128`, `ENT-129`).
+- **Web offline.** The first time the section loads, the `decomposition` pack and the
+  `decomposition-matches` file are fetched and **stored persistently**, and each stroke-graphics record
+  the section draws is stored as it is fetched, all **versioned with the dataset** (`MED-084`,
+  `DATA-191`, `ARCH-145`). From then on the section works offline; a character whose stroke record was
+  never stored is drawn from the font with approximate regions.
+- **Accessibility** (`GLB-080`): each row's label reads the position (for a component), the glyph, its
+  reading (unless hidden, `GLB-122`), its short definition, the radical name or special-part label,
+  and the expanded state — e.g. "left part, 亻, rén, person, radical person". The structure line is
+  announced as the operator's spoken name followed by its parts with their positions (⿰ "left to
+  right: 亻 left, 木 right"; ⿱ "top to bottom", ⿴ "surrounding"…; ⿻ "overlaid"; the full operator list
+  with names in the three UI languages comes from the label table). The glyph panel is one image
+  element labelled with the character and its structure line; its tap-to-select is a pointer/touch
+  convenience whose information the rows already give, so it is not a separate focus stop.
+- Expanding or collapsing a part keeps the tapped row where it is on screen (content below it moves)
+  and does not change the header collapse fraction (`ENT-022`).
+- Performance: reading one tree level and computing and rendering its highlights is the trace section
+  `entry.decompose` (`PERF-100`) and never blocks the UI thread (`MED-082`).
 
 #### 4.9 Grammar (v2, not in v1)
 
@@ -530,10 +614,17 @@ stroke data, laid out 1 / 2 / 3 per row at compact / medium / expanded widths. B
 WORDS rows. Its inputs: the entry, the merge-group member entries, script mode, the merged variant
 list, selected flag, tone-colour flag, pronunciation-visible flag (`GLB-120`), compact flag,
 container colour override, audio availability (tri-state: unknown / unavailable /
-available), playing flag, the HSK levels to badge (direct, extra and via variants, `ENT-020` item 4),
-the source block whose definition is shown (for the `Unicode (Unihan)` / supplement provenance tag,
+available), playing flag, the HSK word levels to badge (direct, extra and via variants, `ENT-020` item 4),
+the source block whose definition is shown (for the `Unicode (Unihan)` / `HSK parser patch` provenance tag,
 `ENT-126`, `SRCH-079`), the matched alternative reading when the card was reached through one
 (`SRCH-078`), the inside-words input (`ENT-073`), and callbacks for tap and play.
+
+On every card surface — search results, the HSK grid, related and sub-span rows, sheet rows, Word of
+the Day — the HSK input renders **only level badges** (`HSK n` / `HSK 7-9`, `HSK-040`); the card never
+shows a part-of-speech (grammatical class) tag, which belongs to the entry header alone (`ENT-020`
+item 4, `HSK-041`). The card has no input for HSK **character** levels and never shows one; cards in
+the HSK destination's Characters list ([06 — HSK and Settings](06-hsk-and-settings.md)) are passed
+no levels and carry no badge.
 
 `ENT-071` `[MUST]` Its content derivation (definition concatenation, redirect header suppression,
 embedded-variant stripping, note visibility) is the merge logic of `SRCH-082` and must be implemented
@@ -566,14 +657,14 @@ redirect (kind, header text, target id, target senses); frequency rank; HSK leve
 of speech, including extra levels and levels via variants (`DATA-193`); the entry's alternative
 readings for the header (`ENT-020` item 3: kind, note ordinal, display reading and tones of each
 eligible `also_pr` / `taiwan_pr` reading, `DATA-192`); the source-block kinds including `unihan` and
-`supplement` (`ENT-126`); merge-group id and member ids; and the *first page* of each related-word
+`hsk_patch` (`ENT-126`); merge-group id and member ids; and the *first page* of each related-word
 section. Decomposition is **not** part of this read (`ENT-120`).
 
 `ENT-081` `[MUST]` The reference `EntryDetailData` also carried a per-character entry list
 (`chars`) that no UI ever rendered. It cost one exact lookup, one merge grouping and one hydration per
 character of every opened headword. It must not exist in the successor. The Characters section
-(`ENT-120`…`ENT-125`) does not revive it: its parts are looked up only when the user expands it, one
-batched lookup per expansion level.
+(`ENT-120`…`ENT-125`, `ENT-128`, `ENT-129`) does not revive it: its parts are looked up after the
+entry has rendered, one batched lookup per tree level shown (`ENT-122`).
 
 `ENT-082` `[MUST]` Related-word sections and sub-spans are answered by indexed lookup (`DATA-100`),
 never by per-character posting-list intersections at runtime. `Within` is precomputed for entries of
@@ -640,9 +731,10 @@ strokes or recorded audio (`GLB-035`).
 ## Pronunciation, Audio, Sentences and Strokes
 
 Asset families beyond the core dictionary: recorded audio, example sentences, stroke data and the
-decomposition pack (`DATA-191`, rendered by `ENT-120`…). Delivery
-is `MED-084`: on mobile they are installed with the app; on Web they are fetched when needed and are
-not part of the offline set.
+decomposition data (the `decomposition` pack, `DATA-191`, and the `decomposition-matches` file,
+`DATA-197`, rendered by `ENT-120`…). Delivery is `MED-084`: on mobile they are installed with the app;
+on Web they are fetched when needed and, except the decomposition data, are not part of the offline
+set.
 Any family can still be absent or incomplete, so all are subject to `GLB-035` (graceful absence).
 Character origins are deferred (see the Deferred list at the end of this part).
 
@@ -890,7 +982,8 @@ expected median (about 520 ms). Mistake count and hint reset when the stroke is 
 practice. Outline visibility is independently toggleable per character.
 
 `MED-069` `[MUST]` Intentional boundaries: one difficulty level, no saved history, no scores, no
-component shortcuts (the packaged stroke assets carry no component maps).
+component shortcuts (the stroke-to-part matches of `DATA-197` serve only the Characters section's
+highlighting, `ENT-129`, never practice).
 
 `MED-070` `[MUST]` Malformed medians must not drop the stroke outlines: a stroke with an unusable
 median still renders and is skipped for practice. A record with no stroke paths at all is rejected and
@@ -907,7 +1000,8 @@ fully parsed to read one character (`DATA-171`).
 `MED-080` `[MUST]` Assets are addressed by content key, never by scanning: strokes by code point,
 example sentences by simplified headword (`MED-046`; traditional headword for Cantonese examples,
 `MED-048`), recordings by canonical key
-(`MED-005`, `MED-007`), decomposition records by code point or synthetic component id (`DATA-191`). Reading one character's or one headword's record must not require reading
+(`MED-005`, `MED-007`), decomposition records by code point or synthetic component id (`DATA-191`),
+stroke-to-part matches by code point (`DATA-197`). Reading one character's or one headword's record must not require reading
 or parsing records for other keys. The storage layout is the data contract's concern (`DATA-170`,
 `DATA-171`).
 
@@ -921,12 +1015,20 @@ tab does not read them again.
 containing hundreds. See `DATA-171`.
 
 `MED-084` `[MUST]` **Delivery.** On Android and iOS, recorded audio, stroke data, example sentences
-(Mandarin and Cantonese) and the `decomposition` pack (`DATA-191`) are installed with the app (bundled, or an install-time asset pack on Play):
-there is nothing to download and no network access (`PROD-070`). On Web they are **fetched when
-needed** and cached by the browser; they are not part of the offline set (only the dataset is,
-`ARCH-145`), so offline they may be unavailable. While a fetch is pending or after it fails, the
-affected control or section behaves as absent (`GLB-035`), except audio: TTS stands in while a clip
-loads or when it cannot be fetched (`MED-010`, `MED-011`).
+(Mandarin and Cantonese), the `decomposition` pack (`DATA-191`) and the `decomposition-matches` file
+(`DATA-197`) are installed with the app (bundled, or an install-time asset pack on Play): there is
+nothing to download and no network access (`PROD-070`). On Web they are **fetched when needed**:
+- the **decomposition data** — the `decomposition` pack and the `decomposition-matches` file, fetched
+  whole the first time the Characters section loads, and each stroke-graphics record that section
+  draws — is **stored persistently** after first use and **versioned with the dataset** (re-fetched
+  only when its hash in an updated dataset changes, `DATA-215`, `ARCH-145`), so the Characters section
+  stays available offline (`ENT-125`);
+- everything else (audio, examples, stroke records used only by the STROKES tab) is cached by the
+  browser and is not part of the offline set, so offline it may be unavailable.
+
+While a fetch is pending or after it fails, the affected control or section behaves as absent
+(`GLB-035`), except audio: TTS stands in while a clip loads or when it cannot be fetched (`MED-010`,
+`MED-011`), and the Characters section's glyph, which falls back to the font (`ENT-128`).
 
 ---
 

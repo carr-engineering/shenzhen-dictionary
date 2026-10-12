@@ -9,11 +9,13 @@ bugs** in this area; do not reproduce them (see `HSK-026`, `HSK-027`, `HSK-056` 
 
 ### 1. Scope
 
-`HSK-001` `[MUST]` The HSK feature browses the official HSK vocabulary syllabus in its **2025
-edition** (`HSK-003`), grouped by level, and links **every** syllabus word to its canonical
-CC-CEDICT entry (`HSK-050`) — or, for the rare word CC-CEDICT lacks, to an entry of the project
-supplement dictionary (`HSK-051`) — in Cantonese mode, to the Cantonese dataset's copy of that entry
-(`HSK-090`).
+`HSK-001` `[MUST]` The HSK feature browses the official HSK vocabulary syllabus in its **HSK 3.0,
+2026 update** edition (`HSK-003`), grouped by level, and links **every** syllabus word to its canonical
+CC-CEDICT entry (`HSK-050`) — or, for the rare word CC-CEDICT lacks, to an **HSK parser patch** entry
+(`HSK-051`) — in Cantonese mode, to the Cantonese dataset's copy of that entry (`HSK-090`). It also
+lists the syllabus **recognition characters** by character level (`HSK-098`). The syllabus data comes
+from the HSK syllabus parser (`HSK-003`, `PROD-095`); the app's pipeline does not re-parse the syllabus or
+re-implement the word-to-CC-CEDICT join.
 
 `HSK-002` `[MUST]` HSK is available in **both dictionary modes**. The HSK destination (`PROD-050`)
 and HSK badges (`HSK-040`) appear in Mandarin and in Cantonese mode alike; the syllabus, its levels
@@ -21,28 +23,43 @@ and its per-level row counts are the same in both. Cantonese-mode specifics (rea
 ordering, linking): `HSK-090`…`HSK-094`, `HSK-096`. *(Decided: `Q-030`.)*
 
 `HSK-003` `[MUST]` Levels are `1..7`, where level `7` represents the combined band **7-9** and is
-always labelled `HSK 7-9`. The committed word list follows the **2025 HSK syllabus**
-(新版HSK考试大纲（词汇、汉字、语法）, Chinese Testing International (CTI), published 2025-11, in force
-from 2026-07). Vocabulary per level: L1 300, L2 200, L3 500, L4 1,000, L5 1,600, L6 1,800, L7-9
+always labelled `HSK 7-9`. The word list follows the **HSK 3.0, 2026 update** syllabus (syllabus
+published 2025-11, in force 2026-07: 新版HSK考试大纲（词汇、汉字、语法）, Chinese Testing International
+(CTI)). Vocabulary per level: L1 300, L2 200, L3 500, L4 1,000, L5 1,600, L6 1,800, L7-9
 5,600 — cumulative 300 / 500 / 1,000 / 2,000 / 3,600 / 5,400 / 11,000 words. A syllabus word is
 identified by **word + syllabus pinyin + homograph index**: 82 rows carry a homograph index
-(`本1`/`本2` style) and 61 polyphones appear twice with different pinyin (还 hái / huán), so neither
-the word alone nor (word, pinyin) is a key. After de-duplication (`HSK-027`) each level's
+(`本1`/`本2` style, kept as a suffix of the parser's `word` column) and 61 polyphones appear twice with
+different pinyin (还 hái / huán), so neither the word alone nor (word, pinyin) is a key; the parser's
+`word_index` (the word's position in the syllabus) together with `level` identifies a row. After de-duplication (`HSK-027`) each level's
 distinct-word count must match these figures; the pipeline's validation gate checks them (gate 8 of
-`DATA-200`). 102 words carry an **extra bracketed level** for one part of speech or sense (半 is
-level `1（4）` with POS `数、（副）`: numeral at level 1, adverb at level 4); the extra level is
-stored with its part of speech (`extra_levels`, `DATA-120`) and shown as an additional badge
-(`HSK-080`), but the word is listed and counted in the grid only at its main level. 495 words
-(phrases, chengyu) have no part of speech (`HSK-082`). Only facts are stored — word → level and
-per-level part-of-speech tags, and the character levels (`HSK-098`); the official syllabus document
-is not redistributed, and CTI is cited as the source (`SET-040`). The word list file is committed in
-the repository. *(Decided: `Q-110`, `Q-102`.)*
+`DATA-200`). A word can have **several HSK levels**, each with its own part of speech (grammatical
+class, e.g. 动、名) from the syllabus: 102 words carry an **extra bracketed level** for one part of
+speech or sense (半 is level `1（4）` with POS `数、（副）`: numeral at level 1, adverb at level 4),
+which the parser emits as one row per level sharing the `word_index`; the lowest level is the word's
+main level. The extra level is stored with its part of speech (`extra_levels`, `DATA-120`) and shown
+as an additional badge (`HSK-080`), but the word is listed and counted in the grid only at its main
+level. 495 words (phrases, chengyu) have no part of speech (`HSK-082`). Only facts are stored — word
+→ level and per-level part-of-speech tags, and the character levels (`HSK-098`); the official
+syllabus document is not redistributed, and CTI and the parser repository are cited as the sources
+(`SET-040`). *(Decided: `Q-110`, `Q-102`.)*
+
+**Source** (`PROD-095`). The syllabus data comes from the project owner's parser repository,
+[`Punpuf/hsk-syllabus-vocabulary-parser`](https://github.com/Punpuf/hsk-syllabus-vocabulary-parser)
+(code MIT; CC-CEDICT-derived data CC BY-SA 4.0), which parses the official syllabus PDF and links each
+word to CC-CEDICT. The pipeline consumes its outputs at a **pinned version** (lock file or submodule;
+the pinned commit is recorded in the dataset `sources`, `SET-042`): `hsk_word_list.tsv` — columns
+`word_index`, `level`, `word`, `pinyin`, `part_of_speech`, `pinyin_numbered`, `pinyin_cc-cedict`,
+`traditional_cc-cedict`, `definition_cc-cedict` — and `report.md`, plus its `data/disambiguation.tsv`
+and `data/cedict_patch.u8` (`HSK-051`). The same repository provides (as it is extended) the
+**recognition** and **writing character lists** (`HSK-098`), the **grammar rules per level** and the
+integration of external **grammar-lesson sources per level** (`HSK-099`). Upgrading the syllabus data
+means moving the pin; corrections are made in the parser repository, never patched locally.
 
 ---
 
 ### 2. Level navigation
 
-`HSK-010` `[MUST]` A single continuously scrolling grid holds **all** levels in ascending order, each
+`HSK-010` `[MUST]` In the **Words** view (`HSK-016`), a single continuously scrolling grid holds **all** levels in ascending order, each
 introduced by a full-width level header. There is no per-level page or tab.
 
 `HSK-011` `[MUST]` A floating, horizontally scrolling **level selector** is pinned below the status
@@ -65,6 +82,13 @@ is the bottom safe inset plus 16 dp.
 readings on every HSK card at once without reloading the grid, without changing card heights (space
 stays reserved, `GLB-120`) and without moving the scroll position.
 
+`HSK-016` `[MUST]` The HSK destination has two views, **Words** (the syllabus word grid, `HSK-010`…)
+and **Characters** (the recognition characters, `HSK-098`), chosen with a `Words` / `Characters`
+segmented switch on the selector surface, leading the level chips. Words is the default on a cold
+start. The level selector (`HSK-011`, `HSK-012`) and the pronunciation toggle (`HSK-015`) act on the
+view shown. Each view keeps its own scroll position; the chosen view survives configuration change
+within a session (`GLB-050`) but is not persisted across launches (`HSK-070`).
+
 ---
 
 ### 3. Grid and cards
@@ -80,7 +104,8 @@ Horizontal spacing 10 dp; cards carry their own 4 dp vertical padding.
   pronunciation-visibility setting (`GLB-120`);
 - container colour = the level's paper tint (`GLB-065`);
 - merge grouping **not** applied (each syllabus row is its own card);
-- an HSK badge footer showing the levels the entry belongs to.
+- an HSK badge footer showing the levels the entry belongs to — level badges only, never the
+  grammatical class (`HSK-041`).
 
 `HSK-024` `[MUST]` Tapping a card opens its linked entry's detail (`ENT-010`).
 
@@ -96,9 +121,10 @@ before it was patched.
 
 `HSK-027` `[MUST]` Beyond keying, the successor must **de-duplicate the rows themselves**: one card
 per syllabus word (word + pinyin + homograph index, `HSK-003`) per level, with the parts of speech
-for that level merged into the card's badge. The reference app still renders two identical cards for
-局 in level 6. Homograph rows of one level that link to the same dictionary entry render as **one**
-card whose badge merges their parts of speech; the level header (`HSK-021`) still reports the
+for that level merged into that level's entry-detail badge (`HSK-041`, `HSK-043`). The reference app
+still renders two identical cards for 局 in level 6. Homograph rows of one level that link to the same
+dictionary entry render as **one** card (their parts of speech merge in the entry-detail badge); the
+level header (`HSK-021`) still reports the
 syllabus word count.
 
 ---
@@ -124,13 +150,16 @@ performs a plain sort — or, better, reads rows already in order — rather tha
 
 ### 5. HSK metadata elsewhere in the app
 
-`HSK-040` `[MUST]` An entry's HSK levels appear as outlined badge pills in: search result cards,
-compact rows, sheet rows, HSK cards, and the entry-detail header, in both dictionary modes. Pill text
-is `HSK n` (or `HSK 7-9`). An entry's levels include its direct syllabus levels, its extra bracketed
+`HSK-040` `[MUST]` An entry's HSK **word** levels appear as outlined badge pills in: search result
+cards, compact rows (related rows), sheet rows, HSK cards, the Word of the Day card (`SRCH-115`) and
+the entry-detail header, in both dictionary modes. Pill text is `HSK n` (or `HSK 7-9`); on every card
+and row the pill shows the level only, never the grammatical class (`HSK-041`). An entry's levels include its direct syllabus levels, its extra bracketed
 levels (`HSK-003`) and levels received through variants (`HSK-097`); all render identically.
 
-`HSK-041` `[MUST]` In the **entry-detail header only**, each badge also carries the part of speech for
-that level: `HSK 1 • Measure word`.
+`HSK-041` `[MUST]` In the **entry-detail header only**, every level the entry has is shown, each badge
+carrying the grammatical class (part of speech) for that level: `HSK 1 • Measure word`, `HSK 4 •
+Adverb`. A level with no part of speech (`HSK-082`) shows the level alone. HSK character levels are
+never shown there (`HSK-098`).
 
 `HSK-042` `[MUST]` Part of speech is **per level**, not per entry: 点 is 量 (measure word) at level 1
 and 动 (verb) at level 2. Aggregating across levels is a bug.
@@ -138,7 +167,9 @@ and 动 (verb) at level 2. Aggregating across levels is a bug.
 `HSK-043` `[MUST]` Where a level has several rows for one entry (per-part-of-speech rows), the parts
 of speech for that level are de-duplicated and joined, then translated for display.
 
-`HSK-044` `[MUST]` Part-of-speech translation table (source token to English label):
+`HSK-044` `[MUST]` Part-of-speech (grammatical class) translation table, from the syllabus tokens in
+the parser's `part_of_speech` column to English labels, used only by the entry-detail badge
+(`HSK-041`):
 名 Noun · 动 Verb · 形 Adjective · 副 Adverb · 量 Measure word · 数量 Quantifier · 数 Numeral ·
 连 Conjunction · 代 Pronoun · 介 Preposition · 助 Particle · 叹 Interjection · 前缀 Prefix ·
 后缀 Suffix · 拟声 Onomatopoeia. Combined values arrive joined by `、` and render joined by ` & `
@@ -169,36 +200,26 @@ extra entries a level (622 at hop 1, 8 at hop 2) — 370 single characters, most
 
 ### 6. Relationship between HSK data and dictionary records
 
-`HSK-050` `[MUST]` **Every** syllabus row is joined **during preprocessing** to exactly one
-**primary** canonical dictionary entry — a CC-CEDICT entry, or a supplement entry for a word
-CC-CEDICT lacks (`HSK-051`). Where one simplified word stands for several traditional words that
-CC-CEDICT lists as separate entries (后/後, 回/迴, 干/乾/幹), the row links **all** of them, marks one
-primary (the card, ordering and widget use the primary), and every linked entry carries the HSK badge.
-There are no unlinked rows, no fallback cards and no syllabus-sourced entries. The app performs **no**
-joining at runtime.
+`HSK-050` `[MUST]` **Every** syllabus row is linked **during preprocessing** to exactly one
+**primary** canonical dictionary entry — a CC-CEDICT entry, or an HSK parser patch entry for a word
+CC-CEDICT lacks (`HSK-051`). The link is the one the HSK syllabus parser resolved (`HSK-003`): its
+`pinyin_cc-cedict` and `traditional_cc-cedict` columns, with the row's simplified word, identify the
+entry; the pipeline does not re-match words itself. Where one simplified word stands for several
+traditional words that CC-CEDICT lists as separate entries with the same reading (后/後, 回/迴,
+干/乾/幹), the row also links the others; the parser's entry is primary (the card, ordering and widget
+use it), and every linked entry carries the HSK badge. There are no unlinked rows, no fallback cards
+and no syllabus-sourced entries. The app performs **no** joining at runtime.
 
-`HSK-051` `[MUST]` The join matches the syllabus word's **simplified form and reading** against
-CC-CEDICT after these documented **normalisations**: split `/`-separated readings, strip hyphens and
-apostrophes, lowercase, and match **tone-insensitively with a tone-sensitive preference**
-(`HSK-052`). With them, 10,997 of the 11,000 words link automatically. Remaining rules and cases:
-- **嗯** (syllabus `ǹg`) links to CC-CEDICT `en4` by simplified form only — a documented single-word
-  rule.
-- **口哨儿** links to 口哨 through the **committed manual mapping file** in `data-sources/` (syllabus
-  word → dictionary entry), reviewed like any other committed input.
-- **精彩纷呈** is **not in CC-CEDICT**. Words required by the syllabus that CC-CEDICT lacks are added
-  to a small project-maintained **supplement dictionary**, `data-sources/supplement.u8`, in CC-CEDICT
-  format with the project's own definitions (CC BY-SA 4.0, credited as "Shenzhen Dictionary
-  supplement", `SET-040`), and each such entry is also submitted upstream to CC-CEDICT. The mapping
-  file may point to supplement entries; supplement entries are used for nothing else. *(Pending
-  confirmation: `Q-121`.)*
-- **Ambiguity**: 866 words match more than one entry. The pipeline first drops capitalised
-  (proper-noun / surname) entries and **pure-variant** entries (entries whose only sense is a variant
-  cross-reference), leaving 10,863 words with one candidate, 127 with two and 8 with three; the
-  one-simplified-to-many-traditional cases link all (`HSK-050`); any other remaining tie takes the
-  tone-exact reading, then the most frequent entry, and the decision is recorded in the build report.
-- **Variant-only words**: 21 words match only pure-variant entries (14 erhua forms, e.g. 一点儿 →
-  一点; 7 others, e.g. 辞典 → 词典). They link to that variant entry, and their card shows the
-  definitions of the variant's target entry.
+`HSK-051` `[MUST]` The parser resolves each row in this order: (1) exact match on numbered pinyin;
+(2) a **unique** tone-insensitive match (`HSK-052`); (3) a disambiguation override from the parser's
+`data/disambiguation.tsv` (e.g. 口哨儿 → 口哨, 嗯 `ǹg` → `en4`, ties between several candidates);
+(4) a fallback to the parser's patch file `data/cedict_patch.u8` (CC-CEDICT format) for the few words
+CC-CEDICT lacks (e.g. 精彩纷呈); (5) anything still unresolved is a **hard error** in the parser.
+Patch entries are merged
+into **both** datasets as entries of a labelled source, **"HSK parser patch"** (CC BY-SA 4.0,
+`SET-040`), and are used for nothing else. **Variant-only words** (e.g. 一点儿 → 一点, 辞典 → 词典,
+where the resolved entry's only sense is a variant cross-reference) link to that variant entry, and
+their card shows the definitions of the variant's target entry. *(Decided: `Q-121`.)*
 
 (Cantonese dataset: `HSK-090`.)
 
@@ -206,26 +227,29 @@ apostrophes, lowercase, and match **tone-insensitively with a tone-sensitive pre
 the syllabus writes **tone sandhi and neutral-tone conventions** that CC-CEDICT does not (148 一/不
 sandhi rows, about 99 neutral-tone conventions):
 `不客气 bú kè qi` vs `bù kè qi`; `一半 yíbàn` vs `yī bàn`; `那边 nàbiān` vs `nà bian`;
-`学生 xuéshēng` vs `xué sheng`. Some rows carry two readings separated by `/` (`谁 shéi/shuí`). The
-reading match must therefore be **tone-insensitive with a tone-sensitive preference**, and must split
-on `/`.
+`学生 xuéshēng` vs `xué sheng`. Some rows carry two readings separated by `/` (`谁 shéi/shuí`). This
+is why the parser's resolution falls back to tone-insensitive matching (`HSK-051`); the pipeline
+relies on the parser's resolved `pinyin_cc-cedict`, never on the syllabus pinyin.
 
 `HSK-053` `[MUST]` The app **displays the canonical dictionary reading** for linked rows, not the
 syllabus reading, so the same word reads identically everywhere in the app. Like every reading, it is
-shown or hidden per `GLB-120`. The syllabus reading is used for joining (`HSK-051`, `HSK-052`)
-only; it is never shown anywhere, in either mode. *(Decided: `Q-031`; former `HSK-054` and `HSK-095` removed.)*
+shown or hidden per `GLB-120`. The syllabus reading is used only by the parser's join (`HSK-051`,
+`HSK-052`); it is never shown anywhere, in either mode. *(Decided: `Q-031`; former `HSK-054` and `HSK-095` removed.)*
 
-`HSK-055` `[MUST]` CC-CEDICT (Mandarin) and CC-Canto (Cantonese) — plus the supplement for the
-words CC-CEDICT lacks (`HSK-051`) — are the **source of truth for definitions**. Syllabus glosses are neither kept in the dataset nor shown anywhere: every card
-shows its linked entry's dictionary definitions. *(Decided: `Q-032`.)*
+`HSK-055` `[MUST]` CC-CEDICT (Mandarin) and CC-Canto (Cantonese) — plus the HSK parser patch entries
+for the words CC-CEDICT lacks (`HSK-051`) — are the **source of truth for definitions**. Syllabus glosses and the parser's `definition_cc-cedict` column are neither kept in the dataset
+nor shown anywhere: every card shows its linked entry's dictionary definitions. *(Decided: `Q-032`.)*
 
-`HSK-056` `[MUST]` The build **fails** on **any** unlinked row — zero allowance — in either
-dataset, and lists every offending row in its report. The reference dataset silently shipped 9
-unlinked rows — 新媒体, 新能源, 不予, 精彩纷呈, 居于, 口哨儿, 两翼, 压轴, 致力于 — which appeared in the
-grid as dead, untappable cards. Against the 2025 syllabus all but two join after normalisation
-(`HSK-051`); 口哨儿 is resolved by the manual mapping file and 精彩纷呈 by a supplement entry. A new syllabus or CC-CEDICT release that leaves a row
-unlinked is fixed by improving the normalisation, adding a mapping or (only when CC-CEDICT lacks the
-word) adding a supplement entry, never by shipping the row unlinked.
+`HSK-056` `[MUST]` The build **fails** on **any** row that does not resolve to an entry of the dataset
+being built — zero allowance — in either dataset, and lists every offending row in its report. The
+pipeline verifies independently of the parser: every row's resolved entry (or patch entry) exists in
+the dataset, the per-level counts (`HSK-003`, gate 8 of `DATA-200`), and the Cantonese-dataset join
+(`HSK-090`). The reference dataset silently shipped 9 unlinked rows — 新媒体, 新能源, 不予, 精彩纷呈,
+居于, 口哨儿, 两翼, 压轴, 致力于 — which appeared in the grid as dead, untappable cards; with the parser
+all resolve (口哨儿 through `disambiguation.tsv`, 精彩纷呈 through `cedict_patch.u8`). A new syllabus
+or CC-CEDICT release that leaves a row unresolved is fixed in the parser repository (a disambiguation
+override or, only when CC-CEDICT lacks the word, a patch entry) and a new pin, never by shipping the
+row unlinked.
 
 ---
 
@@ -301,7 +325,7 @@ before the switch.
 `HSK-090` `[MUST]` The Cantonese dataset carries its own HSK row table: each row links to the
 Cantonese dataset's **copy of the same CC-CEDICT entry** the Mandarin row links to (`HSK-050`,
 `DATA-187`) — the Cantonese entry whose Mandarin block carries that CC-CEDICT entry. Every CC-CEDICT
-headword — and every supplement entry (`HSK-051`), carried like a CC-CEDICT entry — is present in the
+headword — and every HSK parser patch entry (`HSK-051`), carried like a CC-CEDICT entry — is present in the
 Cantonese dataset (a headword with no Jyutping as a no-reading entry, `DATA-182`), so every row
 links. Where several Cantonese entries carry the CC-CEDICT entry (one per
 Jyutping reading, `DATA-184`), the pipeline picks one deterministically (the most frequent, then the
@@ -332,30 +356,46 @@ row table of the active mode's dataset.
 
 ---
 
-### 11. HSK character levels (data only in v1)
+### 11. HSK characters
 
-`HSK-098` `[MUST]` Besides the words, the 2025 syllabus lists characters (汉字) by level: **3,088
-recognition characters** (认读字: L1 246, L2 125, L3 284, L4 441, L5 431, L6 413, L7-9 1,148) and
-**1,200 writing characters** (书写字, a subset: L1-2 100, L3-6 150 each, L7-9 500). The pipeline
-stores them as data on single-character entries — the character level and a `writing` flag
-(`hsk_char_level`, `DATA-194`) — and validates the per-level counts. A character's level equals the
-first word level containing it for 3,085 of the 3,088 (exceptions 店, 饺, 留); 1,503 characters are
-also single-character syllabus words, 414 of which have a word level different from the character
-level (白: character level 1, word level 5), and 1,585 occur only inside longer words. The character
-level is **not** an HSK word level: it never feeds `HSK-040` badges, the grid, propagation
-(`HSK-097`), the widget or Word of the Day. v1 has **no UI** for it until `Q-120` is decided.
+`HSK-098` `[MUST]` Besides the words, the HSK 3.0, 2026 update syllabus lists characters (汉字) by
+level: **3,088 recognition characters** (认读字: L1 246, L2 125, L3 284, L4 441, L5 431, L6 413, L7-9
+1,148) and **1,200 writing characters** (书写字, a subset: L1-2 100, L3-6 150 each, L7-9 500). Both
+lists come from the HSK syllabus parser repository at its pinned version (`HSK-003`, `PROD-095`); the
+pipeline stores them as data (the `hsk_char` table, `DATA-194`) and validates the per-level counts. A
+character's level equals the first word level containing it for 3,085 of the 3,088 (exceptions 店,
+饺, 留); 1,503 characters are also single-character syllabus words, 414 of which have a word level
+different from the character level (白: character level 1, word level 5), and 1,585 occur only
+inside longer words. *(Decided: `Q-120`.)*
+
+- **Characters view.** The HSK destination's **Characters** view (`HSK-016`) lists the recognition
+  characters **grouped by character level**, in the layout of the Words grid: level headers with
+  their character count (`HSK 3 (284)`, `HSK-021`), the masonry grid of `HSK-020`, the level selector
+  and the pronunciation toggle. Each card is the shared entry card (`ENT-070`) of the character's
+  single-character entry in the active mode's dataset (the pipeline picks one deterministically when
+  there are several, most frequent first, and records it), with its reading and definitions as on any
+  card, ordered by the `HSK-030` comparator (Jyutping in Cantonese mode, `HSK-093`), precomputed. The
+  card shows **no HSK badge** of any kind. Tapping opens the entry detail (`ENT-010`). The view loads
+  on first display and is cached like the word grid (`HSK-060`…`HSK-062`); the build fails if a
+  recognition character resolves to no single-character entry.
+- **Never a badge.** The character level is **not** an HSK word level: it is never shown on the entry
+  detail screen or as a badge anywhere, and never feeds `HSK-040` badges, the word grid, propagation
+  (`HSK-097`), the widget or Word of the Day.
+- **Writing characters** are kept as data only (the `writing` flag); v1 has no UI for them.
 
 ---
 
 ### 12. Grammar lessons (v2, not in v1)
 
 `HSK-099` `[SHOULD]` *v2 note, not part of v1.* In v2 the HSK destination offers **grammar lessons per
-level**, built on the 2025 syllabus grammar list (593 points: L1 70, L2 78, L3 96, L4 95, L5 70, L6
+level**, built on the HSK 3.0, 2026 update syllabus grammar list (593 points: L1 70, L2 78, L3 96, L4 95, L5 70, L6
 50, L7-9 134, in the hierarchy 类别 / 类别名称 / 细目 / 语法内容) plus separately licensed imported
-lessons and reviewed project-written explanations and examples; linked words show related grammar on
+lessons and reviewed project-written explanations and examples; the grammar rules per level and the
+integration of the external grammar-lesson sources per level come from the HSK syllabus parser
+repository (`HSK-003`, `PROD-095`); linked words show related grammar on
 the entry detail screen (`ENT-127`). The data model and architecture readiness are specified in
 `ARCH-198` and `PIPE-083`. v1 builds nothing for it beyond not blocking it: the HSK destination's
-structure (level selector, per-level sections) must leave room for a per-level grammar entry point.
+structure (view switch, level selector, per-level sections) must leave room for a per-level grammar entry point.
 
 ---
 
@@ -434,7 +474,7 @@ mode's last query.
 
 `SET-014` `[MUST]` Not persisted across launches: the entry-detail stack, OCR destination state,
 reading draft, voice transcript, script-conversion view state (`TXT-081`…, `CAM-130`…,
-`VOICE-096`), HSK scroll position, sheet state (word-candidate and handwriting sheets), flash mode,
+`VOICE-096`), HSK scroll position and Words / Characters view (`HSK-016`), sheet state (word-candidate and handwriting sheets), flash mode,
 and whether Settings or the privacy policy was open.
 
 `SET-015` `[MUST]` A settings change that affects widget appearance (dictionary mode, script, tone
@@ -489,8 +529,7 @@ Data sources:
 | CC-CEDICT (via MDBG) | Mandarin headwords, Pinyin, English definitions, variants, notes | CC BY-SA 4.0 |
 | CC-Canto / Cantonese dictionary data | Cantonese readings and definitions | CC BY-SA 3.0 (verify at build time) |
 | FrequencyWords (zh_cn, OpenSubtitles 2018 via OPUS) | word frequency for ranking and segmentation | CC BY-SA 4.0 |
-| HSK 2025 syllabus word and character lists (CTI; committed in the repository, `HSK-003`, `HSK-098`) | HSK word levels, part-of-speech tags and character levels | facts only; official PDF not redistributed |
-| Shenzhen Dictionary supplement (`data-sources/supplement.u8`, project-maintained) | definitions for the few HSK words CC-CEDICT lacks (`HSK-051`) | CC BY-SA 4.0 |
+| HSK syllabus vocabulary parser ([`Punpuf/hsk-syllabus-vocabulary-parser`](https://github.com/Punpuf/hsk-syllabus-vocabulary-parser), pinned version, `PROD-095`): its outputs from the HSK 3.0, 2026 update syllabus (CTI) — word list with CC-CEDICT links, character lists (`HSK-003`, `HSK-098`) — and its patch entries (`cedict_patch.u8`, labelled "HSK parser patch") for the few HSK words CC-CEDICT lacks (`HSK-051`) | HSK word levels, part-of-speech tags, word-to-entry links, character levels; definitions of the patch entries | parser code MIT; CC-CEDICT-derived data and patch entries CC BY-SA 4.0; syllabus facts only, official PDF not redistributed |
 | Unicode Unihan database | fallback definitions and readings for characters with no CC-CEDICT or CC-Canto entry (`ENT-126`, `DATA-190`) | Unicode-3.0 (licence notice reproduced in full on the card) |
 | Unicode Character Database (`EquivalentUnifiedIdeograph.txt`, `CJKRadicals.txt`) | mapping radical forms to unified ideographs in character decomposition (`ENT-120`…, `DATA-191`) | Unicode-3.0 (same notice) |
 | BabelStone IDS (`IDS.TXT`, Andrew West; file date pinned) | character decomposition (`ENT-120`…, `DATA-191`) | free use for personal or commercial purposes; no attribution required, credited anyway |
@@ -499,6 +538,7 @@ Data sources:
 | OpenCC data (dictionaries, pinned release) | simplified/traditional conversion: examples at build time; script conversion of Reading passages, OCR text and the Voice transcript at runtime (`TXT-081`…, `CAM-130`…, `VOICE-096`, `DATA-195`) | Apache-2.0 |
 | audio-cmn (Shtooka-derived) | recorded syllable and word pronunciations | CC BY-SA |
 | hanzi-writer-data (Make Me a Hanzi derived) | stroke outlines, order, medians | MIT / Arphic Public License |
+| Make Me a Hanzi `dictionary.txt` (`matches` field only; separate data file) | stroke-to-component mapping that highlights each decomposition part's strokes in the glyph (`ENT-120`…) | LGPL-3.0 |
 | libime language model (`lm_sc.arpa`, fcitx) | Mandarin word bigrams for multi-word combinations (`SRCH-060`…) | LGPL-2.1-or-later |
 | rime-cantonese `essay-cantonese.txt` | Cantonese frequency table (unigram base) and language model (`DATA-189`, `PIPE-077`) | CC BY 4.0 |
 | HKCanCor | Cantonese frequency counts and bigrams (`DATA-189`, `PIPE-077`) | CC BY 4.0 |
@@ -525,7 +565,8 @@ easily. Datasets and models are **separate files under their own licences**, nev
 CC BY-SA 4.0 dictionaries and the dictionary dataset derived from them (which stays CC BY-SA); the
 LGPL-2.1+ Mandarin language-model table, shipped as a separate, replaceable file with its licence
 notice and source availability; the Arphic Public License stroke data; the CC BY-SA Cantonese
-tables; the CC BY-SA 4.0 project supplement dictionary; the Unicode-3.0 Unihan/UCD data; and the
+tables; the CC BY-SA 4.0 HSK parser data and patch entries; the LGPL-3.0 Make Me a Hanzi `matches`
+data, shipped as a separate, replaceable file; the Unicode-3.0 Unihan/UCD data; and the
 BabelStone IDS decomposition file. CC BY and CC BY-SA sources require attribution (`SET-040`). *(Decided: `Q-100`.)*
 
 `SET-042` `[MUST]` Each source's exact version/commit/build date is recorded in the dataset metadata

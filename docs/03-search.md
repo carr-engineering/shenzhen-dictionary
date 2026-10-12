@@ -713,9 +713,12 @@ The indicator is exposed as a tab list and each page as its tab panel, so screen
 - **all** definitions as one paragraph, each numbered `1. `, `2. ` and so on in bold `fg`, separated
   by two spaces, in `muted` text; readings inside definitions follow `GLB-120`;
 - structured notes joined by ` • ` (only when there are no definitions);
-- HSK level badges (outlined pills in the level colour, `HSK-040`) when the entry has HSK levels,
-  including levels it inherits through a variant relation (`HSK-097`, `DATA-193`): an inherited level
-  shows a badge identical to a syllabus word's.
+- HSK level badges (outlined pills in the level colour, `HSK-040`) when the entry has HSK word
+  levels: one badge per level, covering every level the word has (its syllabus levels, extra bracketed
+  levels and levels it inherits through a variant relation, `HSK-097`, `DATA-193`); an inherited level
+  shows a badge identical to a syllabus word's. The badge shows the level only, never the syllabus
+  part of speech (grammatical class such as 动 or 名), which appears only in the entry detail header
+  (`ENT-020`). HSK character levels are never shown as badges (`HSK-098`).
 
 A card whose headword has two or more Hanzi is followed by its inside-words button (`SRCH-105`).
 
@@ -835,11 +838,12 @@ scroll.
 with the same deterministic function and candidate rule as the widget (`SET-063`) using the full level
 mask (all levels), so the card and a widget set to all levels show the same word on the same day. It
 works in both dictionary modes, drawing from the active mode's HSK rows (`HSK-090`, `HSK-096`);
-levels follow the committed word list, which uses the 2025 HSK edition (`HSK-003`); only syllabus
+levels follow the HSK syllabus word list (`HSK-003`); only syllabus
 words are candidates, not entries that inherit a level through a variant (`HSK-097`). The card shows
 the label `Word of the Day`, the tone-coloured headword with its alternate form, the reading
 (following `GLB-120`, space reserved when hidden; the `No Cantonese reading` note of `SRCH-094` when
-the linked Cantonese entry has none), the HSK level badge, the first definitions clamped
+the linked Cantonese entry has none), the word's HSK level badges exactly as on result cards
+(`SRCH-094`: every level, inherited ones included, no part-of-speech tags), the first definitions clamped
 as on result cards (`SRCH-095`), and a speaker button that plays the word's pronunciation (`MED-001`)
 without opening the entry. Tapping the card anywhere else opens the word's entry (`SRCH-130`). The word
 changes when the local date changes while the screen is visible.
@@ -973,7 +977,7 @@ user.
 keys are section-prefix plus entry id (a CC-CEDICT row, `SRCH-077`: section prefix, primary entry id
 and reading-group index).
 
-`SRCH-170` An entry with zero definitions and zero notes still renders (headword, reading, HSK badge).
+`SRCH-170` An entry with zero definitions and zero notes still renders (headword, reading, HSK level badges).
 It is never filtered out.
 
 `SRCH-171` Switching side while a search is in flight must reuse the in-flight response when the
