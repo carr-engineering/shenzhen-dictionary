@@ -184,9 +184,16 @@ internal class Segmenter(private val store: DictionaryStore) {
 
         fun readingOf(e: EntryRow): Reading = Reading(e.readingDisplay, e.readingCanonical, e.syllables, e.tones.asList())
 
-        /** Headword-index key for a text substring: Hanzi as-is, anything else matching-normalised (DATA-071). */
+        /**
+         * Headword-index key for a text substring: Hanzi as-is, anything else matching-normalised
+         * (DATA-071). A substring holding a separator (punctuation, symbols) is never a headword, so
+         * it keeps its raw form, which matches nothing.
+         */
         fun lookupKey(sub: String): String {
-            for (c in sub) if (c.code < 0x3000 || c.code in 0xFF00..0xFFEF) return Normaliser.matchingKey(sub).ifEmpty { sub }
+            for (c in sub) if (c.code < 0x3000 || c.code in 0xFF00..0xFFEF || c.code in 0x2000..0x2FFF) {
+                val key = Normaliser.matchingKey(sub)
+                return if (key.isNotEmpty() && ' ' !in key && key.cpCount() == sub.cpCount()) key else sub
+            }
             return sub
         }
 

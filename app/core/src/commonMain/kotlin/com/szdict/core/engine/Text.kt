@@ -112,6 +112,8 @@ internal object Normaliser {
                 cp in 'a'.code..'z'.code || cp in '0'.code..'9'.code || cp == '\''.code || cp == 0xB7 || cp == 0xFC -> cp
                 cp < 0x250 && toneMarkOf(cp.toChar()) != 0 -> cp
                 isHanzi(cp) -> cp
+                // Radical and stroke forms are headword keys of their unified ideograph (DATA-071).
+                cp in 0x2E80..0x2EFF || cp in 0x31C0..0x31EF -> cp
                 else -> -1
             }
             if (out < 0) {

@@ -717,6 +717,6 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
     }
 
     private companion object {
-        const val FREQ_WEIGHT = 0.6
+        const val FREQ_WEIGHT = 1.0
     }
 }
