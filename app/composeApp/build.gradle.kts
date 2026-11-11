@@ -22,6 +22,9 @@ kotlin {
             implementation(compose.ui)
             implementation("org.jetbrains.compose.ui:ui-backhandler:1.11.1")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+            // Script conversion and detection (ARCH-196); dictionaries are staged by stageOpenccData.
+            implementation("io.github.opencckmp:opencc-core:0.1.0-SNAPSHOT")
+            implementation("io.github.opencckmp:opencc-detect:0.1.0-SNAPSHOT")
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
@@ -79,3 +82,25 @@ val syncDatasetAssets by tasks.registering(Sync::class) {
     preserve { include("models/**") }
 }
 tasks.named("preBuild") { dependsOn(syncDatasetAssets) }
+
+// OpenCC dictionaries and configs for script conversion (ARCH-196, DATA-195): unpacked from the
+// opencc-kmp data publication into generated assets (`opencc/…`), without the Jieba and Japanese
+// resources the app never uses. The same directory is on the unit-test classpath for host tests.
+val openccData by configurations.creating {
+    isTransitive = false
+    isCanBeConsumed = false
+}
+dependencies { add(openccData.name, "io.github.opencckmp:opencc-data:0.1.0-SNAPSHOT:resources@zip") }
+val openccAssetsDir = layout.buildDirectory.dir("generated/opencc/assets")
+val stageOpenccData by tasks.registering(Sync::class) {
+    from({ openccData.files.map { zipTree(it) } }) {
+        include("opencc/*.ocd2", "opencc/NOTICE", "opencc/LICENSE", "opencc/AUTHORS")
+        listOf("t2s", "tw2s", "hk2s", "s2t", "tw2t", "hk2t", "s2hk", "t2hk", "s2tw", "t2tw", "s2twp")
+            .forEach { include("opencc/$it.json") }
+        exclude("opencc/JP*")
+    }
+    into(openccAssetsDir)
+}
+android.sourceSets.getByName("main").assets.srcDir(openccAssetsDir)
+android.sourceSets.getByName("test").resources.srcDir(openccAssetsDir)
+tasks.named("preBuild") { dependsOn(stageOpenccData) }
