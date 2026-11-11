@@ -90,7 +90,7 @@ private const val PREFETCH = 12
 @Composable
 fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
-    val holder = remember(session) { SearchStateHolder(session, scope) }
+    val holder = remember(session) { SearchStateHolder.of(session) }
     val chineseList = rememberLazyListState()
     val englishList = rememberLazyListState()
     val lists = remember(chineseList, englishList) { listOf(chineseList, englishList) }
@@ -102,7 +102,12 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
             emptyList.requestScrollToItem(0)
         }
         holder.start()
-        onDispose { holder.close() }
+        onDispose {
+            // The holder outlives the screen; only what points at this composition is released.
+            holder.onScrollToTop = null
+            session.closeWordSheetOf(holder)
+            if (session.handwritingSink === holder.handwritingSink) session.handwritingSink = null
+        }
     }
 
     val settings by session.settings.collectAsState()

@@ -67,6 +67,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
@@ -200,7 +201,7 @@ private fun HskGrid(session: AppSession, slot: HskState.Slot, model: HskGridMode
     val selectedId = (session.routes.lastOrNull() as? DetailRoute.Entry)?.takeIf { it.mode == mode }?.entryId
     val bottomInset = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val columns = hskColumnCount(maxWidth.value)
+        val columns = hskColumns(maxWidth)
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(columns),
             state = slot.grid,
@@ -392,7 +393,7 @@ private fun HskSkeleton(headerHeight: Dp) {
     val top = if (headerHeight > 0.dp) headerHeight else statusTop + 56.dp
     BoxWithConstraints(Modifier.fillMaxSize()) {
         LazyVerticalStaggeredGrid(
-            columns = StaggeredGridCells.Fixed(hskColumnCount(maxWidth.value)),
+            columns = StaggeredGridCells.Fixed(hskColumns(maxWidth)),
             userScrollEnabled = false,
             modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -435,4 +436,15 @@ private fun SkeletonCard(height: Dp) {
 @Composable
 private fun SkeletonBar(widthFraction: Float, height: Dp) {
     Box(Modifier.fillMaxWidth(widthFraction).height(height).background(LocalDictionaryPalette.current.bgSoft, CircleShape))
+}
+
+/**
+ * HSK-020 counts columns by window width. Below the list-detail breakpoint the grid has the whole
+ * window beside the navigation rail, so the window decides (two columns from 600 dp); from 840 dp
+ * the grid shares the window with the detail pane and its own width decides.
+ */
+@Composable
+private fun hskColumns(gridWidth: Dp): Int {
+    val window = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
+    return hskColumnCount(if (window < 840.dp) window.value else gridWidth.value)
 }

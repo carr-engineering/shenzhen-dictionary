@@ -278,7 +278,11 @@ private fun SectionIndicator(
     ) {
         listOf("CHINESE" to chineseCount, "ENGLISH" to englishCount).forEachIndexed { page, (name, count) ->
             val label = if (count != null) strings.text("$name ({0})", count) else strings.text(name)
-            val spoken = if (count != null) strings.text("{0}, {1} results", strings.text(name), count) else strings.text(name)
+            val spoken = when (count) {
+                null -> strings.text(name)
+                1 -> strings.text("{0}, 1 result", strings.text(name))
+                else -> strings.text("{0}, {1} results", strings.text(name), count)
+            }
             val active = (1f - kotlin.math.abs(pageFraction() - page)).coerceIn(0f, 1f)
             Box(
                 Modifier

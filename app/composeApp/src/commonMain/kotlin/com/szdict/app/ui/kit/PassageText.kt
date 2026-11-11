@@ -14,6 +14,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -66,6 +67,13 @@ fun PassageText(
     val showBoundaries = prefs.showBoundaries
     val showRuby = ruby && prefs.showPronunciation
     val toneColors = prefs.toneColors
+    val density = LocalDensity.current
+    // Per-syllable readings are measured once per layout, not on every draw.
+    val syllableRuby = remember(passage, layoutResult, rubyStyle, showRuby, density) {
+        val layout = layoutResult
+        if (!showRuby || layout == null || layout.layoutInput.text.length != text.length) null
+        else syllableRubyPlan(passage, text, layout, measurer, rubyStyle, with(density) { 1.5.dp.toPx() })
+    }
 
     Text(
         text = annotated,
@@ -102,7 +110,19 @@ fun PassageText(
                         }
                     }
                     shade = 1 - shade
-                    if (showRuby && !segment.reading.isEmpty) drawRuby(segment, text, layout, measurer, rubyStyle, toneColors, palette)
+                    if (showRuby && !segment.reading.isEmpty && !(segment.toneColourable && syllableRuby != null)) {
+                        drawWholeRuby(segment, text, layout, measurer, rubyStyle, palette)
+                    }
+                }
+                syllableRuby?.let { plan ->
+                    for (item in plan.items) {
+                        val scale = plan.lineScale[item.line] ?: 1f
+                        val color = if (toneColors && item.tone > 0) palette.tone(item.tone) else palette.muted
+                        val x = item.centerX - item.measured.size.width * scale / 2f
+                        // Scaled readings keep the bottom of the ruby band, next to their character.
+                        val y = item.top + 1.dp.toPx() + item.measured.size.height * (1f - scale)
+                        withTransform({ translate(x, y); scale(scale, scale, pivot = Offset.Zero) }) { drawText(item.measured, color = color) }
+                    }
                 }
             }
             .pointerInput(text) {
@@ -123,56 +143,80 @@ fun PassageText(
     )
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRuby(
+private class RubyItem(val measured: TextLayoutResult, val centerX: Float, val top: Float, val tone: Int, val line: Int)
+
+/** One syllable over each character, with one size per line. */
+private class SyllableRubyPlan(val items: List<RubyItem>, val lineScale: Map<Int, Float>)
+
+/**
+ * Lays out the readings of tone-colourable segments: one syllable centred over each character.
+ * A syllable wider than its character cell is scaled down, and the whole line takes the scale
+ * of its widest syllable, so neighbouring readings never touch and never differ in size.
+ */
+private fun syllableRubyPlan(
+    passage: AnalysedPassage,
+    text: String,
+    layout: TextLayoutResult,
+    measurer: androidx.compose.ui.text.TextMeasurer,
+    rubyStyle: TextStyle,
+    gapPx: Float,
+): SyllableRubyPlan {
+    val measuredBySyllable = HashMap<String, TextLayoutResult>()
+    val items = ArrayList<RubyItem>()
+    val lineScale = HashMap<Int, Float>()
+    var cell = 0f
+    for (segment in passage.segments) {
+        if (!segment.matched || !segment.toneColourable || segment.reading.isEmpty || segment.end > text.length) continue
+        val syllables = segment.reading.display.split(' ').filter { it.isNotEmpty() }
+        val tones = segment.reading.tones
+        var i = segment.start
+        var n = 0
+        while (i < segment.end && n < syllables.size) {
+            val box = layout.getBoundingBox(i)
+            // The first character of a line may lose its leading letter spacing: the widest cell is the cell.
+            if (box.width > cell) cell = box.width
+            val measured = measuredBySyllable.getOrPut(syllables[n]) { measurer.measure(syllables[n], rubyStyle, softWrap = false, maxLines = 1) }
+            items += RubyItem(measured, box.center.x, box.top, tones.getOrElse(n) { 0 }, layout.getLineForOffset(i))
+            i += codePointLength(text, i)
+            n++
+        }
+    }
+    val available = cell - gapPx
+    for (item in items) {
+        val width = item.measured.size.width
+        val scale = if (width > available && width > 0) (available / width).coerceAtLeast(0.6f) else 1f
+        val current = lineScale[item.line]
+        if (current == null || scale < current) lineScale[item.line] = scale
+    }
+    return SyllableRubyPlan(items, lineScale)
+}
+
+/** Whole reading centred over the segment's glyphs on the line where it starts (no per-character split). */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWholeRuby(
     segment: PassageSegment,
     text: String,
     layout: TextLayoutResult,
     measurer: androidx.compose.ui.text.TextMeasurer,
     rubyStyle: TextStyle,
-    toneColors: Boolean,
     palette: DictionaryPalette,
 ) {
-    val syllables = segment.reading.display.split(' ').filter { it.isNotEmpty() }
-    val tones = segment.reading.tones
-    if (segment.toneColourable && syllables.isNotEmpty()) {
-        // One syllable centred over each character.
-        var i = segment.start
-        var n = 0
-        while (i < segment.end && n < syllables.size) {
-            val box = layout.getBoundingBox(i)
-            val tone = tones.getOrElse(n) { 0 }
-            val color = if (toneColors && tone > 0) palette.tone(tone) else palette.muted
-            val measured = measurer.measure(syllables[n], rubyStyle.copy(color = color), softWrap = false, maxLines = 1)
-            // Slightly narrower than the glyph cell, so neighbouring readings never touch.
-            val available = box.width - 1.5.dp.toPx()
-            val scale = if (measured.size.width > available) (available / measured.size.width).coerceAtLeast(0.6f) else 1f
-            val w = measured.size.width * scale
-            val x = box.center.x - w / 2f
-            val y = box.top + 1.dp.toPx()
-            withTransform({ translate(x, y); scale(scale, scale, pivot = Offset.Zero) }) { drawText(measured) }
-            i += codePointLength(text, i)
-            n++
-        }
-    } else {
-        // Whole reading centred over the segment's glyphs on the line where it starts.
-        val firstBox = layout.getBoundingBox(segment.start)
-        val line = layout.getLineForOffset(segment.start)
-        var right = firstBox.right
-        var i = segment.start
-        while (i < segment.end && layout.getLineForOffset(i) == line) {
-            right = layout.getBoundingBox(i).right
-            i += codePointLength(text, i)
-        }
-        val width = (right - firstBox.left).coerceAtLeast(1f)
-        val measured = measurer.measure(
-            segment.reading.display, rubyStyle.copy(color = palette.muted), softWrap = false, maxLines = 1,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            constraints = androidx.compose.ui.unit.Constraints(maxWidth = width.toInt().coerceAtLeast(1)),
-        )
-        val x = firstBox.left + (width - measured.size.width) / 2f
-        val rubyTop = firstBox.top + 1.dp.toPx()
-        withTransform({ translate(x, rubyTop) }) { drawText(measured) }
+    val firstBox = layout.getBoundingBox(segment.start)
+    val line = layout.getLineForOffset(segment.start)
+    var right = firstBox.right
+    var i = segment.start
+    while (i < segment.end && layout.getLineForOffset(i) == line) {
+        right = layout.getBoundingBox(i).right
+        i += codePointLength(text, i)
     }
+    val width = (right - firstBox.left).coerceAtLeast(1f)
+    val measured = measurer.measure(
+        segment.reading.display, rubyStyle.copy(color = palette.muted), softWrap = false, maxLines = 1,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        constraints = androidx.compose.ui.unit.Constraints(maxWidth = width.toInt().coerceAtLeast(1)),
+    )
+    val x = firstBox.left + (width - measured.size.width) / 2f
+    val rubyTop = firstBox.top + 1.dp.toPx()
+    withTransform({ translate(x, rubyTop) }) { drawText(measured) }
 }
 
 internal fun passageAnnotatedString(

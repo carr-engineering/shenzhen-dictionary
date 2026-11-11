@@ -52,6 +52,11 @@ import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.SpanCandidates
 import com.szdict.core.api.SpanKind
 import kotlinx.coroutines.delay
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.launch
 
 /**
@@ -103,8 +108,47 @@ fun WordSheet(
         }
     }
 
-    val dragState = rememberDraggableState { delta ->
+    fun dragBy(delta: Float) {
         scope.launch { height.snapTo((height.value - delta).coerceIn(0f, maxPx)) }
+    }
+    fun settle(velocity: Float) {
+        val v = height.value
+        val target = when {
+            velocity > 900f -> if (v > peekPx * 1.2f) peekPx else 0f
+            velocity < -900f -> maxPx
+            v < peekPx * 0.55f -> 0f
+            v < (peekPx + maxPx) / 2f -> peekPx
+            else -> maxPx
+        }
+        scope.launch {
+            height.animateTo(target)
+            if (target == 0f) session.closeWordSheet()
+        }
+    }
+    val dragState = rememberDraggableState { delta -> dragBy(delta) }
+    // The row list drags the sheet too: scrolling up grows it to full height before the rows move,
+    // and pulling down with the rows at their top shrinks it (TXT-040, TXT-045).
+    val listConnection = remember(maxPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || available.y >= 0f || height.value >= maxPx) return Offset.Zero
+                val used = available.y.coerceAtLeast(height.value - maxPx)
+                dragBy(used)
+                return Offset(0f, used)
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+                dragBy(available.y)
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (height.value >= maxPx || height.value == peekPx) return Velocity.Zero
+                settle(available.y)
+                return available
+            }
+        }
     }
     Surface(
         modifier = modifier
@@ -121,20 +165,7 @@ fun WordSheet(
                 Modifier.fillMaxWidth().draggable(
                     state = dragState,
                     orientation = Orientation.Vertical,
-                    onDragStopped = { velocity ->
-                        val v = height.value
-                        val target = when {
-                            velocity > 900f -> if (v > peekPx * 1.2f) peekPx else 0f
-                            velocity < -900f -> maxPx
-                            v < peekPx * 0.55f -> 0f
-                            v < (peekPx + maxPx) / 2f -> peekPx
-                            else -> maxPx
-                        }
-                        scope.launch {
-                            height.animateTo(target)
-                            if (target == 0f) session.closeWordSheet()
-                        }
-                    },
+                    onDragStopped = { velocity -> settle(velocity) },
                 ),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -167,7 +198,7 @@ fun WordSheet(
             val cards = request.fixedCards ?: shown?.candidates?.map { it.card }
             val playing by session.playing.collectAsStateCompat()
             LazyColumn(
-                Modifier.fillMaxWidth().alpha(if (loading && request.fixedCards == null) 0.55f else 1f),
+                Modifier.fillMaxWidth().nestedScroll(listConnection).alpha(if (loading && request.fixedCards == null) 0.55f else 1f),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {

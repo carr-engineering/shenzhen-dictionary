@@ -428,6 +428,17 @@ class SearchStateHolder(
     }
 
     companion object {
+        private var current: SearchStateHolder? = null
+
+        /**
+         * The holder of [session], created on first use and kept for the life of the process, so
+         * results, counts and expanders survive a visit to another destination (GLB-050).
+         */
+        fun of(session: AppSession): SearchStateHolder {
+            current?.let { if (it.session === session) return it else it.close() }
+            return SearchStateHolder(session, session.scope).also { current = it }
+        }
+
         const val WINDOW = 40
         const val POPULAR_COUNT = 50
     }

@@ -83,7 +83,8 @@ object HskWidgetUpdater {
     fun scheduleMidnight(context: Context) {
         val alarms = context.getSystemService(AlarmManager::class.java) ?: return
         val next = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() + 5_000
-        runCatching { alarms.set(AlarmManager.RTC, next, refreshIntent(context)) }
+        // A bounded window: a plain inexact alarm may be deferred by an hour or more.
+        runCatching { alarms.setWindow(AlarmManager.RTC, next, 10 * 60_000L, refreshIntent(context)) }
     }
 
     fun cancelMidnight(context: Context) {

@@ -146,8 +146,10 @@ fun App(session: AppSession) {
                         if (!compact) {
                             AppRail(destinations, session.destination, session::selectDestination)
                         }
-                        Box(Modifier.weight(1f).fillMaxHeight()) {
+                        BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                             val sheetInset = maxOf(wordSheetHeight, handwritingHeight)
+                            // Full height stops short of the status bar (TXT-040).
+                            val sheetMaxHeight = maxHeight - WindowInsets.statusBars.asPaddingValues().calculateTopPadding() - 8.dp
                             CompositionLocalProvider(LocalSheetInset provides sheetInset) {
                                 val stateHolder = rememberSaveableStateHolder()
                                 // Saved state of the detail routes, keyed per visit (GLB-051).
@@ -202,7 +204,7 @@ fun App(session: AppSession) {
                                 WordSheet(
                                     session = session,
                                     request = request,
-                                    maxHeight = this@BoxWithConstraints.maxHeight * 0.9f,
+                                    maxHeight = sheetMaxHeight,
                                     onVisibleHeight = { wordSheetHeight = it },
                                     modifier = Modifier.align(Alignment.BottomCenter),
                                 )

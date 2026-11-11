@@ -324,6 +324,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Cantonese (CC-Canto)" to "粤语（CC-Canto）",
     "Mandarin (CC-CEDICT)" to "普通话（CC-CEDICT）",
     "{0}, {1} results" to "{0}，{1} 条结果",
+    "{0}, 1 result" to "{0}，1 条结果",
     "Showing the first {0} results" to "仅显示前 {0} 条结果",
     // HSK destination, Settings, Attribution, widget
     "Characters" to "汉字",

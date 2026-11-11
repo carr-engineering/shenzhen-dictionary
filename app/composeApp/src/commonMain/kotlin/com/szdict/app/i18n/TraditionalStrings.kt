@@ -296,6 +296,7 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Cantonese (CC-Canto)" to "粵語（CC-Canto）",
     "Mandarin (CC-CEDICT)" to "普通話（CC-CEDICT）",
     "{0}, {1} results" to "{0}，{1} 筆結果",
+    "{0}, 1 result" to "{0}，1 筆結果",
     "Showing the first {0} results" to "僅顯示前 {0} 筆結果",
     "Characters" to "漢字",
     "On" to "開",
