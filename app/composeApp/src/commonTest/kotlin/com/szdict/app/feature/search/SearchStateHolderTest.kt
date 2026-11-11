@@ -134,7 +134,7 @@ class SearchStateHolderTest {
     }
 
     @Test
-    fun punctuationOnlyBehavesLikeBlank() = runTest {
+    fun spacesOnlyIsBlank() = runTest {
         val f = Fixture(this)
         advanceTimeBy(100)
         f.type("   ")

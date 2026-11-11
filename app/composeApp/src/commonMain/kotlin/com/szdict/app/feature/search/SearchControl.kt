@@ -132,7 +132,7 @@ internal fun SearchControl(
         interactions.interactions.collect { if (it is PressInteraction.Release) onFieldTapped() }
     }
     Surface(
-        modifier = modifier.clip(RoundedCornerShape(16.dp)),
+        modifier = modifier,
         shape = RoundedCornerShape(16.dp),
         color = palette.panel,
         border = BorderStroke(1.dp, palette.border),

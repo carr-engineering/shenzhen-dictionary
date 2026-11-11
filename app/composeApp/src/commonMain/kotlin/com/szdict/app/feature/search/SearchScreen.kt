@@ -51,7 +51,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.szdict.app.AppSession
@@ -92,7 +91,9 @@ private const val PREFETCH = 12
 fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val holder = remember(session) { SearchStateHolder(session, scope) }
-    val lists = listOf(rememberLazyListState(), rememberLazyListState())
+    val chineseList = rememberLazyListState()
+    val englishList = rememberLazyListState()
+    val lists = remember(chineseList, englishList) { listOf(chineseList, englishList) }
     val emptyList = rememberLazyListState()
     val pager = rememberPagerState(initialPage = holder.side.ordinal) { 2 }
     DisposableEffect(holder) {
@@ -205,7 +206,7 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
 
     val playing = session.playing.collectAsState()
     val selectedId = if (twoPane) (session.routes.lastOrNull() as? DetailRoute.Entry)?.entryId else null
-    val context = CardContext(holder, session, playing, selectedId, openEntry)
+    val context = remember(holder, session, playing, selectedId, openEntry) { CardContext(holder, session, playing, selectedId, openEntry) }
 
     Box(modifier.fillMaxSize()) {
         // Focus parks here when a result is opened, so no input method reopens on return (GLB-059).
@@ -529,9 +530,10 @@ private fun GroupRow(group: WordGroup, sentence: Boolean, context: CardContext) 
     }
     // One inside-words button per headword, after its last card, fed by the group's sub-spans.
     val insideOf = group.insideOf
-    val last = group.cards.last().let { if (insideOf != null) it.copy(insideCount = group.insideCount) else it.copy(insideCount = 0) }
-    val inside = if (insideOf != null) context.inside(last, insideOf, group.text) else null
-    val cards = group.cards.dropLast(1) + last
+    val cards = remember(group) {
+        group.cards.dropLast(1) + group.cards.last().copy(insideCount = if (insideOf != null) group.insideCount else 0)
+    }
+    val inside = if (insideOf != null) context.inside(cards.last(), insideOf, group.text) else null
     if (sentence && cards.size > 1) {
         EntryCardGroup(cards, context.open, selectedId = context.selectedId, audio = context.audio, inside = inside)
     } else {
