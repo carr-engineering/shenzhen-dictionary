@@ -37,7 +37,8 @@ def version_info(cfg: Config, source_date: str) -> dict:
                 "built_at": "2026-01-01T00:00:00Z"}
     short = git("log", "-1", "--format=%h", "--", "pipeline", "contract", "refs") or "nogit"
     full = git("log", "-1", "--format=%H", "--", "pipeline", "contract", "refs") or "0" * 40
-    when = git("log", "-1", "--format=%cd", "--date=format-local:%Y-%m-%dT%H:%M:%SZ", "--", "pipeline", "contract", "refs")
+    stamp = git("log", "-1", "--format=%ct", "--", "pipeline", "contract", "refs")
+    when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(stamp))) if stamp else ""
     return {"dataset_version": f"{source_date}+{short}", "pipeline_commit": full,
             "built_at": when or "1970-01-01T00:00:00Z"}
 
@@ -125,11 +126,33 @@ def main(args) -> int:
         log(f"cantonese: written ({report['cantonese']['tables']['file_size']} bytes)")
 
     ok = True
+    built = {}
+    if args.only != "cantonese":
+        built["mandarin"] = (man, mlm)
+    if args.only != "mandarin":
+        built["cantonese"] = (can, clm)
+    from . import golden
+    from .quality import lm_quality
+    g_ok, diffs = golden.run(built, cfg, args.update_golden)
+    report["gates"]["11_golden_queries"] = {"pass": g_ok, "failures": diffs}
+    if not g_ok:
+        print(f"GATE FAIL golden queries: {list(diffs)[:8]} (rerun with --update-golden to accept)", flush=True)
+    q_ok, q_rep = lm_quality(built, cfg)
+    report["gates"]["14_lm_quality"] = q_rep
+    if not q_ok:
+        print(f"GATE FAIL LM quality: {q_rep['failures'][:8]}", flush=True)
+    ok = g_ok and q_ok
     if not args.no_validate:
         from .validate import validate_all
-        ok = validate_all(cfg, report, only=args.only)
-    report["build_seconds"] = round(time.time() - t0, 1) if False else None
+        ok = validate_all(cfg, report, only=args.only) and ok
     (cfg.out / "build-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=1, sort_keys=True) + "\n", "utf-8")
+    if cfg.fixture and ok and not args.only:
+        # the fixture output is committed for the app's tests (ARCH-151)
+        dest = cfg.contract / "fixture"
+        dest.mkdir(exist_ok=True)
+        for name in ("mandarin.db", "mandarin-lm.db", "mandarin-widget.json", "cantonese.db", "cantonese-lm.db",
+                     "cantonese-widget.json"):
+            (dest / name).write_bytes((cfg.out / name).read_bytes())
     log(f"done in {time.time() - t0:.1f}s — gates {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1

@@ -86,3 +86,38 @@ def hanyu_pinyin_readings(value: str) -> list[str]:
 def is_ideograph(ch: str) -> bool:
     cp = ord(ch)
     return is_hanzi(ch) or 0xF900 <= cp <= 0xFAFF or 0x2F800 <= cp <= 0x2FA1F
+
+
+def radical_form_targets(unihan_zip: Path, equivalent: Path, cjk_radicals: Path) -> dict[str, list[str]]:
+    """CJK Radicals Supplement / CJK Strokes code point -> unified ideographs whose entries it finds
+    (DATA-071, PIPE-080 step 4): its equivalent unified ideograph and, when that ideograph is itself a
+    radical form (kRSUnicode residual 0), the radical's main ideograph from CJKRadicals.txt (⻊ -> 𧾷, 足)."""
+    eq = {r: u for r, u in read_equivalent_ideographs(equivalent).items()
+          if 0x2E80 <= ord(r) <= 0x2EFF or 0x31C0 <= ord(r) <= 0x31EF}
+    main: dict[str, str] = {}
+    for line in cjk_radicals.read_text("utf-8").splitlines():
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        parts = [x.strip() for x in line.split(";")]
+        if len(parts) >= 3 and parts[2]:
+            main.setdefault(parts[0].rstrip("'"), chr(int(parts[2], 16)))
+    wanted = set(eq.values())
+    rs: dict[str, str] = {}
+    with zipfile.ZipFile(unihan_zip) as z:
+        with z.open("Unihan_IRGSources.txt") as f:
+            for line in io.TextIOWrapper(f, "utf-8"):
+                if "\tkRSUnicode\t" not in line:
+                    continue
+                cp, _field, value = line.rstrip("\n").split("\t", 2)
+                ch = chr(int(cp[2:], 16))
+                if ch in wanted:
+                    rs[ch] = value.split()[0]
+    out: dict[str, list[str]] = {}
+    for r, u in sorted(eq.items()):
+        targets = [u]
+        m = re.fullmatch(r"(\d+)'*\.(-?\d+)", rs.get(u, ""))
+        if m and m.group(2) == "0" and main.get(m.group(1)) and main[m.group(1)] != u:
+            targets.append(main[m.group(1)])
+        out[r] = targets
+    return out

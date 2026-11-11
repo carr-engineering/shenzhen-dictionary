@@ -38,6 +38,8 @@ def _zstd_stream(path: Path):
 def extract_arpa_12(cfg: Config) -> Path:
     """Extract the \\1-grams and \\2-grams sections of lm_sc.arpa into a cache file."""
     archive = cfg.src("libime_lm_sc")
+    if archive.name.endswith(".arpa"):
+        return archive
     cache_dir = cfg.sources / "cache"
     cache = cache_dir / (archive.name + ".1-2grams.arpa")
     if cache.exists():
@@ -124,29 +126,20 @@ def iter_arpa_bigrams(path: Path, vocab: dict[str, int]):
 # Quantisation (DATA-154)
 
 def build_codebook(values: list[float], k: int = 256) -> list[float]:
-    vs = sorted(values)
-    if not vs:
+    """At most `k` ascending natural-log values. A uniform grid in log space over [max(min, -30), max]
+    (frequent words keep their resolution: ~0.1 nat), plus a few coarse levels for the smoothed tail."""
+    if not values:
         return [0.0]
-    distinct = sorted(set(round(v, 4) for v in vs))
+    distinct = sorted(set(round(v, 4) for v in values))
     if len(distinct) <= k:
         return distinct
-    n = len(vs)
-    cents = sorted(set(vs[min(n - 1, (2 * i + 1) * n // (2 * k))] for i in range(k)))
-    prefix = [0.0]
-    for v in vs:
-        prefix.append(prefix[-1] + v)
-    for _ in range(12):
-        mids = [(cents[i] + cents[i + 1]) / 2 for i in range(len(cents) - 1)]
-        bounds = [0] + [bisect.bisect_left(vs, m) for m in mids] + [n]
-        new = []
-        for i in range(len(cents)):
-            a, b = bounds[i], bounds[i + 1]
-            new.append((prefix[b] - prefix[a]) / (b - a) if b > a else cents[i])
-        new = sorted(set(new))
-        if new == cents:
-            break
-        cents = new
-    return [round(c, 4) for c in cents]
+    lo, hi = min(values), max(values)
+    tail = [v for v in (-60.0, -50.0, -42.0, -36.0, -32.0) if v > lo - 5 and v < -30.0]
+    start = max(lo, -30.0)
+    n = k - len(tail)
+    step = (hi - start) / (n - 1)
+    grid = [round(start + i * step, 4) for i in range(n)]
+    return sorted(set(tail + grid))
 
 
 class Quantiser:

@@ -3,6 +3,8 @@
     "hkcancor": {
       "file": "yue/hkcancor.zip",
       "licence": "CC-BY-4.0",
+      "sha256": "e1c00d2130d5cc6bc14911c067e6a7bc3efde60af9e80a7121ac3072cb0870c5",
+      "size": 5157056,
       "url": "https://github.com/fcbond/hkcancor/archive/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65.zip",
       "version": "fcbond/hkcancor@39aeadf9"
     },
@@ -10,36 +12,48 @@
       "file": "lm/libime_1.1.17.orig.tar.xz",
       "licence": "LGPL-2.1-or-later",
       "note": "download.fcitx-im.org/data/lm_sc.arpa-*.tar.zst is the upstream location; the Debian orig tarball bundles the same archive and is much faster to fetch",
+      "sha256": "801ac1e12c0e7535fb29167cdf38f9482faeb3716f6df1fe90e4fe4204000308",
+      "size": 85075832,
       "url": "http://deb.debian.org/debian/pool/main/libi/libime/libime_1.1.17.orig.tar.xz",
       "version": "libime 1.1.17 source tarball (Debian orig; bundles lm_sc.arpa)"
     },
     "rime_essay_cantonese": {
       "file": "yue/essay-cantonese.txt",
       "licence": "CC-BY-4.0",
+      "sha256": "d08836175f598219f43c2f2f9e12e12711212dbefe08d57b2eddb7a9d9f22a5d",
+      "size": 3416812,
       "url": "https://raw.githubusercontent.com/rime/rime-cantonese/259f0e48bba840c3a2e0d117539e96937f3d89bc/essay-cantonese.txt",
       "version": "rime-cantonese@259f0e48"
     },
     "ucd_cjk_radicals": {
       "file": "ucd/CJKRadicals.txt",
       "licence": "Unicode-3.0",
+      "sha256": "689e2e5852699e7115823dc0b6d3e615eb767c7f477b615678f4f989d1f06105",
+      "size": 5491,
       "url": "https://www.unicode.org/Public/18.0.0/ucd/CJKRadicals.txt",
       "version": "Unicode 18.0.0"
     },
     "ucd_equivalent_unified_ideograph": {
       "file": "ucd/EquivalentUnifiedIdeograph.txt",
       "licence": "Unicode-3.0",
+      "sha256": "c86c80f6a0d1d47c9a5aadfbf1c26f1a732d662d9ccb0ed2d397919ecc47bf72",
+      "size": 18371,
       "url": "https://www.unicode.org/Public/18.0.0/ucd/EquivalentUnifiedIdeograph.txt",
       "version": "Unicode 18.0.0"
     },
     "ud_cantonese_hk": {
       "file": "yue/yue_hk-ud-test.conllu",
       "licence": "CC-BY-SA-4.0",
+      "sha256": "ffbd48ca7ff269ca162e285d6142a48ab90897f49c42ced838f9712c4bf4df2b",
+      "size": 757406,
       "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Cantonese-HK/a93ac74a37cbf2585ea9c8a769491f6fdaafe7b8/yue_hk-ud-test.conllu",
       "version": "UD_Cantonese-HK@a93ac74a"
     },
     "unihan": {
       "file": "unihan/Unihan.zip",
       "licence": "Unicode-3.0",
+      "sha256": "4c93ea9c1f636451729a840978f1667a53886af37ba854fdcce109721c63d43e",
+      "size": 8340649,
       "url": "https://www.unicode.org/Public/18.0.0/ucd/Unihan.zip",
       "version": "Unicode 18.0.0"
     }

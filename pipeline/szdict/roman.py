@@ -107,7 +107,8 @@ def parse_pinyin(raw: str) -> tuple:
             if base[0].isupper():
                 proper = True
         else:
-            full = False
+            if tok not in PUNCT_TOKENS:
+                full = False
             disp.append(tok)
             canon.append(tok.lower())
             cased.append(tok)

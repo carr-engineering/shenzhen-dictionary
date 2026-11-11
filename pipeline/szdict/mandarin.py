@@ -186,8 +186,8 @@ def build_mandarin(cfg: Config) -> Dataset:
 
     # --- Unihan fallback entries (PIPE-080)
     rep["unihan"] = add_unihan_entries(ds, cfg, "kMandarin")
-    eq = uh.read_equivalent_ideographs(cfg.src("ucd_equivalent_unified_ideograph"))
-    ds.radical_forms = {r: u for r, u in eq.items() if 0x2E80 <= ord(r) <= 0x2EFF or 0x31C0 <= ord(r) <= 0x31EF}
+    ds.radical_forms = uh.radical_form_targets(cfg.src("unihan"), cfg.src("ucd_equivalent_unified_ideograph"),
+                                               cfg.src("ucd_cjk_radicals"))
     rep["unihan"]["radical_forms_mapped"] = len(ds.radical_forms)
 
     assign_natural_keys(ds)

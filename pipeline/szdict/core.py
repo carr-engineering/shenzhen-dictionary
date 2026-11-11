@@ -46,7 +46,7 @@ class Dataset:
         self.word_freq: dict[str, tuple[int, float]] = {}
         self.merge_groups: list[dict] = []
         self.popular: list[int] = []
-        self.radical_forms: dict[str, str] = {}    # radical char -> unified ideograph
+        self.radical_forms: dict[str, list[str]] = {}    # radical char -> unified ideographs
         self.syllables: list[str] = []
         self.aliases: dict[str, str] = {}
         self.abbrevs: list[tuple[str, str]] = []
@@ -471,8 +471,9 @@ def flags_of(e: dict) -> int:
 def headword_rows(ds: Dataset) -> list[tuple[str, int, int]]:
     rows = set()
     uni_to_rad: dict[str, list[str]] = defaultdict(list)
-    for rad, uni in ds.radical_forms.items():
-        uni_to_rad[uni].append(rad)
+    for rad, unis in ds.radical_forms.items():
+        for uni in unis:
+            uni_to_rad[uni].append(rad)
     for e in ds.entries:
         for form in {e["simp"], e["trad"]}:
             rows.add((form, e["id"], 0))

@@ -29,6 +29,8 @@ class Config:
     abbr_cap_two: int = 600
     abbr_cap_long: int = 400
     oov_penalty: float = -4.0
+    lm_unigram_mix: float = 0.5
+    use_fixture_sources: bool = True
 
     def __post_init__(self) -> None:
         self.lock = json.loads((PIPELINE / "sources.lock.json").read_text("utf-8"))["sources"]
@@ -36,7 +38,19 @@ class Config:
             self.out = self.out / "fixture"
 
     def src(self, name: str) -> Path:
+        """Path of a locked source; the fixture build reads the committed excerpts instead, so it
+        needs no downloads (make_fixture_sources.py regenerates them from the full sources)."""
+        if self.fixture and self.use_fixture_sources:
+            return self.data / "fixture-sources" / FIXTURE_FILES[name]
         return self.sources / self.lock[name]["file"]
+
+
+FIXTURE_FILES = {
+    "unihan": "Unihan.zip", "ucd_equivalent_unified_ideograph": "EquivalentUnifiedIdeograph.txt",
+    "ucd_cjk_radicals": "CJKRadicals.txt", "libime_lm_sc": "lm_sc.1-2grams.arpa",
+    "rime_essay_cantonese": "essay-cantonese.txt", "ud_cantonese_hk": "yue_hk-ud.conllu",
+    "hkcancor": "hkcancor.zip",
+}
 
 
 def git(*args: str) -> str:

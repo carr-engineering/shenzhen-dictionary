@@ -1,0 +1,353 @@
+{
+ "_comment": "Language-model quality set (PIPE-075). `required`: for a one-word `expect`, the word must be among the first `max_rank` (default 1) distinct words of abbr_idx[query]; for a multi-word `expect`, the best lattice decoding of the pure first-letter query must be exactly that sequence (cases marked `fixture` also hold on the fixture build). `broad`: `expect` must be among the three best (words of abbr_idx[query] / decodings) for at least `top3_threshold` of the cases. Deviation from PIPE-075: `zg` -> 中国 is required at rank <= 2 because 这个 (zhe ge) is more frequent in both source models.",
+ "mandarin": {
+  "required": [
+   {
+    "query": "nh",
+    "expect": [
+     "你好"
+    ],
+    "fixture": true
+   },
+   {
+    "query": "zg",
+    "expect": [
+     "中国"
+    ],
+    "max_rank": 2,
+    "fixture": true
+   },
+   {
+    "query": "wxhn",
+    "expect": [
+     "我",
+     "喜欢",
+     "你"
+    ],
+    "fixture": true
+   }
+  ],
+  "top3_threshold": 0.8,
+  "broad": [
+   {
+    "query": "xx",
+    "expect": [
+     "谢谢"
+    ]
+   },
+   {
+    "query": "wm",
+    "expect": [
+     "我们"
+    ]
+   },
+   {
+    "query": "py",
+    "expect": [
+     "朋友"
+    ]
+   },
+   {
+    "query": "ls",
+    "expect": [
+     "老师"
+    ]
+   },
+   {
+    "query": "xs",
+    "expect": [
+     "学生"
+    ]
+   },
+   {
+    "query": "bj",
+    "expect": [
+     "北京"
+    ]
+   },
+   {
+    "query": "sj",
+    "expect": [
+     "时间"
+    ]
+   },
+   {
+    "query": "gz",
+    "expect": [
+     "工作"
+    ]
+   },
+   {
+    "query": "xh",
+    "expect": [
+     "喜欢"
+    ]
+   },
+   {
+    "query": "zj",
+    "expect": [
+     "自己"
+    ]
+   },
+   {
+    "query": "mt",
+    "expect": [
+     "明天"
+    ]
+   },
+   {
+    "query": "jt",
+    "expect": [
+     "今天"
+    ]
+   },
+   {
+    "query": "xz",
+    "expect": [
+     "现在"
+    ]
+   },
+   {
+    "query": "dbq",
+    "expect": [
+     "对不起"
+    ]
+   },
+   {
+    "query": "mgx",
+    "expect": [
+     "没关系"
+    ]
+   },
+   {
+    "query": "zgr",
+    "expect": [
+     "中国人"
+    ]
+   },
+   {
+    "query": "dn",
+    "expect": [
+     "电脑"
+    ]
+   },
+   {
+    "query": "ks",
+    "expect": [
+     "开始"
+    ]
+   },
+   {
+    "query": "hz",
+    "expect": [
+     "孩子"
+    ]
+   },
+   {
+    "query": "yy",
+    "expect": [
+     "医院"
+    ]
+   },
+   {
+    "query": "nhm",
+    "expect": [
+     "你好",
+     "吗"
+    ]
+   },
+   {
+    "query": "wasn",
+    "expect": [
+     "我",
+     "爱上",
+     "你"
+    ]
+   },
+   {
+    "query": "wszgr",
+    "expect": [
+     "我",
+     "是",
+     "中国人"
+    ]
+   },
+   {
+    "query": "xxn",
+    "expect": [
+     "谢谢",
+     "你"
+    ]
+   },
+   {
+    "query": "zjtqhh",
+    "expect": [
+     "最近",
+     "天气",
+     "很",
+     "好"
+    ]
+   },
+   {
+    "query": "mtjdl",
+    "expect": [
+     "明天",
+     "几点",
+     "了"
+    ]
+   },
+   {
+    "query": "wxhcpg",
+    "expect": [
+     "我",
+     "喜欢",
+     "吃",
+     "苹果"
+    ]
+   },
+   {
+    "query": "zmyl",
+    "expect": [
+     "怎么样",
+     "了"
+    ]
+   },
+   {
+    "query": "wbzd",
+    "expect": [
+     "我",
+     "不",
+     "知道"
+    ]
+   },
+   {
+    "query": "wxhn",
+    "expect": [
+     "我",
+     "喜欢",
+     "你"
+    ]
+   }
+  ]
+ },
+ "cantonese": {
+  "required": [
+   {
+    "query": "nd",
+    "expect": [
+     "我哋"
+    ],
+    "fixture": true
+   },
+   {
+    "query": "gdw",
+    "expect": [
+     "廣東話"
+    ],
+    "fixture": true
+   }
+  ],
+  "top3_threshold": 0.7,
+  "broad": [
+   {
+    "query": "nd",
+    "expect": [
+     "我哋"
+    ]
+   },
+   {
+    "query": "gdw",
+    "expect": [
+     "廣東話"
+    ]
+   },
+   {
+    "query": "mg",
+    "expect": [
+     "唔該"
+    ]
+   },
+   {
+    "query": "dg",
+    "expect": [
+     "點解"
+    ]
+   },
+   {
+    "query": "hg",
+    "expect": [
+     "香港"
+    ]
+   },
+   {
+    "query": "sf",
+    "expect": [
+     "食飯"
+    ]
+   },
+   {
+    "query": "hd",
+    "expect": [
+     "好多"
+    ]
+   },
+   {
+    "query": "tj",
+    "expect": [
+     "聽日"
+    ]
+   },
+   {
+    "query": "gs",
+    "expect": [
+     "公司"
+    ]
+   },
+   {
+    "query": "kd",
+    "expect": [
+     "佢哋"
+    ]
+   },
+   {
+    "query": "zd",
+    "expect": [
+     "知道"
+    ]
+   },
+   {
+    "query": "bg",
+    "expect": [
+     "不過"
+    ]
+   },
+   {
+    "query": "jg",
+    "expect": [
+     "已經"
+    ]
+   },
+   {
+    "query": "lz",
+    "expect": [
+     "靚仔"
+    ]
+   },
+   {
+    "query": "dgm",
+    "expect": [
+     "點解",
+     "唔"
+    ]
+   },
+   {
+    "query": "hksf",
+    "expect": [
+     "佢",
+     "嘅",
+     "想法"
+    ]
+   }
+  ]
+ }
+}
