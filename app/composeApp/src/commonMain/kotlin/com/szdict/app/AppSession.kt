@@ -198,7 +198,7 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     /** A route pushed from another route inherits that route's mode (ENT-010). */
     fun routeMode(): DictMode = (routes.lastOrNull() as? DetailRoute.Entry)?.mode ?: mode
 
-    fun openSettings() { routes += DetailRoute.SettingsRoute(nextRouteKey++) }
+    fun openSettings() { handwritingVisible = false; routes += DetailRoute.SettingsRoute(nextRouteKey++) }
     fun openPrivacy() { routes += DetailRoute.Privacy(nextRouteKey++) }
     fun openAttribution() { routes += DetailRoute.Attribution(nextRouteKey++) }
 
@@ -254,7 +254,7 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     var handwritingSink: HandwritingSink? = null
 
     // ---- OCR review back handling (PROD-056 item 3) ----
-    var ocrReviewBack: (() -> Boolean)? = null
+    var ocrReviewBack: (() -> Boolean)? by mutableStateOf(null)
 
     // ---- playback: one owner, never overlapping (MED-002) ----
     private val _playing = MutableStateFlow<Any?>(null)
