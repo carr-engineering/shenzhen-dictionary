@@ -1,0 +1,7 @@
+HSK parser repository https://github.com/Punpuf/hsk-syllabus-vocabulary-parser
+commit 2adf7c9885a17077966922b89de7ce655d7d82a0 (working tree had uncommitted changes when copied on 2026-11-11)
+46f8139f651cf4895dcdb9b1f517795778257716433bdcc5127460fd00d0f9ee  hsk_word_list.tsv
+3af2627fc221f8e3a42758342e36e1c28090bfd13b30a4d1dba82c865ddc0eb0  hsk_char_list.tsv
+7f602ada3271dc2ac42dffc958b81c9e135fa16a750ff5b95026b121e7e0e339  report.md
+8eb27643f7b5378b6184f6d56550024ea80b3ae02d34af1188e09b36c46ec434  data/cedict_patch.u8
+5fbf61c20c60c006705d2dbf14840c00b7307d57bc4bb9c914aad173c43474d2  data/disambiguation.tsv

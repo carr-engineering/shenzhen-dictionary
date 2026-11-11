@@ -1,0 +1,47 @@
+{
+  "sources": {
+    "hkcancor": {
+      "file": "yue/hkcancor.zip",
+      "licence": "CC-BY-4.0",
+      "url": "https://github.com/fcbond/hkcancor/archive/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65.zip",
+      "version": "fcbond/hkcancor@39aeadf9"
+    },
+    "libime_lm_sc": {
+      "file": "lm/libime_1.1.17.orig.tar.xz",
+      "licence": "LGPL-2.1-or-later",
+      "note": "download.fcitx-im.org/data/lm_sc.arpa-*.tar.zst is the upstream location; the Debian orig tarball bundles the same archive and is much faster to fetch",
+      "url": "http://deb.debian.org/debian/pool/main/libi/libime/libime_1.1.17.orig.tar.xz",
+      "version": "libime 1.1.17 source tarball (Debian orig; bundles lm_sc.arpa)"
+    },
+    "rime_essay_cantonese": {
+      "file": "yue/essay-cantonese.txt",
+      "licence": "CC-BY-4.0",
+      "url": "https://raw.githubusercontent.com/rime/rime-cantonese/259f0e48bba840c3a2e0d117539e96937f3d89bc/essay-cantonese.txt",
+      "version": "rime-cantonese@259f0e48"
+    },
+    "ucd_cjk_radicals": {
+      "file": "ucd/CJKRadicals.txt",
+      "licence": "Unicode-3.0",
+      "url": "https://www.unicode.org/Public/18.0.0/ucd/CJKRadicals.txt",
+      "version": "Unicode 18.0.0"
+    },
+    "ucd_equivalent_unified_ideograph": {
+      "file": "ucd/EquivalentUnifiedIdeograph.txt",
+      "licence": "Unicode-3.0",
+      "url": "https://www.unicode.org/Public/18.0.0/ucd/EquivalentUnifiedIdeograph.txt",
+      "version": "Unicode 18.0.0"
+    },
+    "ud_cantonese_hk": {
+      "file": "yue/yue_hk-ud-test.conllu",
+      "licence": "CC-BY-SA-4.0",
+      "url": "https://raw.githubusercontent.com/UniversalDependencies/UD_Cantonese-HK/a93ac74a37cbf2585ea9c8a769491f6fdaafe7b8/yue_hk-ud-test.conllu",
+      "version": "UD_Cantonese-HK@a93ac74a"
+    },
+    "unihan": {
+      "file": "unihan/Unihan.zip",
+      "licence": "Unicode-3.0",
+      "url": "https://www.unicode.org/Public/18.0.0/ucd/Unihan.zip",
+      "version": "Unicode 18.0.0"
+    }
+  }
+}

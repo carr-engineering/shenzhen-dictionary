@@ -51,7 +51,8 @@ CREATE TABLE entry(
   freq_rank INTEGER NOT NULL,         -- 1 = most common, 1000000 = unranked
   char_count INTEGER NOT NULL,        -- code points of simp
   natural_key TEXT NOT NULL,          -- 16 lowercase hex chars: first 8 bytes of
-                                      -- sha256(trad + ' ' + simp + ' ' + reading_canonical)
+                                      -- sha256(trad + ' ' + simp + ' ' + R), R = reading_canonical with the
+                                      -- source capitalisation kept ('Wang2' vs 'wang2'; see Clarifications)
   merge_simp INTEGER, merge_trad INTEGER,
   hsk TEXT NOT NULL,                  -- JSON [{"l":1,"pos":["动"],"x":0|1}] main levels (x=0) then
                                       -- extra bracketed levels (x=1), ascending; '[]' when none
@@ -122,6 +123,23 @@ CREATE TABLE popular(rank INTEGER PRIMARY KEY, entry_id INTEGER);
 }
 ```
 
+**Omitted defaults (the reader MUST apply them; they cut the body size by about 60 %):**
+
+- sense `src` absent ⇒ `"cedict"`; `tags` absent ⇒ `[]`;
+- sense `seg` absent ⇒ `[{"k":"t","t": <the sense's t>}]` (the sense is plain text);
+- sense `tok` absent ⇒ the `SRCH-013` tokenisation of the sense's `t` (lowercase, split on
+  non-`[a-z0-9]`, plural stem). It is present only when it differs (senses whose text contains
+  references or readings, or whose structural tag replaced a source word such as `surname`);
+- `blocks` absent ⇒ no block when `senses` is empty, otherwise exactly one block
+  `{"kind":"mandarin","label":"block_mandarin","first":0,"count":<n senses>,"collapsed":false,
+  "readings":[{"d":<entry.reading_display>,"c":<entry.reading_canonical>,"first":0,"count":<n senses>}]}`;
+- `notes` absent ⇒ `[]`; `redirect` absent ⇒ none; `alt` absent ⇒ `[]`.
+
+`readings` is present on `mandarin` and `hsk_patch` blocks only. `t` is the plain display text of the
+sense: references are written as their Hanzi only (simplified form in the Mandarin dataset,
+traditional in the Cantonese one) and bracketed readings as `[display]`; render from `seg` when present.
+`contract/fixture/*.db` contains examples of every shape.
+
 `SEG` is one of
 `{"k":"t","t":"text"}`,
 `{"k":"r","d":"display","rom":"pinyin"}` (bracketed reading, not a link),
@@ -176,3 +194,47 @@ CREATE TABLE decomp(ch TEXT PRIMARY KEY,   -- a character or a synthetic compone
 -- file = packs/audio/<dir>/<key>.<ext>; a key is the entry's reading_canonical syllables, lowercase,
 -- 'u:' written as 'v', joined with '_' (words) — e.g. peng2_you5, lv4.
 ```
+
+## Clarifications and changes made by the pipeline (2026-11)
+
+These are the points where the first pipeline build had to pin something this file left open, or
+change it. The app reads what is described here.
+
+1. **`entry.body` omits defaults** — see "Omitted defaults" above (schema change).
+2. **`natural_key`** hashes the reading *with the source capitalisation* (CC-CEDICT `Wang2` / `wang2`),
+   because `reading_canonical` is lowercase and 王 `Wang2` / 王 `wang2` would otherwise collide in the
+   unique index. Cantonese: the Jyutping canonical reading (`''` for `reading_source` none). The app
+   never computes a natural key; it only looks stored keys up.
+3. **`entry.syllables` / `tones`** keep one token per source reading token, including punctuation
+   tokens (`,`, `·`) and Latin/digit tokens (lowercased, tone 0), so they stay aligned with the
+   headword's code points. **`reading.key`** (and `reading.tones`, `abbr_idx` syllable lists) drop
+   every token that is not `[a-z0-9ü]+`, so the key equals its own `SRCH-010` normalisation.
+4. **`headword.kind`**: 0 = the raw simplified / traditional form; 1 = NFKC + middle-dot folded form
+   when different from the raw form; 2 = the full `SRCH-010` matching key of the form (lowercased,
+   separators → space) when different from both; 3 = radical form (a CJK Radicals Supplement / CJK
+   Strokes code point whose equivalent unified ideograph is the headword). A normalised query is
+   looked up with `key = ?` over all kinds. Kind-3 keys are *not* `SRCH-010`-normal (step 6 would
+   delete them): look a single radical code point up before normalising.
+5. **`word_freq`** holds every segmentable headword form of at most `max_word_len` code points, in
+   both scripts — not only the forms of the source frequency list — so one batched lookup answers
+   "is a word" and "log-probability" (`DATA-112`). `freq` is the observed count (0 = unobserved);
+   `log_prob` is `ln(freq / total_frequency)` for observed forms and a smoothed value (below every
+   observed one, integer-valued) otherwise.
+6. **`entry.freq_rank`**: position of the form in the frequency list (1-based, ties broken by form);
+   entries the list lacks are ranked after it by their observed LM unigram (meta `freq_rank_lm_fill`
+   = 1); everything else, and every Unihan-only entry, has 1000000.
+7. **`hsk_row.row_id`** is the syllabus `word_index` (1…11000, identical in both datasets);
+   `sort_key` / `hsk_char.sort_key` = toneless reading + TAB + numbered reading (`ü` → `v`), compared
+   bytewise. In the Cantonese dataset rows without Jyutping sort after the others of their level
+   (already reflected in `ord`).
+8. **`gloss`**: for an entry without senses and without a redirect (notes only, e.g. `see X`) it is the
+   source text of the notes joined with `; `.
+9. **LM file**: `lm_entry` has a row for every entry; Unihan-only entries carry `lm_word = -1`,
+   `lm_unigram = 0`. Codebooks are ascending: code 0 is the lowest (most negative) value.
+   `abbr_idx` postings carry no note ordinal; `alt` is 0 main, 1 `also_pr`, 2 `taiwan_pr`.
+10. **`content_hash`** = sha256 over every table in name order; per table `T` + name + NUL, then each
+    row in primary-key (all-column) order, each value as a type tag plus payload — `N` (null),
+    `I` + u32be length + decimal text, `F` + 8-byte big-endian double, `S` / `B` + u32be length +
+    UTF-8 / raw bytes — followed by `\n`. The meta rows `content_hash` and `built_at` are skipped.
+11. Extra `meta` keys: `max_syllable_len`, `freq_rank_lm_fill`.
+12. `label` rows: `contract/labels.json` is the reviewed source (`PIPE-079`); `hsk_pos_label` likewise.

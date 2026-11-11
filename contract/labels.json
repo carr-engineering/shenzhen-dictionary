@@ -1,0 +1,880 @@
+{
+ "_comment": "Label table data (DATA-060, DATA-122, PIPE-079). 'labels': note kinds, sense tags ('source' = the parenthesised source spellings lifted into the tag), block labels, misc; 'hsk_pos': HSK part-of-speech tokens.",
+ "labels": [
+  {
+   "key": "see",
+   "form": "note",
+   "en": "See",
+   "zh_hans": "见",
+   "zh_hant": "見"
+  },
+  {
+   "key": "see_also",
+   "form": "note",
+   "en": "See also",
+   "zh_hans": "参见",
+   "zh_hant": "參見"
+  },
+  {
+   "key": "variant_of",
+   "form": "note",
+   "en": "Variant of",
+   "zh_hans": "异体",
+   "zh_hant": "異體"
+  },
+  {
+   "key": "old_variant_of",
+   "form": "note",
+   "en": "Old variant of",
+   "zh_hans": "旧异体",
+   "zh_hant": "舊異體"
+  },
+  {
+   "key": "erhua_variant_of",
+   "form": "note",
+   "en": "Erhua form of",
+   "zh_hans": "儿化",
+   "zh_hant": "兒化"
+  },
+  {
+   "key": "contracted_form",
+   "form": "note",
+   "en": "Contracted form",
+   "zh_hans": "合文",
+   "zh_hant": "合文"
+  },
+  {
+   "key": "japanese_variant_of",
+   "form": "note",
+   "en": "Japanese variant of",
+   "zh_hans": "日本异体",
+   "zh_hant": "日本異體"
+  },
+  {
+   "key": "classifier",
+   "form": "note",
+   "en": "Classifier",
+   "zh_hans": "量词",
+   "zh_hant": "量詞"
+  },
+  {
+   "key": "abbr_for",
+   "form": "note",
+   "en": "Abbreviation for",
+   "zh_hans": "简称",
+   "zh_hant": "簡稱"
+  },
+  {
+   "key": "also_pr",
+   "form": "note",
+   "en": "Also pronounced",
+   "zh_hans": "又读",
+   "zh_hant": "又讀"
+  },
+  {
+   "key": "taiwan_pr",
+   "form": "note",
+   "en": "Taiwan pronunciation",
+   "zh_hans": "台湾读音",
+   "zh_hant": "台灣讀音"
+  },
+  {
+   "key": "also_written",
+   "form": "note",
+   "en": "Also written",
+   "zh_hans": "也作",
+   "zh_hant": "也作"
+  },
+  {
+   "key": "used_in",
+   "form": "note",
+   "en": "Used in",
+   "zh_hans": "用于",
+   "zh_hant": "用於"
+  },
+  {
+   "key": "measure_word",
+   "form": "tag",
+   "en": "Classifier",
+   "zh_hans": "量词",
+   "zh_hant": "量詞"
+  },
+  {
+   "key": "surname",
+   "form": "tag",
+   "en": "Surname",
+   "zh_hans": "姓",
+   "zh_hant": "姓"
+  },
+  {
+   "key": "radical",
+   "form": "tag",
+   "en": "Radical",
+   "zh_hans": "部首",
+   "zh_hant": "部首"
+  },
+  {
+   "key": "idiom",
+   "form": "tag",
+   "en": "Idiom",
+   "zh_hans": "成语",
+   "zh_hant": "成語",
+   "source": [
+    "idiom"
+   ]
+  },
+  {
+   "key": "bird_species",
+   "form": "tag",
+   "en": "Bird species",
+   "zh_hans": "鸟类",
+   "zh_hant": "鳥類",
+   "source": [
+    "bird species of China"
+   ]
+  },
+  {
+   "key": "figurative",
+   "form": "tag",
+   "en": "Figurative",
+   "zh_hans": "比喻",
+   "zh_hant": "比喻",
+   "source": [
+    "fig."
+   ]
+  },
+  {
+   "key": "literary",
+   "form": "tag",
+   "en": "Literary",
+   "zh_hans": "书面",
+   "zh_hant": "書面",
+   "source": [
+    "literary"
+   ]
+  },
+  {
+   "key": "taiwan",
+   "form": "tag",
+   "en": "Taiwan",
+   "zh_hans": "台湾",
+   "zh_hant": "台灣",
+   "source": [
+    "Tw",
+    "Taiwan"
+   ]
+  },
+  {
+   "key": "colloquial",
+   "form": "tag",
+   "en": "Colloquial",
+   "zh_hans": "口语",
+   "zh_hant": "口語",
+   "source": [
+    "coll.",
+    "colloquial"
+   ]
+  },
+  {
+   "key": "loanword",
+   "form": "tag",
+   "en": "Loanword",
+   "zh_hans": "外来词",
+   "zh_hant": "外來詞",
+   "source": [
+    "loanword"
+   ]
+  },
+  {
+   "key": "bound_form",
+   "form": "tag",
+   "en": "Bound form",
+   "zh_hans": "构词成分",
+   "zh_hant": "構詞成分",
+   "source": [
+    "bound form"
+   ]
+  },
+  {
+   "key": "old",
+   "form": "tag",
+   "en": "Old usage",
+   "zh_hans": "旧时",
+   "zh_hant": "舊時",
+   "source": [
+    "old"
+   ]
+  },
+  {
+   "key": "dialect",
+   "form": "tag",
+   "en": "Dialect",
+   "zh_hans": "方言",
+   "zh_hant": "方言",
+   "source": [
+    "dialect"
+   ]
+  },
+  {
+   "key": "slang",
+   "form": "tag",
+   "en": "Slang",
+   "zh_hans": "俚语",
+   "zh_hant": "俚語",
+   "source": [
+    "slang"
+   ]
+  },
+  {
+   "key": "math",
+   "form": "tag",
+   "en": "Mathematics",
+   "zh_hans": "数学",
+   "zh_hant": "數學",
+   "source": [
+    "math.",
+    "mathematics"
+   ]
+  },
+  {
+   "key": "literal",
+   "form": "tag",
+   "en": "Literally",
+   "zh_hans": "字面",
+   "zh_hant": "字面",
+   "source": [
+    "lit."
+   ]
+  },
+  {
+   "key": "onomatopoeia",
+   "form": "tag",
+   "en": "Onomatopoeia",
+   "zh_hans": "拟声",
+   "zh_hant": "擬聲",
+   "source": [
+    "onom."
+   ]
+  },
+  {
+   "key": "archaic",
+   "form": "tag",
+   "en": "Archaic",
+   "zh_hans": "古语",
+   "zh_hant": "古語",
+   "source": [
+    "archaic",
+    "arch."
+   ]
+  },
+  {
+   "key": "tcm",
+   "form": "tag",
+   "en": "Chinese medicine",
+   "zh_hans": "中医",
+   "zh_hant": "中醫",
+   "source": [
+    "TCM"
+   ]
+  },
+  {
+   "key": "buddhism",
+   "form": "tag",
+   "en": "Buddhism",
+   "zh_hans": "佛教",
+   "zh_hant": "佛教",
+   "source": [
+    "Buddhism"
+   ]
+  },
+  {
+   "key": "internet_slang",
+   "form": "tag",
+   "en": "Internet slang",
+   "zh_hans": "网络用语",
+   "zh_hant": "網絡用語",
+   "source": [
+    "Internet slang",
+    "Internet"
+   ]
+  },
+  {
+   "key": "derogatory",
+   "form": "tag",
+   "en": "Derogatory",
+   "zh_hans": "贬义",
+   "zh_hant": "貶義",
+   "source": [
+    "derog.",
+    "derogatory",
+    "pejorative"
+   ]
+  },
+  {
+   "key": "cantonese",
+   "form": "tag",
+   "en": "Cantonese",
+   "zh_hans": "粤语",
+   "zh_hant": "粵語",
+   "source": [
+    "Cantonese",
+    "Cant."
+   ]
+  },
+  {
+   "key": "prc",
+   "form": "tag",
+   "en": "Mainland China",
+   "zh_hans": "中国大陆",
+   "zh_hant": "中國大陸",
+   "source": [
+    "PRC"
+   ]
+  },
+  {
+   "key": "vulgar",
+   "form": "tag",
+   "en": "Vulgar",
+   "zh_hans": "粗俗",
+   "zh_hant": "粗俗",
+   "source": [
+    "vulgar"
+   ]
+  },
+  {
+   "key": "hong_kong",
+   "form": "tag",
+   "en": "Hong Kong",
+   "zh_hans": "香港",
+   "zh_hant": "香港",
+   "source": [
+    "HK"
+   ]
+  },
+  {
+   "key": "polite",
+   "form": "tag",
+   "en": "Polite",
+   "zh_hans": "敬辞",
+   "zh_hant": "敬辭",
+   "source": [
+    "polite"
+   ]
+  },
+  {
+   "key": "honorific",
+   "form": "tag",
+   "en": "Honorific",
+   "zh_hans": "敬辞",
+   "zh_hant": "敬辭",
+   "source": [
+    "honorific"
+   ]
+  },
+  {
+   "key": "courteous",
+   "form": "tag",
+   "en": "Courteous",
+   "zh_hans": "敬辞",
+   "zh_hant": "敬辭",
+   "source": [
+    "courteous"
+   ]
+  },
+  {
+   "key": "humble",
+   "form": "tag",
+   "en": "Humble",
+   "zh_hans": "谦辞",
+   "zh_hant": "謙辭",
+   "source": [
+    "humble"
+   ]
+  },
+  {
+   "key": "written_colloquial",
+   "form": "tag",
+   "en": "Written and colloquial",
+   "zh_hans": "书面及口语",
+   "zh_hant": "書面及口語"
+  },
+  {
+   "key": "written",
+   "form": "tag",
+   "en": "Written",
+   "zh_hans": "书面语",
+   "zh_hant": "書面語"
+  },
+  {
+   "key": "pos_noun",
+   "form": "tag",
+   "en": "Noun",
+   "zh_hans": "名词",
+   "zh_hant": "名詞",
+   "source": [
+    "noun"
+   ]
+  },
+  {
+   "key": "pos_verb",
+   "form": "tag",
+   "en": "Verb",
+   "zh_hans": "动词",
+   "zh_hant": "動詞",
+   "source": [
+    "verb"
+   ]
+  },
+  {
+   "key": "pos_adjective",
+   "form": "tag",
+   "en": "Adjective",
+   "zh_hans": "形容词",
+   "zh_hant": "形容詞",
+   "source": [
+    "adjective"
+   ]
+  },
+  {
+   "key": "pos_adverb",
+   "form": "tag",
+   "en": "Adverb",
+   "zh_hans": "副词",
+   "zh_hant": "副詞",
+   "source": [
+    "adverb"
+   ]
+  },
+  {
+   "key": "computing",
+   "form": "tag",
+   "en": "Computing",
+   "zh_hans": "计算机",
+   "zh_hant": "計算機",
+   "source": [
+    "computing"
+   ]
+  },
+  {
+   "key": "medicine",
+   "form": "tag",
+   "en": "Medicine",
+   "zh_hans": "医学",
+   "zh_hant": "醫學",
+   "source": [
+    "medicine"
+   ]
+  },
+  {
+   "key": "sports",
+   "form": "tag",
+   "en": "Sports",
+   "zh_hans": "体育",
+   "zh_hant": "體育",
+   "source": [
+    "sports"
+   ]
+  },
+  {
+   "key": "physics",
+   "form": "tag",
+   "en": "Physics",
+   "zh_hans": "物理",
+   "zh_hant": "物理",
+   "source": [
+    "physics"
+   ]
+  },
+  {
+   "key": "chemistry",
+   "form": "tag",
+   "en": "Chemistry",
+   "zh_hans": "化学",
+   "zh_hant": "化學",
+   "source": [
+    "chemistry"
+   ]
+  },
+  {
+   "key": "botany",
+   "form": "tag",
+   "en": "Botany",
+   "zh_hans": "植物",
+   "zh_hant": "植物",
+   "source": [
+    "botany"
+   ]
+  },
+  {
+   "key": "anatomy",
+   "form": "tag",
+   "en": "Anatomy",
+   "zh_hans": "解剖",
+   "zh_hant": "解剖",
+   "source": [
+    "anatomy"
+   ]
+  },
+  {
+   "key": "military",
+   "form": "tag",
+   "en": "Military",
+   "zh_hans": "军事",
+   "zh_hant": "軍事",
+   "source": [
+    "military"
+   ]
+  },
+  {
+   "key": "finance",
+   "form": "tag",
+   "en": "Finance",
+   "zh_hans": "金融",
+   "zh_hant": "金融",
+   "source": [
+    "finance"
+   ]
+  },
+  {
+   "key": "linguistics",
+   "form": "tag",
+   "en": "Linguistics",
+   "zh_hans": "语言学",
+   "zh_hant": "語言學",
+   "source": [
+    "linguistics"
+   ]
+  },
+  {
+   "key": "law",
+   "form": "tag",
+   "en": "Law",
+   "zh_hans": "法律",
+   "zh_hant": "法律",
+   "source": [
+    "law"
+   ]
+  },
+  {
+   "key": "music",
+   "form": "tag",
+   "en": "Music",
+   "zh_hans": "音乐",
+   "zh_hant": "音樂",
+   "source": [
+    "music"
+   ]
+  },
+  {
+   "key": "astronomy",
+   "form": "tag",
+   "en": "Astronomy",
+   "zh_hans": "天文",
+   "zh_hant": "天文",
+   "source": [
+    "astronomy"
+   ]
+  },
+  {
+   "key": "formal",
+   "form": "tag",
+   "en": "Formal",
+   "zh_hans": "正式",
+   "zh_hant": "正式",
+   "source": [
+    "formal"
+   ]
+  },
+  {
+   "key": "zoology",
+   "form": "tag",
+   "en": "Zoology",
+   "zh_hans": "动物",
+   "zh_hant": "動物",
+   "source": [
+    "zoology"
+   ]
+  },
+  {
+   "key": "geology",
+   "form": "tag",
+   "en": "Geology",
+   "zh_hans": "地质",
+   "zh_hant": "地質",
+   "source": [
+    "geology"
+   ]
+  },
+  {
+   "key": "neologism",
+   "form": "tag",
+   "en": "Neologism",
+   "zh_hans": "新词",
+   "zh_hant": "新詞",
+   "source": [
+    "neologism"
+   ]
+  },
+  {
+   "key": "biology",
+   "form": "tag",
+   "en": "Biology",
+   "zh_hans": "生物",
+   "zh_hant": "生物",
+   "source": [
+    "biology"
+   ]
+  },
+  {
+   "key": "historical",
+   "form": "tag",
+   "en": "Historical",
+   "zh_hans": "历史",
+   "zh_hant": "歷史",
+   "source": [
+    "historical",
+    "history"
+   ]
+  },
+  {
+   "key": "electronics",
+   "form": "tag",
+   "en": "Electronics",
+   "zh_hans": "电子",
+   "zh_hant": "電子",
+   "source": [
+    "electronics"
+   ]
+  },
+  {
+   "key": "gaming",
+   "form": "tag",
+   "en": "Gaming",
+   "zh_hans": "游戏",
+   "zh_hant": "遊戲",
+   "source": [
+    "gaming"
+   ]
+  },
+  {
+   "key": "economics",
+   "form": "tag",
+   "en": "Economics",
+   "zh_hans": "经济",
+   "zh_hant": "經濟",
+   "source": [
+    "economics"
+   ]
+  },
+  {
+   "key": "geometry",
+   "form": "tag",
+   "en": "Geometry",
+   "zh_hans": "几何",
+   "zh_hant": "幾何",
+   "source": [
+    "geometry"
+   ]
+  },
+  {
+   "key": "euphemism",
+   "form": "tag",
+   "en": "Euphemism",
+   "zh_hans": "委婉",
+   "zh_hant": "委婉",
+   "source": [
+    "euphemism"
+   ]
+  },
+  {
+   "key": "jocular",
+   "form": "tag",
+   "en": "Jocular",
+   "zh_hans": "戏谑",
+   "zh_hant": "戲謔",
+   "source": [
+    "jocular",
+    "humorous"
+   ]
+  },
+  {
+   "key": "saying",
+   "form": "tag",
+   "en": "Saying",
+   "zh_hans": "俗语",
+   "zh_hant": "俗語",
+   "source": [
+    "saying",
+    "proverb"
+   ]
+  },
+  {
+   "key": "acg",
+   "form": "tag",
+   "en": "ACG",
+   "zh_hans": "动漫游戏",
+   "zh_hant": "動漫遊戲",
+   "source": [
+    "ACG"
+   ]
+  },
+  {
+   "key": "abbreviation",
+   "form": "tag",
+   "en": "Abbreviation",
+   "zh_hans": "缩写",
+   "zh_hant": "縮寫",
+   "source": [
+    "abbr."
+   ]
+  },
+  {
+   "key": "block_cantonese",
+   "form": "block",
+   "en": "Cantonese (CC-Canto)",
+   "zh_hans": "粤语释义（CC-Canto）",
+   "zh_hant": "粵語釋義（CC-Canto）"
+  },
+  {
+   "key": "block_cantonese_adapted",
+   "form": "block",
+   "en": "Cantonese (CC-Canto, adapted from CC-CEDICT)",
+   "zh_hans": "粤语释义（CC-Canto，改编自 CC-CEDICT）",
+   "zh_hant": "粵語釋義（CC-Canto，改編自 CC-CEDICT）"
+  },
+  {
+   "key": "block_mandarin",
+   "form": "block",
+   "en": "Mandarin senses (CC-CEDICT)",
+   "zh_hans": "普通话释义（CC-CEDICT）",
+   "zh_hant": "普通話釋義（CC-CEDICT）"
+  },
+  {
+   "key": "block_hsk_patch",
+   "form": "block",
+   "en": "HSK parser patch",
+   "zh_hans": "HSK 解析补丁",
+   "zh_hant": "HSK 解析補丁"
+  },
+  {
+   "key": "block_unihan",
+   "form": "block",
+   "en": "Unicode (Unihan)",
+   "zh_hans": "Unicode（Unihan）",
+   "zh_hant": "Unicode（Unihan）"
+  },
+  {
+   "key": "unencoded_component",
+   "form": "misc",
+   "en": "Unencoded component",
+   "zh_hans": "未编码部件",
+   "zh_hant": "未編碼部件"
+  },
+  {
+   "key": "unknown_component",
+   "form": "misc",
+   "en": "Unknown part",
+   "zh_hans": "未知部件",
+   "zh_hant": "未知部件"
+  },
+  {
+   "key": "no_cantonese_reading",
+   "form": "misc",
+   "en": "No Cantonese reading",
+   "zh_hans": "无粤语读音",
+   "zh_hant": "無粵語讀音"
+  }
+ ],
+ "hsk_pos": [
+  {
+   "token": "名",
+   "en": "noun",
+   "zh_hans": "名词",
+   "zh_hant": "名詞"
+  },
+  {
+   "token": "动",
+   "en": "verb",
+   "zh_hans": "动词",
+   "zh_hant": "動詞"
+  },
+  {
+   "token": "形",
+   "en": "adjective",
+   "zh_hans": "形容词",
+   "zh_hant": "形容詞"
+  },
+  {
+   "token": "副",
+   "en": "adverb",
+   "zh_hans": "副词",
+   "zh_hant": "副詞"
+  },
+  {
+   "token": "代",
+   "en": "pronoun",
+   "zh_hans": "代词",
+   "zh_hant": "代詞"
+  },
+  {
+   "token": "数",
+   "en": "numeral",
+   "zh_hans": "数词",
+   "zh_hant": "數詞"
+  },
+  {
+   "token": "量",
+   "en": "measure word",
+   "zh_hans": "量词",
+   "zh_hant": "量詞"
+  },
+  {
+   "token": "介",
+   "en": "preposition",
+   "zh_hans": "介词",
+   "zh_hant": "介詞"
+  },
+  {
+   "token": "连",
+   "en": "conjunction",
+   "zh_hans": "连词",
+   "zh_hant": "連詞"
+  },
+  {
+   "token": "助",
+   "en": "particle",
+   "zh_hans": "助词",
+   "zh_hant": "助詞"
+  },
+  {
+   "token": "叹",
+   "en": "interjection",
+   "zh_hans": "叹词",
+   "zh_hant": "嘆詞"
+  },
+  {
+   "token": "拟声",
+   "en": "onomatopoeia",
+   "zh_hans": "拟声词",
+   "zh_hant": "擬聲詞"
+  },
+  {
+   "token": "前缀",
+   "en": "prefix",
+   "zh_hans": "前缀",
+   "zh_hant": "前綴"
+  },
+  {
+   "token": "后缀",
+   "en": "suffix",
+   "zh_hans": "后缀",
+   "zh_hant": "後綴"
+  },
+  {
+   "token": "数量",
+   "en": "numeral-measure compound",
+   "zh_hans": "数量词",
+   "zh_hant": "數量詞"
+  }
+ ]
+}
