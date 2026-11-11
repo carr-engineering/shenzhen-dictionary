@@ -14,6 +14,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core"))
+            // OCR with per-character alternatives and handwriting recognition (bundled models).
+            implementation(project(":recognition"))
             implementation(compose.components.resources)
             implementation(compose.foundation)
             implementation(compose.materialIconsExtended)
@@ -36,6 +38,12 @@ kotlin {
         }
         androidMain.dependencies {
             implementation("androidx.activity:activity-compose:1.12.2")
+            // OCR destination: camera preview/capture (CAM-020…) and EXIF orientation of picked images (CAM-041).
+            implementation("androidx.camera:camera-core:1.5.3")
+            implementation("androidx.camera:camera-camera2:1.5.3")
+            implementation("androidx.camera:camera-lifecycle:1.5.3")
+            implementation("androidx.camera:camera-view:1.5.3")
+            implementation("androidx.exifinterface:exifinterface:1.4.1")
             implementation("androidx.datastore:datastore-preferences:1.2.1")
             implementation("androidx.glance:glance-appwidget:1.1.1")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

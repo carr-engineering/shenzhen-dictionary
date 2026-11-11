@@ -9,5 +9,10 @@ import android.content.Context
 object PlatformServices {
     fun create(context: Context): Map<String, Any> = buildMap {
         put("context", context)
+        put(com.szdict.app.feature.ocr.OcrPlatform.KEY, com.szdict.app.feature.ocr.AndroidOcrPlatform(context))
+        put(
+            com.szdict.app.feature.handwriting.HandwritingPlatform.KEY,
+            com.szdict.app.feature.handwriting.HandwritingPlatform { com.szdict.recognition.Recognizers.handwriting(context) },
+        )
     }
 }
