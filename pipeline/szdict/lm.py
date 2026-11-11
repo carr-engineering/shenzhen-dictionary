@@ -186,8 +186,10 @@ def build_vocab(ds: Dataset, cfg: Config, unigrams: dict[str, tuple[float, float
             logp[w] = hit[0]
             lm.observed.add(w)
         else:
-            s = sum(unigrams[ch][0] if ch in unigrams else floor for ch in w)
-            logp[w] = max(-60.0, s + cfg.oov_penalty * (1 if len(w) > 1 else 2))
+            # PIPE-072 smoothing: a headword no corpus observed sits below every observed word — a flat
+            # value for multi-character words (so a dictionary word still beats a split into rare single
+            # characters, whatever its length) and a lower one for a single character.
+            logp[w] = floor + cfg.oov_penalty * (0.25 if len(w) > 1 else 1.0)
     order = sorted(forms, key=lambda w: (-logp[w], w))
     lm.words = order
     lm.word_id = {w: i for i, w in enumerate(order)}
@@ -196,7 +198,7 @@ def build_vocab(ds: Dataset, cfg: Config, unigrams: dict[str, tuple[float, float
     lm.report.update({
         "lm_words": len(order), "observed_unigrams": len(lm.observed),
         "observed_share": round(len(lm.observed) / max(1, len(order)), 4),
-        "smoothing": {"method": "sum of character unigrams + per-word OOV penalty, floored at -60",
+        "smoothing": {"method": "flat: floor + 0.25 * oov_penalty for multi-character words, floor + oov_penalty for single characters (floor = lowest observed unigram - 1)",
                       "oov_penalty": cfg.oov_penalty, "char_floor": round(floor, 3)}})
     return lm
 
@@ -267,7 +269,8 @@ def build_abbr(ds: Dataset, lm: LM, cfg: Config) -> None:
             key = "".join(s[0] for s in syl)
             if not key.isascii() or not key.isalpha():
                 continue
-            post[key].append((-lp, e["id"], wid, code, alt, tuple(syl_idx[s] for s in syl)))
+            # unigram order; among the entries of one word, its primary reading first (SCHEMA note 18)
+            post[key].append((-lp, wid, e.get("rrank", 0), e["id"], code, alt, tuple(syl_idx[s] for s in syl)))
     capped = 0
     total = 0
     for key, lst in post.items():
@@ -302,7 +305,7 @@ def write_lm(ds: Dataset, lm: LM, path: Path) -> None:
     abbr_bytes = 0
     for key in sorted(lm.abbr):
         buf = bytearray(varint(len(lm.abbr[key])))
-        for _neg, eid, wid, code, alt, syl in lm.abbr[key]:
+        for _neg, wid, _rr, eid, code, alt, syl in lm.abbr[key]:
             buf += varint(eid) + varint(wid) + bytes((code, alt, len(syl)))
             for s in syl:
                 buf += varint(s)
@@ -348,7 +351,7 @@ def decode_abbr(ds: Dataset, lm: LM, query: str, top_edges: int = 40, beam: int 
     for i in range(n):
         for j in range(i + 1, min(n, i + 6) + 1):
             seen = set()
-            for _neg, eid, wid, _code, _alt, _syl in lm.abbr.get(query[i:j], ()):
+            for _neg, wid, _rr, eid, _code, _alt, _syl in lm.abbr.get(query[i:j], ()):
                 if wid in seen:
                     continue
                 seen.add(wid)
@@ -367,3 +370,67 @@ def decode_abbr(ds: Dataset, lm: LM, query: str, top_edges: int = 40, beam: int 
                     states[j][wid] = (s, path + (eid,))
     final = sorted(states[n].values(), key=lambda v: -v[0])[:nbest]
     return [([ds.entries[e][field] for e in path], round(score, 3)) for score, path in final]
+
+
+def segment_lattice(ds: Dataset, lm: LM, head: dict[str, set[int]], text: str, max_len: int = 12,
+                    word_penalty: float = 1.0, unknown: float = -20.0) -> list[str]:
+    """Reference of the app's passage segmentation (TXT-012 / TXT-026, SCHEMA note 20): best path through
+    the character lattice of `text` (one run) with the quantised unigram / bigram / backoff values.
+    `head` maps a headword key to entry ids."""
+    field = lm_form(ds)
+    n = len(text)
+    uni = lambda wid: lm.q_uni.cents[lm.q_uni.code(lm.logp[wid])]      # noqa: E731
+    succ = {a: {b: lm.q_bi.cents[lm.q_bi.code(lp)] for b, lp in lst} for a, lst in lm.bigrams.items()}
+    edges: list[list[tuple[int, int, float]]] = [[] for _ in range(n)]          # start -> (end, word, unigram)
+    unmatched = set()                                                           # starts of characters without a headword
+    for p in range(n):
+        for ln in range(1, min(max_len, n - p) + 1):
+            ids = head.get(text[p:p + ln])
+            if not ids:
+                if ln == 1:
+                    edges[p].append((p + 1, -1, unknown))
+                    unmatched.add(p)
+                continue
+            es = [ds.entries[i] for i in sorted(ids)]
+            if ln > 1 and not any(e["segmentable"] for e in es):
+                continue
+            words: list[int] = []
+            for e in es:
+                if e["unihan"] or (ln > 1 and not e["segmentable"]):
+                    continue
+                w = lm.word_id[e[field]]
+                if w not in words and len(words) < 2:
+                    words.append(w)
+            if words:
+                edges[p] += [(p + ln, w, uni(w)) for w in words]
+            else:
+                edges[p].append((p + ln, -1, unknown * ln))
+    # states[node][last word or ('u', start)] = (score, path)
+    states: list[dict] = [dict() for _ in range(n + 1)]
+    states[0][None] = (0.0, ())
+    for p in range(n):
+        for prev, (score, path) in states[p].items():
+            block = succ.get(prev) if isinstance(prev, int) else None
+            for end, w, u in edges[p]:
+                lp = u
+                if block is not None and w >= 0:
+                    lp = block[w] if w in block else lm.q_bo.cents[lm.q_bo.code(lm.backoff[prev])] + u
+                total = score + lp - word_penalty
+                key = w if w >= 0 else ("u", p)
+                old = states[end].get(key)
+                if old is None or total > old[0]:
+                    states[end][key] = (total, path + (end,))
+    if not states[n]:
+        return list(text)
+    path = max(states[n].values(), key=lambda v: v[0])[1]
+    out, start = [], 0
+    merge = False                                   # adjacent unmatched characters form one segment (TXT-073)
+    for end in path:
+        lone = end - start == 1 and start in unmatched
+        if lone and merge:
+            out[-1] += text[start:end]
+        else:
+            out.append(text[start:end])
+        merge = lone
+        start = end
+    return out

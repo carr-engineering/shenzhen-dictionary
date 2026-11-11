@@ -42,6 +42,9 @@ class Fixture(
     private val hskRows = ArrayList<List<Any?>>()
     private val mergeGroups = ArrayList<Triple<Int, List<Int>, List<String>>>()
     private val freqTable = HashMap<String, Int>()
+    /** Optional `english_word` table (SCHEMA note 19): word → corpus count; absent when empty. */
+    val englishWords = LinkedHashMap<String, Int>()
+    var englishTotal = 1_000_000
 
     fun entry(
         trad: String, simp: String, pinyin: String, senses: String, freq: Int = 1_000_000, count: Int = 0, flags: Int = 2,
@@ -215,6 +218,11 @@ class Fixture(
             if (s.length > 2 && s.substring(0, 2) in setOf("zh", "ch", "sh")) db.run("INSERT OR IGNORE INTO syllable_abbrev VALUES(?,?)", s.substring(0, 2), s)
         }
         entries.filter { it.simp.cps().size > 1 && it.freq < 1_000_000 }.sortedBy { it.freq }.take(50).forEachIndexed { i, e -> db.run("INSERT INTO popular VALUES(?,?)", i + 1, e.id) }
+        if (englishWords.isNotEmpty()) {
+            db.execSQL("CREATE TABLE english_word(word TEXT PRIMARY KEY, freq INTEGER) WITHOUT ROWID")
+            for ((w, c) in englishWords) db.run("INSERT INTO english_word VALUES(?,?)", w, c)
+            db.run("INSERT INTO meta VALUES('english_word_total',?)", "$englishTotal")
+        }
         db.execSQL("COMMIT")
         db.close()
 

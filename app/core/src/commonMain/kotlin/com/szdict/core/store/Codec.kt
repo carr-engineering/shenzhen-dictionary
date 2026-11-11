@@ -170,6 +170,9 @@ internal class Proj(
     val isUnihan get() = flags and FLAG_UNIHAN != 0
     val hasCanto get() = flags and FLAG_CANTO != 0
     val segmentable get() = flags and FLAG_SEGMENTABLE != 0
+
+    /** Position among the entries sharing the headword, 0 = primary reading (`flags` bits 4–7, SCHEMA note 18). */
+    val readingRank get() = (flags shr 4) and 15
 }
 
 /** A hydrated entry; the body blob is decoded lazily, only when rendered (ARCH-025). */

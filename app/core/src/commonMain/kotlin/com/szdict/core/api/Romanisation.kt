@@ -64,7 +64,8 @@ object Romanisation {
             }
         }
         flush()
-        return sb.toString()
+        // A comma token of a multi-clause reading attaches to the syllable before it ("jīn, cùn").
+        return if (" ," in sb || " ，" in sb) sb.toString().replace(" ,", ",").replace(" ，", "，") else sb.toString()
     }
 
     /** Display form of a canonical numbered reading for [mode]: tone marks for Pinyin, verbatim Jyutping. */

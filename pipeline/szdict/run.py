@@ -9,7 +9,8 @@ from pathlib import Path
 
 from . import lm as lmmod
 from .config import PIPELINE, REPO, Config, git
-from .core import (SCHEMA_VERSION, MAX_WORD_LEN, Dataset, assign_frequency, audio_word_key, entry_gloss, sha256_file,
+from .core import (SCHEMA_VERSION, MAX_WORD_LEN, Dataset, assign_frequency, audio_word_key, entry_gloss,
+                   load_english_words, sha256_file,
                    write_main)
 from .enc import cjson
 
@@ -55,6 +56,8 @@ def base_meta(ds: Dataset, cfg: Config, ver: dict, ihash: str) -> None:
         "max_syllable_len": str(max(len(s) for s in ds.syllables)),
         "freq_rank_lm_fill": "1",
     })
+    load_english_words(ds, cfg)
+    ds.meta["english_word_total"] = str(ds.english_total)
     ds.meta_built_at = ver["built_at"]
 
 

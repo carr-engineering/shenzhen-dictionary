@@ -134,3 +134,25 @@ def test_lm_file(built):
     assert lm.execute("SELECT max(code) FROM lm_codebook WHERE kind = 0").fetchone()[0] <= 255
     widget = json.loads((OUT / "mandarin-widget.json").read_text("utf-8"))
     assert widget["rows"] and set(widget["rows"][0]) == {"id", "key", "levels", "simp", "trad", "reading", "gloss"}
+
+
+def test_quality_pass_data(built):
+    con = db(built / "mandarin.db")
+    # word_freq carries the language model's unigram: every form has a finite value, observed words above the smoothed ones
+    lo, hi = con.execute("SELECT min(log_prob), max(log_prob) FROM word_freq").fetchone()
+    assert -40 < lo < hi < 0
+    seen = con.execute("SELECT min(log_prob) FROM word_freq WHERE freq > 0").fetchone()[0]
+    assert con.execute("SELECT count(*) FROM word_freq WHERE freq = 0 AND log_prob > ?", (seen + 6,)).fetchone()[0] == 0
+    # reading rank: one rank-0 entry per simplified headword among the dictionary entries
+    bad = con.execute("SELECT simp FROM entry WHERE (flags & 4) = 0 GROUP BY simp HAVING sum((flags >> 4) = 0) != 1").fetchall()
+    assert not bad, bad[:5]
+    ranks = dict(con.execute("SELECT reading_canonical, flags >> 4 FROM entry WHERE simp = '行' AND (flags & 4) = 0"))
+    assert ranks["xing2"] == 0 and ranks["hang2"] > 0
+    # english_word: common forms with counts, total in meta
+    assert con.execute("SELECT freq FROM english_word WHERE word = 'hen'").fetchone()[0] > 0
+    assert int(dict(con.execute("SELECT key, value FROM meta"))["english_word_total"]) > 10 ** 8
+    # a multi-clause reading attaches its comma; tokens stay aligned with the headword
+    d, syl, tones = con.execute("SELECT reading_display, syllables, tones FROM entry WHERE simp = '一朝被蛇咬，十年怕井绳'").fetchone()
+    assert "yǎo, shí" in d and " ," not in d and len(syl.split(" ")) == len(tones) == 11
+    yue = db(built / "cantonese.db")
+    assert yue.execute("SELECT flags >> 4 FROM entry WHERE trad = '佢' AND reading_canonical = 'keoi5'").fetchone()[0] == 0

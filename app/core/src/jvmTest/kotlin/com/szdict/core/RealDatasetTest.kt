@@ -66,11 +66,125 @@ class RealDatasetTest {
             val first = r.chinese.sections.first { it.kind == SectionKind.MATCHES }.cards.first()
             assertEquals("你好", first.headword, "first match for $q: ${r.chinese.sections.first().cards.take(5).map { it.headword }}")
         }
-        // SRCH-024: pronunciation with no English match forces the Chinese page; `nh` has English
-        // prefix matches in the real data (nhk, …), so the remembered side applies there.
         assertEquals(SearchSide.CHINESE, dict.search("wxhn", s).forcedSide)
         assertEquals(null, dict.search("hen", s).forcedSide)
         assertEquals(SearchSide.CHINESE, dict.search("ni3hao3", s).forcedSide)
+    }
+
+    @Test
+    fun sideSelection() = real { dict ->
+        // SRCH-024 / SRCH-027 / SCHEMA note 19: romanisation whose English matches are incidental
+        // (CO-NH, Dian Hong tea, Xuexi Qiangguo, Ren / rent) lands on the Chinese page …
+        for (q in listOf("nh", "nhao", "zg", "bj", "dian", "xuexi", "ren", "hao", "zhongguo", "pengyou")) {
+            assertEquals(SearchSide.CHINESE, dict.search(q, s).forcedSide, q)
+        }
+        // … while English words that are also pinyin, and the start of common English words, keep the remembered side.
+        for (q in listOf("long", "can", "men", "sang", "he", "ban", "pan", "fan", "sun", "song", "hen", "ca", "hello", "graduate student")) {
+            assertEquals(null, dict.search(q, s).forcedSide, q)
+        }
+        assertTrue(dict.search("nh", s).english.count > 0 && dict.search("ren", s).english.count > 0)
+    }
+
+    @Test
+    fun segmentationRegression() = real { dict ->
+        // TXT-012 with the bigram lattice (SCHEMA note 20). Expected segmentations and readings.
+        val cases = listOf(
+            "我们研究生命科学" to "我们/研究/生命/科学",
+            "银行行长" to "银行/行长",
+            "他在银行工作" to "他/在/银行/工作",
+            "今天天气很好" to "今天/天气/很/好",
+            "南京市长江大桥" to "南京市/长江/大桥",
+            "结婚的和尚未结婚的" to "结婚/的/和/尚未/结婚/的",
+            "乒乓球拍卖完了" to "乒乓球拍/卖完/了",
+            "我喜欢你" to "我/喜欢/你",
+            "他说的确实在理" to "他/说/的/确实/在理",
+            "欢迎新老师生前来就餐" to "欢迎/新/老/师生/前来/就餐",
+            "请把手拿开" to "请/把/手/拿/开",
+            "中华人民共和国成立了" to "中华人民共和国/成立/了",
+            "他是研究生物的" to "他/是/研究/生物/的",
+            "将军任命了一名中将" to "将军/任命/了/一/名/中将",
+            "你喜欢吃中国菜吗" to "你/喜欢/吃/中国菜/吗",
+        )
+        for ((text, want) in cases) {
+            val p = dict.analyse(text, SegmentationMode.HANZI)
+            assertEquals(want, p.segments.joinToString("/") { text.substring(it.start, it.end) }, text)
+            assertTrue(p.segments.all { it.matched })
+        }
+        // The chosen entry is the word's primary reading: 行长 háng zhǎng, 说 shuō (not shuì), 吗 ma, 要 yào.
+        fun readings(text: String) = runBlocking { dict.analyse(text, SegmentationMode.HANZI).segments.map { it.reading.display } }
+        assertEquals(listOf("yín háng", "háng zhǎng"), readings("银行行长"))
+        assertEquals(listOf("tā", "shuō", "de", "què shí", "zài lǐ"), readings("他说的确实在理"))
+        assertEquals(listOf("nǐ", "yào", "qù", "ma"), readings("你要去吗"))
+    }
+
+    @Test
+    fun segmentationRegressionCantonese() = real(DictMode.CANTONESE) { dict ->
+        val cases = listOf(
+            "佢哋喺邊度食飯" to "佢哋/喺/邊度/食飯",
+            "我哋聽日去睇戲" to "我哋/聽日/去/睇戲",
+            "我唔知佢喺邊度" to "我/唔/知/佢/喺/邊度",
+            "佢話佢唔鍾意飲咖啡" to "佢/話/佢/唔/鍾意/飲/咖啡",
+            "我哋一齊去飲茶啦" to "我哋/一齊/去/飲茶/啦",
+            "你識唔識講廣東話" to "你/識/唔/識/講/廣東話",
+            "銀行行長" to "銀行/行長",
+        )
+        for ((text, want) in cases) {
+            val p = dict.analyse(text, SegmentationMode.HANZI)
+            assertEquals(want, p.segments.joinToString("/") { text.substring(it.start, it.end) }, text)
+        }
+        // 佢 is keoi5 (Unihan's customary reading), not the rarer heoi5 that precedes it in CC-Canto.
+        val p = dict.analyse("佢話佢唔鍾意飲咖啡", SegmentationMode.HANZI)
+        assertEquals("keoi5", p.segments.first().reading.display)
+        // Data: the simplified form of 佢哋 is 佢哋 (CC-Canto writes 渠哋); a Pleco-style reference is a link.
+        val keoi = dict.search("佢哋", Script.SIMPLIFIED).chinese.sections.first().groups[0].cards
+        assertEquals(listOf("佢哋"), keoi.map { it.headword })
+        val wan = dict.search("皖", Script.TRADITIONAL).chinese.sections.first().groups[0].cards
+        assertTrue(wan.all { c -> c.definitions.none { "Ānhuī" in it || "[" in it } }, wan.map { it.definitions }.toString())
+    }
+
+    @Test
+    fun primaryReadings() = real { dict ->
+        // SCHEMA note 18: the entry standing for a bare character (decomposition row, segment, HSK character card).
+        val want = mapOf(
+            "石" to "shí", "乐" to "lè", "行" to "xíng", "长" to "cháng", "重" to "zhòng", "好" to "hǎo", "着" to "zhe", "了" to "le",
+            "得" to "de", "地" to "de", "的" to "de", "还" to "hái", "都" to "dōu", "为" to "wèi", "儿" to "ér", "说" to "shuō", "要" to "yào",
+        )
+        for ((ch, reading) in want) {
+            assertEquals(reading, dict.decompose(listOf(ch), s).single().root?.card?.reading?.display, "decomposition row of $ch")
+            assertEquals(reading, dict.analyse(ch, SegmentationMode.HANZI).segments.single().reading.display, "segment of $ch")
+        }
+        val chars = dict.hskChars(1..7, s).associate { it.character to it.card.reading.display }
+        for (ch in listOf("石", "乐", "行", "长", "重", "好", "了", "的", "还", "都")) assertEquals(want[ch], chars[ch], "HSK character $ch")
+        // Ranked lists keep GLB-013 and use the rank before the id: 石 shí, dàn, then the surname.
+        assertEquals(listOf("shí", "dàn", "Shí"), dict.search("石", s).chinese.sections.first().groups[0].cards.map { it.reading.display })
+        // A multi-clause reading attaches its comma (SCHEMA note 21).
+        assertEquals("yī bù zuò, èr bù xiū", dict.search("一不做，二不休", s).chinese.sections.first().groups[0].cards[0].reading.display)
+    }
+
+    @Test
+    fun plausibleCombinations() = real { dict ->
+        suspend fun combos(q: String) = dict.search(q, s).chinese.sections.firstOrNull { it.kind == SectionKind.COMBINATIONS }?.combinations.orEmpty().map { c -> c.words.joinToString(" ") { it.headword } }
+        // A whole-query word leaves no room for unlikely splits of it (朋友 is not 碰 有, 你好 is not 呢 好).
+        for (q in listOf("pengyou", "nihao", "xiexie", "zhongguo", "xuexi", "dian", "ren", "hello", "tofu")) assertEquals(emptyList(), combos(q), q)
+        assertEquals("我 喜欢 你", combos("wxhn").first())
+        assertEquals(listOf("我 爱 你"), combos("woaini"))
+        assertEquals(listOf("今天 天气 很 好"), combos("jintiantianqihenhao"))
+        assertEquals("这个 人", combos("zgr").first())
+        assertTrue(combos("nh").let { it.isNotEmpty() && it.all { c -> c.startsWith("你 ") } && "你 好" !in it }, combos("nh").toString())
+        // No rare or Unicode-only single characters surface.
+        for (q in listOf("wxhn", "zgr", "nh", "bj", "nhk")) for (c in combos(q)) assertTrue(c.none { it in "掽砰龢伱瞭" }, "$q: $c")
+    }
+
+    @Test
+    fun plausibleCombinationsCantonese() = real(DictMode.CANTONESE) { dict ->
+        val t = Script.TRADITIONAL
+        suspend fun combos(q: String) = dict.search(q, t).chinese.sections.firstOrNull { it.kind == SectionKind.COMBINATIONS }?.combinations.orEmpty().map { c -> c.words.joinToString(" ") { it.headword } }
+        assertEquals(listOf("我 鍾意 你"), combos("ngo5 zung1 ji3 nei5"))
+        assertEquals("我 好 鍾意 你", combos("ngohouzungjinei").first())
+        assertEquals("我 好 容易 你", combos("ngohoujungjinei").first()) // `jung` is 容 in Jyutping; 鍾 is zung
+        assertEquals("我 都", combos("nd").first())
+        assertEquals(SearchSide.CHINESE, dict.search("nd", t).forcedSide)
+        assertEquals(SearchSide.CHINESE, dict.search("nh", t).forcedSide)
     }
 
     @Test

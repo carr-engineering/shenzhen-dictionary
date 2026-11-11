@@ -28,7 +28,12 @@ def mandarin_sources(ds, cfg: Config) -> None:
         _hsk(cfg),
         _lock(cfg, "unihan", "Unicode Han Database (Unihan)"),
         _lock(cfg, "ucd_equivalent_unified_ideograph", "UCD EquivalentUnifiedIdeograph.txt"),
+        EN_WORDS,
     ]
+
+
+EN_WORDS = {"name": "FrequencyWords en (OpenSubtitles 2018 via OPUS)", "version": "2018", "licence": "CC-BY-SA-4.0",
+            "url": "https://github.com/hermitdave/FrequencyWords", "role": "common English words (search side selection)"}
 
 
 def cantonese_sources(ds, cfg: Config) -> None:
@@ -42,4 +47,5 @@ def cantonese_sources(ds, cfg: Config) -> None:
         _hsk(cfg),
         _lock(cfg, "unihan", "Unicode Han Database (Unihan)"),
         _lock(cfg, "ucd_equivalent_unified_ideograph", "UCD EquivalentUnifiedIdeograph.txt"),
+        EN_WORDS,
     ] + list(getattr(ds, "corpus_sources", []))

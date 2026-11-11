@@ -17,18 +17,24 @@ internal class Analysis(val passage: AnalysedPassage, val hits: Map<String, List
 }
 
 /**
- * Text segmentation (TXT-010…TXT-016): runs, a unigram DAG maximum-likelihood segmentation when the
- * dataset has frequency data, greedy longest-match otherwise. All candidate substrings of a batch
- * are looked up in a constant number of batched queries (TXT-014).
+ * Text segmentation (TXT-010…TXT-016): runs, then per run the shared lattice decoder with the
+ * bigram model when the dataset carries one (TXT-012, TXT-026; k = 1), a unigram DAG
+ * maximum-likelihood segmentation when it only has frequency data, greedy longest-match otherwise.
+ * All candidate substrings of a batch are looked up in a constant number of batched queries
+ * (TXT-014); the lattice adds one read of the language-model words and one of the bigram blocks.
  */
 internal class Segmenter(private val store: DictionaryStore) {
+    /** The entry that stands for a matched span: a segmentable word, an exact-form key, then the primary reading. */
     private val headComparator = Comparator<HeadHit> { a, b ->
         val sa = a.proj.segmentable
         val sb = b.proj.segmentable
         if (sa != sb) return@Comparator if (sa) -1 else 1
         if ((a.kind == 0) != (b.kind == 0)) return@Comparator if (a.kind == 0) -1 else 1
-        Ranking.projComparator(false).compare(a.proj, b.proj)
+        Ranking.primary.compare(a.proj, b.proj)
     }
+
+    /** Strategy override for tests: 0 = by dataset, 1 = unigram DAG, 2 = greedy. */
+    internal var forceStrategy = 0
 
     suspend fun analyse(text: String, mode: SegmentationMode, generation: Long): Analysis {
         val cps = text.cps()
@@ -38,6 +44,8 @@ internal class Segmenter(private val store: DictionaryStore) {
         val runs = runs(cps, mode)
         val allHits = HashMap<String, List<HeadHit>>()
         val logp = HashMap<String, Double>()
+        val lattice = forceStrategy == 0 && store.hasFrequency && store.hasLm && store.hasBigram
+        val dag = !lattice && forceStrategy != 2 && store.hasFrequency
 
         // Batched lookups: every candidate substring of every run, in batches bounded by key count.
         val pending = LinkedHashSet<String>()
@@ -48,7 +56,7 @@ internal class Segmenter(private val store: DictionaryStore) {
             pending.clear()
             if (hits.isEmpty()) return
             allHits.putAll(hits)
-            if (store.hasFrequency) {
+            if (dag) {
                 val found = store.wordLogProbs(hits.keys)
                 logp.putAll(found)
                 // A form absent from the frequency table may be present under its other script form.
@@ -91,11 +99,83 @@ internal class Segmenter(private val store: DictionaryStore) {
             return if (len == 1 || hs.any { it.proj.segmentable }) hs else null
         }
 
-        for ((rs, re) in runs) {
+        // Lattice: the language-model word and unigram of every dictionary entry among the hits (one read).
+        val lmOf: Map<Int, Pair<Int, Double>> = if (!lattice) emptyMap() else {
+            val ids = HashSet<Int>()
+            for (hs in allHits.values) for (h in hs) if (!h.proj.isUnihan) ids.add(h.proj.id)
+            store.lmEntries(ids)
+        }
+        // Per run: chosen word length at each position (negative = unmatched single) and, from the
+        // lattice, the language-model word of the chosen edge (to pick the entry that carries it).
+        class Plan(val rs: Int, val wordLen: IntArray, val word: IntArray?)
+        val plans = ArrayList<Plan>(runs.size)
+
+        if (lattice) {
+            class RunEdges(val rs: Int, val n: Int, val edges: ArrayList<LatticeEdge>, val start: IntArray, val length: IntArray, val matched: BooleanArray)
+            val built = ArrayList<RunEdges>(runs.size)
+            val lefts = HashSet<Int>()
+            for ((rs, re) in runs) {
+                currentCoroutineContext().ensureActive()
+                val n = re - rs
+                val edges = ArrayList<LatticeEdge>(n * 3)
+                val meta = ArrayList<IntArray>(n * 3) // (start, len, matched)
+                fun add(p: Int, len: Int, word: Int, unigram: Double, matched: Boolean) {
+                    edges.add(LatticeEdge(p, p + len, word, unigram, -wordPenalty, edges.size))
+                    meta.add(intArrayOf(p, len, if (matched) 1 else 0))
+                    if (word >= 0 && p + len < n) lefts.add(word)
+                }
+                for (p in 0 until n) {
+                    val lim = minOf(maxLen, n - p)
+                    for (len in 1..lim) {
+                        val hs = wordHits(rs + p, len)
+                        if (hs == null) {
+                            if (len == 1) add(p, 1, -1, unknown, false)
+                            continue
+                        }
+                        // One edge per distinct language-model word of the span (乾: 干 / 乾).
+                        var any = false
+                        var w1 = -1
+                        var w2 = -1
+                        for (h in hs) {
+                            if (len > 1 && !h.proj.segmentable) continue
+                            val lm = lmOf[h.proj.id] ?: continue
+                            if (lm.first < 0 || lm.first == w1 || lm.first == w2) continue
+                            if (w1 < 0) w1 = lm.first else if (w2 < 0) w2 = lm.first else continue
+                            add(p, len, lm.first, lm.second, true)
+                            any = true
+                        }
+                        // Unicode-only entries (and words the model does not know) score as an unknown character (TXT-012).
+                        if (!any) add(p, len, -1, if (len == 1) unknown else unknown * len, true)
+                    }
+                }
+                val start = IntArray(meta.size) { meta[it][0] }
+                val length = IntArray(meta.size) { meta[it][1] }
+                val matched = BooleanArray(meta.size) { meta[it][2] != 0 }
+                built.add(RunEdges(rs, n, edges, start, length, matched))
+            }
+            val bigrams = store.bigramBlocks(lefts)
+            val ctx = currentCoroutineContext()
+            for (r in built) {
+                ctx.ensureActive()
+                val wordLen = IntArray(r.n)
+                val word = IntArray(r.n) { -1 }
+                val best = LatticeDecoder.decode(r.n + 1, r.edges, bigrams, 1, LATTICE_BEAM) { ctx.ensureActive() }.firstOrNull()
+                if (best == null) {
+                    for (p in 0 until r.n) wordLen[p] = if (wordHits(r.rs + p, 1) != null) 1 else -1
+                } else {
+                    for (e in best.edges) {
+                        val p = r.start[e.payload]
+                        wordLen[p] = if (r.matched[e.payload]) r.length[e.payload] else -1
+                        word[p] = e.word
+                    }
+                }
+                plans.add(Plan(r.rs, wordLen, word))
+            }
+        } else for ((rs, re) in runs) {
             currentCoroutineContext().ensureActive()
             val n = re - rs
-            val wordLen = IntArray(n) // chosen length at each position; negative = unmatched single
-            if (store.hasFrequency) {
+            val wordLen = IntArray(n)
+            if (dag) {
                 val score = DoubleArray(n + 1)
                 for (p in n - 1 downTo 0) {
                     var best = Double.NEGATIVE_INFINITY
@@ -137,12 +217,22 @@ internal class Segmenter(private val store: DictionaryStore) {
                     }
                 }
             }
+            plans.add(Plan(rs, wordLen, null))
+        }
+
+        for ((index, plan) in plans.withIndex()) {
+            val rs = plan.rs
+            val re = runs[index].second
+            val n = re - rs
+            val wordLen = plan.wordLen
             var p = 0
             while (p < n) {
                 val len = wordLen[p]
                 if (len > 0) {
                     val hs = wordHits(rs + p, len)!!
-                    val pick = hs.minWithOrNull(headComparator)!!
+                    val want = plan.word?.get(p) ?: -1
+                    val pick = (if (want >= 0) hs.filter { lmOf[it.proj.id]?.first == want }.minWithOrNull(headComparator) else null)
+                        ?: hs.minWithOrNull(headComparator)!!
                     chosen.add(intArrayOf(segments.size, pick.proj.id))
                     segments.add(PassageSegment(offsets[rs + p], offsets[rs + p + len] - offsets[rs + p], true, pick.proj.id, Reading.EMPTY, false))
                     p += len
@@ -181,6 +271,14 @@ internal class Segmenter(private val store: DictionaryStore) {
     companion object {
         const val UNKNOWN_SCORE = -20.0
         private const val BATCH_KEYS = 6000
+        private const val LATTICE_BEAM = 40.0
+
+        /**
+         * Per-word penalty of the passage lattice (TXT-026 caller penalty): a near tie between a
+         * dictionary word and its parts goes to the word (中华人民共和国, 中将) while a frequent
+         * collocation of common words stays split (生命 / 科学).
+         */
+        internal var wordPenalty = 1.0
 
         fun readingOf(e: EntryRow): Reading = Reading(e.readingDisplay, e.readingCanonical, e.syllables, e.tones.asList())
 

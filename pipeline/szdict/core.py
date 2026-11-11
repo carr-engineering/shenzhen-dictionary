@@ -54,6 +54,8 @@ class Dataset:
         self.meta: dict[str, str] = {}
         self.sources: list[dict] = []
         self.en_primary: dict | None = None        # cantonese: custom English postings
+        self.english_words: dict[str, int] = {}    # common English word forms -> corpus count (SRCH-024)
+        self.english_total = 0
         self.lm = None
 
     def add(self, **e) -> dict:
@@ -76,6 +78,62 @@ class Dataset:
         e["id"] = len(self.entries)
         self.entries.append(e)
         return e
+
+
+FIXTURE_ENGLISH = {"hen", "sang", "ban", "pan", "fan", "sun", "song", "long", "can", "men", "he", "rent", "render",
+                   "cat", "call", "came", "walk", "student", "graduate", "hello"}
+
+
+def load_english_words(ds: "Dataset", cfg) -> None:
+    """Common English word forms with corpus counts (pinned list; SCHEMA note 19)."""
+    path = cfg.pinned / "freq" / "en_common.tsv"
+    words: dict[str, int] = {}
+    total = 0
+    for i, line in enumerate(path.read_text("utf-8").splitlines()):
+        if line.startswith("#"):
+            m = re.search(r"corpus total (\d+)", line)
+            if m:
+                total = int(m.group(1))
+            continue
+        if not line.strip():
+            continue
+        w, c = line.split("\t")
+        if cfg.fixture and len(words) >= 300 and w not in FIXTURE_ENGLISH:
+            continue
+        words[w] = int(c)
+    ds.english_words = words
+    ds.english_total = total or sum(words.values())
+
+
+_LATIN_WORD = re.compile(r"[A-Za-z]+")
+
+
+def gloss_english_words(ds: "Dataset", min_senses: int = 5) -> set[str]:
+    """Words the definitions use as ordinary English — written in lowercase in at least `min_senses`
+    senses — that are also a complete reading in this dataset's syllable inventory (`dim`, `tofu`
+    would be `to fu`…): they count as English words for side selection although the common-word list
+    lacks them (count 0, SCHEMA note 19). Capitalised occurrences (names, `Dian Hong`) do not count."""
+    inv = set(ds.syllables)
+    longest = max((len(x) for x in inv), default=0)
+
+    def reads(w: str) -> bool:
+        ok = [True] + [False] * len(w)
+        for i in range(len(w)):
+            if ok[i]:
+                for j in range(i + 1, min(len(w), i + longest) + 1):
+                    if w[i:j] in inv:
+                        ok[j] = True
+        return ok[len(w)]
+
+    seen: dict[str, int] = defaultdict(int)
+    for e in ds.entries:
+        if e["unihan"]:
+            continue
+        for s in e["senses"]:
+            for w in set(_LATIN_WORD.findall(s["t"])):
+                if w.islower() and len(w) > 1:
+                    seen[w] += 1
+    return {w for w, n in seen.items() if n >= min_senses and reads(w)}
 
 
 def natural_key(trad: str, simp: str, reading: str) -> str:
@@ -307,30 +365,31 @@ def assign_frequency(ds: Dataset, form_field: str, lm_logp: dict[str, float] | N
     ds.report["frequency"] = {"table_forms": len(freq), "total": ds.total_freq,
                               "entries_ranked_from_table": n_table, "entries_ranked_from_lm": n_lm,
                               "entries_unranked": sum(1 for e in ds.entries if e["freq_rank"] == UNRANKED)}
-    # word_freq: every segmentable headword form up to MAX_WORD_LEN, both scripts
+    # word_freq: every segmentable headword form up to MAX_WORD_LEN, both scripts. log_prob is the
+    # language model's unigram of the entry's word (observed: the blended corpus estimate; unobserved:
+    # the smoothed value below every observed one), so the segmenter and the decoder share one scale.
     total = max(ds.total_freq, 1)
-    floor = math.log(0.5 / total)
+    lm_floor = min((lm_logp[w] for w in lm_observed), default=math.log(0.5 / total)) if lm_logp and lm_observed else math.log(0.5 / total)
     wf: dict[str, tuple[int, float]] = {}
     for e in ds.entries:
         if not e["segmentable"]:
             continue
         cnt = freq.get(e[form_field]) or freq.get(e[other]) or 0
+        if e["unihan"]:
+            lp, observed = lm_floor - 8.0, False
+        elif lm_logp is not None and e[form_field] in lm_logp:
+            lp, observed = lm_logp[e[form_field]], e[form_field] in lm_observed
+        elif cnt:
+            lp, observed = math.log(cnt / total), True
+        else:
+            lp, observed = lm_floor - (2.0 if len(e[form_field]) > 1 else 5.0), False
+        lp = round(lp, 3) if observed else float(round(lp))     # integral REALs are stored compactly by SQLite
         for form in (e["simp"], e["trad"]):
             if len(form) > MAX_WORD_LEN:
                 continue
             c = freq.get(form) or cnt
-            if c:
-                lp = math.log(c / total)
-            elif e["unihan"]:
-                lp = floor - 6.0
-            elif lm_logp is not None and e[form_field] in lm_logp:
-                # scale the LM unigram below every observed count
-                lp = min(floor, lm_logp[e[form_field]]) - 1.0
-            else:
-                lp = floor - 2.0 - 0.5 * len(form)
-            lp = round(lp, 3) if c else float(round(lp))     # integral REALs are stored compactly by SQLite
             old = wf.get(form)
-            if old is None or (c, lp) > old:
+            if old is None or (lp, c) > (old[1], old[0]):
                 wf[form] = (c, lp)
     ds.word_freq = wf
     # popular: most frequent multi-character words
@@ -468,7 +527,74 @@ def expand_body(body: dict, display: str, canonical: str) -> dict:
 
 def flags_of(e: dict) -> int:
     return (1 if e["proper"] else 0) | (2 if e["segmentable"] else 0) | (4 if e["unihan"] else 0) | (
-        8 if e["canto"] else 0)
+        8 if e["canto"] else 0) | (min(e.get("rrank", 0), 15) << 4)
+
+
+def unihan_reading_order(fields: dict[str, str] | None, mandarin: bool) -> list[str]:
+    """Canonical readings of a character, most common first: Mandarin — kHanyuPinlu (corpus counts of
+    each reading) then kMandarin; Cantonese — kCantonese (the customary reading comes first)."""
+    if not fields:
+        return []
+    out: list[str] = []
+    if mandarin:
+        from .roman import marked_to_numbered
+        raw = [re.sub(r"\(\d+\)", "", v) for v in fields.get("kHanyuPinlu", "").split()]
+        raw += fields.get("kMandarin", "").split()
+        for v in raw:
+            n = marked_to_numbered(v, 1)
+            if n and n not in out:
+                out.append(n)
+    else:
+        for v in fields.get("kCantonese", "").split():
+            if v not in out:
+                out.append(v)
+    return out
+
+
+def assign_reading_ranks(ds: Dataset, unihan: dict[str, dict[str, str]]) -> None:
+    """Primary-reading rank (`flags` bits 4-7, SCHEMA note 18): position of the entry among the entries
+    sharing its headword — simplified form in the Mandarin dataset, traditional in the Cantonese one.
+    Order: (a non-syllabic suffix reading last) → own HSK level (lowest first) → for a single character
+    the Unihan reading order → common before proper noun → entries with senses → more senses → id.
+    0 = the primary reading."""
+    mand = ds.id == "mandarin"
+    field = "simp" if mand else "trad"
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for e in ds.entries:
+        groups[e[field]].append(e)
+    multi = decided_hsk = decided_unihan = 0
+    for form, members in groups.items():
+        if len(members) == 1:
+            members[0]["rrank"] = 0
+            continue
+        multi += 1
+        order: list[str] = []
+        if len(form) == 1:
+            order = unihan_reading_order(unihan.get(form), mand)
+            for e in members:                          # the other-script form of the same character
+                other = e["trad" if mand else "simp"]
+                if len(other) == 1 and other != form:
+                    for r in unihan_reading_order(unihan.get(other), mand):
+                        if r not in order:
+                            order.append(r)
+
+        def key(e: dict):
+            lv = min((x["l"] for x in e["hsk"]), default=99)
+            u = order.index(e["canonical"]) if e["canonical"] in order else len(order)
+            # a non-syllabic reading (儿 `r`, the erhua suffix) never stands for the bare character
+            bound = len(form) == 1 and e["canonical"] == "r5"
+            return (e["unihan"], bound, lv, u, e["proper"], not e["senses"], -len(e["senses"]), e["id"])
+
+        ranked = sorted(members, key=key)
+        for i, e in enumerate(ranked):
+            e["rrank"] = i
+        k0, k1 = key(ranked[0]), key(ranked[1])
+        if k0[2] != k1[2]:
+            decided_hsk += 1
+        elif k0[3] != k1[3]:
+            decided_unihan += 1
+    ds.report["reading_rank"] = {"headwords_with_several_entries": multi, "primary_decided_by_hsk_level": decided_hsk,
+                                 "primary_decided_by_unihan_reading_order": decided_unihan}
 
 
 # ------------------------------------------------------------------------------------------
@@ -571,6 +697,7 @@ CREATE TABLE syllable(value TEXT PRIMARY KEY, idx INTEGER) WITHOUT ROWID;
 CREATE TABLE syllable_alias(src TEXT PRIMARY KEY, dst TEXT) WITHOUT ROWID;
 CREATE TABLE syllable_abbrev(abbrev TEXT, syllable TEXT, PRIMARY KEY(abbrev, syllable)) WITHOUT ROWID;
 CREATE TABLE popular(rank INTEGER PRIMARY KEY, entry_id INTEGER);
+CREATE TABLE english_word(word TEXT PRIMARY KEY, freq INTEGER) WITHOUT ROWID;
 """
 
 LM_DDL = """
@@ -711,6 +838,13 @@ def write_main(ds: Dataset, path: Path) -> dict:
     con.executemany("INSERT INTO syllable_abbrev VALUES(?,?)", sorted(set(ds.abbrevs)))
     con.executemany("INSERT INTO popular VALUES(?,?)", ((i + 1, eid) for i, eid in enumerate(ds.popular)))
     counts["popular"] = len(ds.popular)
+    words = dict(ds.english_words)
+    gloss = gloss_english_words(ds)
+    for w in gloss:
+        words.setdefault(w, 0)
+    con.executemany("INSERT INTO english_word VALUES(?,?)", sorted(words.items()))
+    counts["english_word"] = len(words)
+    counts["english_word_from_glosses"] = sum(1 for w in gloss if w not in ds.english_words)
 
     meta = dict(ds.meta)
     meta["entry_count"] = str(len(ents))

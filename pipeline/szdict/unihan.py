@@ -9,7 +9,7 @@ from pathlib import Path
 from .norm import en_tokens, is_hanzi
 from .senses import parse_segments, plain_text
 
-FIELDS = {"kDefinition", "kMandarin", "kCantonese", "kHanyuPinyin", "kSimplifiedVariant", "kTraditionalVariant"}
+FIELDS = {"kDefinition", "kMandarin", "kCantonese", "kHanyuPinyin", "kHanyuPinlu", "kSimplifiedVariant", "kTraditionalVariant"}
 _UPLUS = re.compile(r"U\+([0-9A-F]{4,6})")
 
 
@@ -30,6 +30,16 @@ def read_unihan(zip_path: Path, only: set[str] | None = None) -> dict[str, dict[
                         continue
                     out.setdefault(ch, {})[field] = value
     return out
+
+
+_CACHE: dict[str, dict] = {}
+
+
+def read_unihan_cached(zip_path: Path) -> dict[str, dict[str, str]]:
+    key = str(zip_path)
+    if key not in _CACHE:
+        _CACHE[key] = read_unihan(zip_path)
+    return _CACHE[key]
 
 
 def variant_chars(value: str) -> list[str]:

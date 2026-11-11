@@ -512,16 +512,21 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
      * batch, and runs the shared decoder. [wholeHeadwords] are the headwords already matching the
      * whole query (dropped per SRCH-063).
      */
-    suspend fun combinations(parse: RomanParse, script: Script, wholeIds: IntArray): List<ComboOut> {
+    suspend fun combinations(parse: RomanParse, script: Script, wholeIds: IntArray, englishWords: Boolean = false): List<ComboOut> {
         if (!store.hasLm || parse.paths.none { it.tokens.size >= 2 }) return emptyList()
+        // A query made of common English words is combined only through its full-syllable readings:
+        // `hello` as he·l·lo or `ban` as ba·n… is not what was typed (SCHEMA note 19).
+        fun spelled(p: RomanPath) = !englishWords || p.tokens.all { it.kind == TokKind.FULL }
+        if (parse.paths.none { it.tokens.size >= 2 && spelled(it) }) return emptyList()
         val inv = store.inventory()
         val end = parse.letters.length
         val spans = LinkedHashMap<String, Span>()
         for (path in parse.paths) {
             val toks = path.tokens
-            if (toks.size < 2) continue
+            // A one-token path forms no edge; its span only sets the bar of the whole-query words.
+            val edges = spelled(path)
             for (a in toks.indices) for (len in 1..minOf(MAX_EDGE_SYLLABLES, toks.size - a)) {
-                if (a == 0 && len == toks.size) continue
+                if (!edges && !(a == 0 && len == toks.size)) continue
                 val sub = toks.subList(a, a + len)
                 if (sub.any { it.kind == TokKind.LITERAL }) break
                 val sig = sub.joinToString("|") { "${it.kind.ordinal}${it.text}${it.tone}@${it.start}" }
@@ -540,11 +545,12 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         if (postings.isEmpty()) return emptyList()
         currentCoroutineContext().ensureActive()
 
-        class Raw(val span: Span, val p: AbbrPosting)
+        // `seq` is the posting's place in its key: unigram order, then the primary reading of a word first.
+        class Raw(val span: Span, val p: AbbrPosting, val seq: Int)
         val raws = ArrayList<Raw>()
         for (span in spans.values) {
             val list = postings[span.key] ?: continue
-            for (p in list) if (p.alt == 0 && p.lmWord >= 0 && matches(p, span.tokens, inv, allowLonger = false)) raws.add(Raw(span, p))
+            for ((seq, p) in list.withIndex()) if (p.alt == 0 && p.lmWord >= 0 && matches(p, span.tokens, inv, allowLonger = false)) raws.add(Raw(span, p, seq))
         }
         // Toned tokens constrain edges too; tones are not in the index, so read them once for the survivors.
         val toneCheck = if (spans.values.any { s -> s.tokens.any { it.tone != 0 } }) store.forms(raws.map { it.p.entryId }.toSet().toIntArray()) else null
@@ -553,6 +559,8 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         val nodeIndex = nodes.withIndex().associate { it.value to it.index }
         // Per (from, to): best edge per entry, then the M best words.
         val perSpan = HashMap<Long, HashMap<Int, LatticeEdge>>()
+        var wholeBest = Double.NEGATIVE_INFINITY
+        val order = HashMap<Int, Int>()
         for (r in raws) {
             if (toneCheck != null && r.span.tokens.any { it.tone != 0 }) {
                 val f = toneCheck[r.p.entryId] ?: continue
@@ -560,15 +568,25 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
             }
             val from = nodeIndex[r.span.from]!!
             val to = nodeIndex[r.span.to]!!
+            if (from == 0 && to == nodes.size - 1) {
+                // A word spelling the whole query is not a combination; its score is the bar combinations are held to.
+                val score = books[0][r.p.unigram] - r.span.penalty
+                if (score > wholeBest) wholeBest = score
+                continue
+            }
             val bucket = perSpan.getOrPut(from.toLong() shl 32 or to.toLong()) { HashMap() }
-            val edge = LatticeEdge(from, to, r.p.lmWord, books[0][r.p.unigram], -r.span.penalty, r.p.entryId)
+            val edge = LatticeEdge(from, to, r.p.lmWord, books[0][r.p.unigram], -r.span.penalty, r.p.entryId, r.span.tokens.size)
             val old = bucket[r.p.entryId]
-            if (old == null || edge.penalty > old.penalty) bucket[r.p.entryId] = edge
+            if (old == null || edge.penalty > old.penalty) {
+                bucket[r.p.entryId] = edge
+                if (old == null) order[r.p.entryId] = r.seq
+            }
         }
         val edges = ArrayList<LatticeEdge>()
         for (bucket in perSpan.values) {
+            // One edge per word: among the entries of a word (its readings), the first in posting order.
             val seenWords = HashSet<Int>()
-            bucket.values.sortedWith(compareByDescending<LatticeEdge> { it.unigram + it.penalty }.thenBy { it.payload })
+            bucket.values.sortedWith(compareByDescending<LatticeEdge> { it.unigram + it.penalty }.thenBy { order[it.payload] ?: 0 }.thenBy { it.payload })
                 .filter { seenWords.add(it.word) }.take(MAX_WORDS_PER_SPAN).forEach { edges.add(it) }
         }
         if (edges.isEmpty()) return emptyList()
@@ -580,7 +598,12 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
             .filter { it.edges.size >= 2 }
         if (paths.isEmpty()) return emptyList()
 
-        val top = paths.take(K_BEST * 4)
+        // Plausible sequences only: within COMBO_MARGIN of the best sequence and of the best single
+        // word spelling the whole query — a far less likely split of 朋友 (碰 + 有) is noise, not a
+        // suggestion — and not a string of rare words forced onto the letters (`tofu` as 他 哦 副).
+        val bar = maxOf(paths[0].score, wholeBest) - COMBO_MARGIN
+        val top = paths.take(K_BEST * 4).filter { p -> p.score >= bar && p.score >= COMBO_FLOOR_PER_SYLLABLE * p.edges.sumOf { it.units } }
+        if (top.isEmpty()) return emptyList()
         val forms = store.forms((top.flatMap { p -> p.edges.map { it.payload } } + wholeIds.take(400)).toSet().toIntArray())
         fun head(id: Int): String = forms[id]?.let { if (script == Script.SIMPLIFIED) it.simp else it.trad } ?: ""
         val whole = HashSet<String>()
@@ -603,6 +626,10 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         const val K_BEST = 8
         const val MAX_COMBINATIONS = 5
         const val BEAM = 18.0
+        /** Natural-log distance from the best reading beyond which a combination is not offered. */
+        const val COMBO_MARGIN = 2.5
+        /** Lowest average log-probability per syllable of an offered combination. */
+        const val COMBO_FLOOR_PER_SYLLABLE = -6.5
         const val PHRASE_CHECK = 600
     }
 }

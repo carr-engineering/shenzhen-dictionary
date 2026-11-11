@@ -160,7 +160,11 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
 
     // ------------------------------------------------------------------ search
 
-    private class Base(val c: Classified, val script: Script, val options: SearchOptions, val result: SearchResult, val wholeIds: IntArray, val needsCombos: Boolean)
+    private class Base(
+        val c: Classified, val script: Script, val options: SearchOptions, val result: SearchResult, val wholeIds: IntArray, val needsCombos: Boolean,
+        /** Every word of the query is a common English word (SCHEMA note 19). */
+        val englishWords: Boolean = false,
+    )
 
     private fun refOf(c: Candidate) = RowRef(c.proj.id, if (c.alt) c.altNote else -1, if (c.alt && c.altNote < 0) c.altKey else null, c.mandarinRow, if (c.mandarinRow) c.sense else -1)
 
@@ -205,22 +209,62 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         val enSections = en.sections.map(::section)
         val chinese = SideResult(SearchSide.CHINESE, zhSections.sumOf { it.count }, zhSections, zh.isSentence, zh.passage, zh.capped)
         val english = SideResult(SearchSide.ENGLISH, enSections.sumOf { it.count }, enSections, capped = en.capped)
-        // SRCH-024: Hanzi or an explicit tone forces Chinese; so does pronunciation with no English match.
+        // SRCH-024: Hanzi or an explicit tone forces Chinese; so does pronunciation with no English
+        // match, and pronunciation whose English matches do not make it English (see pronunciationOnly).
+        val words = if (c.kind == QueryKind.ROMANISATION) c.key.split(' ').filter { it.isNotEmpty() } else emptyList()
+        val known = if (words.isEmpty()) emptyMap() else store.englishWordCounts(words.toSet())
+        val allEnglish = words.isNotEmpty() && words.all { it in known }
         val forced = when {
             c.kind == QueryKind.HANZI || c.kind == QueryKind.MIXED || c.hasTone -> SearchSide.CHINESE
-            c.kind == QueryKind.ROMANISATION && english.count == 0 -> SearchSide.CHINESE
+            c.kind == QueryKind.ROMANISATION && (english.count == 0 || pronunciationOnly(words, known, zh)) -> SearchSide.CHINESE
             else -> null
         }
         val result = SearchResult(query, c.key, c.display, c.kind, script, forced, chinese, english, false, generation)
         val needs = options.combinations && c.kind == QueryKind.ROMANISATION && store.hasLm && c.roman?.paths?.any { it.tokens.size >= 2 } == true
         val whole = zh.sections.firstOrNull { it.kind == SectionKind.MATCHES }?.rows?.let { rows -> IntArray(rows.size) { rows[it].proj.id } } ?: IntArray(0)
-        return Base(c, script, options, result, whole, needs)
+        return Base(c, script, options, result, whole, needs, allEnglish)
+    }
+
+    /**
+     * SRCH-024 / SRCH-027 for romanised input that also has English-side matches. Those matches are
+     * often incidental — a proper noun (`Dian Hong tea`), an abbreviation (`CO-NH`), the start of a
+     * longer token (`ren` in `rent`) — and must not keep `nh`, `dian` or `ren` on the English page
+     * when the Chinese side answers the query as a whole. The input is pronunciation only when
+     *  1. the Chinese side has a whole-query match (a dictionary entry in the MATCHES section), and
+     *  2. it does not read as English:
+     *     a. its words are not all English words (the dataset's `english_word` table — common word
+     *        forms, plus words the definitions themselves use: `hen`, `fan`, `long`, `can`, `sang`
+     *        are, so they keep the remembered side), and
+     *     b. it is not likely the start of one: the common English words beginning with its last
+     *        word (the earlier ones being English words) are, by corpus frequency, at least
+     *        [PRONUNCIATION_RATIO] times rarer than the best whole-query Chinese match is by its
+     *        language-model unigram — `ca` is far more often the start of `can` or `call` than 擦,
+     *        so typing `cat` never flips the page, while 人 outweighs every `ren…` word.
+     * A dataset without the table keeps the plain rule (no English match).
+     */
+    private suspend fun pronunciationOnly(words: List<String>, known: Map<String, Long>, zh: ChineseOut): Boolean {
+        if (!store.hasEnglishWords || words.isEmpty()) return false
+        val whole = zh.sections.firstOrNull { it.kind == SectionKind.MATCHES }?.rows.orEmpty()
+            .filter { !it.proj.isUnihan && it.cls <= com.szdict.core.engine.MatchClass.EXACT_TONELESS }.take(8)
+        if (whole.isEmpty()) return false
+        if (words.all { it in known }) return false
+        if (words.dropLast(1).any { it !in known }) return true
+        val english = store.englishPrefixShare(words.last())
+        if (english <= 0.0) return true
+        val lm = store.lmEntries(whole.map { it.proj.id })
+        var best = Double.NEGATIVE_INFINITY
+        for (m in whole) {
+            // Without the language-model file: a Zipf estimate from the frequency rank.
+            val unigram = lm[m.proj.id]?.second ?: if (m.proj.freqRank < com.szdict.core.store.UNRANKED) kotlin.math.ln(0.1 / m.proj.freqRank) else -17.0
+            if (unigram - m.cost > best) best = unigram - m.cost
+        }
+        return kotlin.math.exp(best) >= PRONUNCIATION_RATIO * english
     }
 
     private suspend fun withCombinations(base: Base): SearchResult {
         // SRCH-066: a decoder failure omits the group silently.
         val combos: List<ComboOut> = try {
-            engine.combinations(base.c.roman!!, base.script, base.wholeIds)
+            engine.combinations(base.c.roman!!, base.script, base.wholeIds, base.englishWords)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -721,5 +765,6 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
 
     private companion object {
         const val FREQ_WEIGHT = 1.0
+        const val PRONUNCIATION_RATIO = 10.0
     }
 }

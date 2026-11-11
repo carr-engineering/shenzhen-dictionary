@@ -155,7 +155,7 @@ internal class Decomposer(private val store: DictionaryStore, private val cards:
             // One batched headword lookup per level (ENT-122).
             val lookups = real.filter { kindOf(it.component) == PartKind.CHARACTER || kindOf(it.component) == PartKind.RADICAL_FORM }
             val hits = store.headwordExact(lookups.map { lookupForm(it.component) }.toSet())
-            val order = Ranking.projComparator(false)
+            val order = Ranking.primary
             for (b in lookups) {
                 val hs = hits[lookupForm(b.component)].orEmpty().map { it.proj }.distinctBy { it.id }.sortedWith(order)
                 b.entryIds = hs.map { it.id }

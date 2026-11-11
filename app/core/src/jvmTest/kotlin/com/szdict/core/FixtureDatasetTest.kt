@@ -256,6 +256,76 @@ class FixtureDatasetTest {
     }
 
     @Test
+    fun sideSelectionForRomanisationWithEnglishMatches() {
+        // SRCH-024 / SCHEMA note 19. Fixture: 很 hěn (very common), 好 hǎo, 你好; English senses hold
+        // "hello; hi", "good; well", "ocean; sea", "to go; to leave" …
+        fun fixture(words: Map<String, Int>) = Fixture.standard().apply {
+            entry("人", "人", "ren2", "person; people; Ren (surname)", 10, 800000)
+            entry("擦", "擦", "ca1", "to wipe; CA (abbr.)", 3900, 300)
+            entry("肽键", "肽键", "tai4 jian4", "peptide bond CO-NH", 9000)
+            entry("母雞", "母鸡", "mu3 ji1", "hen", 7000)
+            englishWords.putAll(words)
+        }.build()
+        val english = mapOf("hen" to 3, "rent" to 20, "render" to 5, "can" to 3000, "call" to 900, "cat" to 100, "go" to 2000, "good" to 1500)
+        with(fixture(english)) { dict ->
+            // Abbreviated romanisation with a stray English token match (CO-NH): pronunciation only.
+            val nh = dict.search("nh", s)
+            assertTrue(nh.english.count > 0)
+            assertEquals(SearchSide.CHINESE, nh.forcedSide)
+            // A full syllable whose only English matches are a proper noun and the start of rarer words (rent, render).
+            val ren = dict.search("ren", s)
+            assertTrue(ren.english.count > 0)
+            assertEquals(SearchSide.CHINESE, ren.forcedSide)
+            // An English word that is also pinyin keeps the remembered side, however common the Chinese word.
+            val hen = dict.search("hen", s)
+            assertTrue(hen.english.count > 0)
+            assertEquals("很", hen.heads(SectionKind.MATCHES).first())
+            assertNull(hen.forcedSide, "hen")
+            // The start of far more common English words than the Chinese match: typing `cat` never flips the page.
+            val ca = dict.search("ca", s)
+            assertEquals("擦", ca.heads(SectionKind.MATCHES).first())
+            assertNull(ca.forcedSide, "ca: en=${ca.english.count}")
+            // No whole-query Chinese match: the plain rule (English matches keep the remembered side).
+            assertNull(dict.search("goo", s).forcedSide, "goo")
+            assertNull(dict.search("graduate student", s).forcedSide, "graduate student")
+            // Tones and Hanzi always force.
+            assertEquals(SearchSide.CHINESE, dict.search("hen3", s).forcedSide)
+        }
+        // A dataset without the table keeps the plain rule: any English match keeps the remembered side.
+        with(fixture(emptyMap())) { dict ->
+            assertNull(dict.search("nh", s).forcedSide, "nh without the table")
+            assertNull(dict.search("ren", s).forcedSide, "ren without the table")
+        }
+    }
+
+    @Test
+    fun primaryReadingRank() {
+        // SCHEMA note 18: flags bits 4-7. 石 shí (rank 0) is listed before dàn (lower id) and stands for the bare character.
+        val dir = Fixture.standard().apply {
+            entry("石", "石", "dan4", "dry measure for grain", 800, 5000, flags = 2 or (1 shl 4))
+            entry("石", "石", "shi2", "rock; stone", 800, 5000, flags = 2)
+            entry("石", "石", "Shi2", "surname Shi", 800, 5000, flags = 2 or (2 shl 4))
+        }.build()
+        with(dir) { dict ->
+            assertEquals(listOf("shi2", "dan4", "shi2"), dict.search("石", s).groups().single().cards.map { it.reading.canonical })
+            assertEquals("shí", dict.analyse("石", SegmentationMode.HANZI).segments.single().reading.display)
+        }
+    }
+
+    @Test
+    fun unigramSegmentationWithoutLanguageModel() = with(Fixture.standard().build(withLm = false)) { dict ->
+        // TXT-012 fallback: the unigram DAG over word_freq when the language-model file is absent.
+        assertEquals(listOf("我们", "研究", "生命", "科学"), dict.search("我们研究生命科学", s).groups().map { it.text })
+    }
+
+    @Test
+    fun combinationsArePlausibleOnly() = with { dict ->
+        // SCHEMA note 22: a far less likely split of a whole-query word is not offered (nihao: 你好, not 你 + 号 …).
+        assertEquals("你好", dict.search("nihao", s).heads(SectionKind.MATCHES).first())
+        assertTrue(dict.search("nihao", s).combos().isEmpty(), dict.search("nihao", s).combos().toString())
+    }
+
+    @Test
     fun greedySegmentationWithoutFrequencies() = with(Fixture.standard(hasFrequency = false).build()) { dict ->
         assertEquals(listOf("我们", "研究生", "命", "科学"), dict.search("我们研究生命科学", s).groups().map { it.text })
     }

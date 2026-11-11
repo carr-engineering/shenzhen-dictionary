@@ -7,7 +7,7 @@ from . import hsk as hskmod
 from . import unihan as uh
 from .cedict import read_cedict, read_header
 from .config import Config
-from .core import (BLOCK_LABEL, RSRC, BuildError, Dataset, Resolver, assign_natural_keys,
+from .core import (BLOCK_LABEL, RSRC, BuildError, Dataset, Resolver, assign_natural_keys, assign_reading_ranks,
                    build_alt_readings, build_merge_groups, count_refs, finish_redirects, iter_refs,
                    make_redirects, natural_key)
 from .norm import fold
@@ -58,7 +58,7 @@ def load_frequency(cfg: Config) -> tuple[dict[str, int], int]:
 
 def add_unihan_entries(ds: Dataset, cfg: Config, reading_field: str) -> dict:
     """DATA-190: Unihan-only entries for ideographs with a kDefinition and no dictionary headword."""
-    data = uh.read_unihan(cfg.src("unihan"))
+    data = uh.read_unihan_cached(cfg.src("unihan"))
     headwords = set()
     for e in ds.entries:
         headwords.add(e["simp"])
@@ -227,6 +227,17 @@ def build_mandarin(cfg: Config) -> Dataset:
     ds.aliases = load_aliases("pinyin_aliases.tsv")
     ds.abbrevs = pinyin_abbrevs(ds.syllables)
     ds.freq, ds.total_freq = load_frequency(cfg)
+    # The list repeats a word's count under its traditional forms (龢 = 和, 妳 = 你, 掽 = 碰). Such a
+    # form is no evidence for the *other* entry whose simplified form it is (龢 / 龢): drop it, the
+    # traditional form still finds its count through its entry's simplified form.
+    copies = set()
+    for e in ds.entries:
+        t, s = e["trad"], e["simp"]
+        if t != s and t in ds.freq and ds.freq.get(s) == ds.freq[t]:
+            copies.add(t)
+    for t in copies:
+        del ds.freq[t]
+    rep["frequency_list"] = {"forms": len(ds.freq) + len(copies), "traditional_copies_dropped": len(copies)}
     if cfg.fixture:
         forms = {e["simp"] for e in ds.entries} | {e["trad"] for e in ds.entries}
         ds.freq = {w: c for w, c in ds.freq.items() if w in forms}
@@ -262,13 +273,15 @@ def build_hsk(ds: Dataset, cfg: Config) -> list[dict]:
 
 
 def build_hsk_chars(ds: Dataset, cfg: Config, sort_key_of=None) -> None:
+    assign_reading_ranks(ds, uh.read_unihan_cached(cfg.src("unihan")))
     chars = hskmod.read_chars(cfg.pinned / "hsk" / "hsk_char_list.tsv")
     by_simp: dict[str, list[dict]] = defaultdict(list)
     for e in ds.entries:
         if len(e["simp"]) == 1:
             by_simp[e["simp"]].append(e)
     row_entry: dict[str, int] = {}
-    for r in sorted(ds.hsk_rows, key=lambda r: (r["level"], r["row_id"])):
+    # the character's HSK row of the lowest level; among rows of that level the primary reading (重: zhòng)
+    for r in sorted(ds.hsk_rows, key=lambda r: (r["level"], ds.entries[r["entry_id"]].get("rrank", 0), r["row_id"])):
         row_entry.setdefault(r["simp"], r["entry_id"])
     missing = []
     out = []
@@ -285,8 +298,9 @@ def build_hsk_chars(ds: Dataset, cfg: Config, sort_key_of=None) -> None:
             e = ds.entries[row_entry[ch]]
             via_row += 1
         else:
-            e = min(cands, key=lambda e: (e["freq_rank"], e["rsrc"] == RSRC["none"], e["proper"],
-                                          not e["senses"], -len(e["senses"]), e["id"]))
+            # the primary reading of the character (core.assign_reading_ranks), Unihan-only entries last
+            e = min(cands, key=lambda e: (e["freq_rank"], e["rsrc"] == RSRC["none"], e["unihan"], e.get("rrank", 0),
+                                          e["proper"], not e["senses"], -len(e["senses"]), e["id"]))
         c["entry_id"] = e["id"]
         c["sort_key"] = (sort_key_of or hskmod.entry_sort_key)(e)
         c["_nokey"] = 1 if e["rsrc"] == RSRC["none"] else 0

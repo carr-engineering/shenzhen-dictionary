@@ -98,6 +98,8 @@ internal class DictionaryStore private constructor(
     private val lm: Db?,
     val meta: Map<String, String>,
     private val io: CoroutineDispatcher,
+    /** Optional tables present in this file (a dataset built before they existed lacks them). */
+    private val tables: Set<String>,
 ) {
     private val cacheLock = Mutex()
     private val entryCache = LinkedHashMap<Int, EntryRow>()
@@ -114,6 +116,9 @@ internal class DictionaryStore private constructor(
     val totalFrequency: Double = meta["total_frequency"]?.toDoubleOrNull()?.takeIf { it > 0 } ?: 1.0
     val abbrevPenalty: Double = kotlin.math.abs(meta["abbrev_penalty"]?.toDoubleOrNull() ?: 0.6931471805599453)
     val partialPenalty: Double = kotlin.math.abs(meta["partial_penalty"]?.toDoubleOrNull() ?: 1.0)
+    /** Common English words with corpus counts (`english_word`, SCHEMA note 19); absent from older datasets. */
+    val hasEnglishWords: Boolean = "english_word" in tables
+    val englishTotal: Double = meta["english_word_total"]?.toDoubleOrNull()?.takeIf { it > 0 } ?: 1.0
     val toneCount: Int = meta["tone_count"]?.toIntOrNull() ?: if (mode == DictMode.MANDARIN) 5 else 6
     val sentencesPath: String get() = "$dir/packs/" + if (mode == DictMode.MANDARIN) "sentences.db" else "sentences-yue.db"
     val decompPath: String get() = "$dir/packs/decomposition.db"
@@ -391,6 +396,30 @@ internal class DictionaryStore private constructor(
             }
         }
         return out
+    }
+
+    /** Corpus counts of the given lowercase words that are common English words. */
+    suspend fun englishWordCounts(words: Collection<String>): Map<String, Long> {
+        if (!hasEnglishWords || words.isEmpty()) return emptyMap()
+        val out = HashMap<String, Long>()
+        read { c ->
+            c.query("SELECT word, freq FROM english_word WHERE word IN (SELECT value FROM json_each(?))", { it.bindText(1, Codec.jsonArray(words)) }) {
+                out[it.getText(0)] = it.getLong(1)
+            }
+        }
+        return out
+    }
+
+    /** Share of English running text taken by the common words that begin with [prefix] (the word itself included). */
+    suspend fun englishPrefixShare(prefix: String): Double {
+        if (!hasEnglishWords || prefix.isEmpty()) return 0.0
+        var sum = 0L
+        read { c ->
+            c.query("SELECT COALESCE(SUM(freq), 0) FROM english_word WHERE word >= ? AND word < ?", { it.bindText(1, prefix); it.bindText(2, upperBound(prefix)) }) {
+                sum = it.getLong(0)
+            }
+        }
+        return sum / englishTotal
     }
 
     // ---- small tables (read once) ----
@@ -679,10 +708,12 @@ internal class DictionaryStore private constructor(
             }
             try {
                 val meta = HashMap<String, String>()
+                val tables = HashSet<String>()
                 var userVersion = -1
                 main.use { c ->
                     c.query("PRAGMA user_version", {}) { userVersion = it.getLong(0).toInt() }
                     c.query("SELECT key, value FROM meta", {}) { if (!it.isNull(1)) meta[it.getText(0)] = it.getText(1) }
+                    c.query("SELECT name FROM sqlite_master WHERE type = 'table'", {}) { tables.add(it.getText(0)) }
                 }
                 val version = meta["schema_version"]?.toIntOrNull() ?: userVersion
                 if (version != DictionaryFactory.SUPPORTED_SCHEMA_VERSION) {
@@ -700,7 +731,7 @@ internal class DictionaryStore private constructor(
                         lm = null
                     }
                 }
-                DictionaryStore(mode, dir, main, lm, meta, io)
+                DictionaryStore(mode, dir, main, lm, meta, io, tables)
             } catch (e: DictException) {
                 main.close()
                 throw e

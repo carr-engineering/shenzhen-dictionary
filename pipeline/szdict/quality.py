@@ -39,7 +39,7 @@ def best(ds, lm, query: str, n_words: int, field: str, k: int) -> list[list[str]
     result list); multi-word ones against the decoder's best combinations."""
     if n_words == 1:
         out: list[list[str]] = []
-        for _neg, eid, _wid, _code, _alt, _syl in lm.abbr.get(query, ()):
+        for _neg, _wid, _rr, eid, _code, _alt, _syl in lm.abbr.get(query, ()):
             w = [ds.entries[eid][field]]
             if w not in out:
                 out.append(w)

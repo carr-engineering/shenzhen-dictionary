@@ -7,7 +7,11 @@ import com.szdict.core.store.BigramBlock
  * language-model word id (negative = no LM word: scored by [unigram] alone, never a bigram
  * context), its unigram log-probability and a caller penalty (<= 0) added to the path score.
  */
-internal class LatticeEdge(val from: Int, val to: Int, val word: Int, val unigram: Double, val penalty: Double, val payload: Int)
+internal class LatticeEdge(
+    val from: Int, val to: Int, val word: Int, val unigram: Double, val penalty: Double, val payload: Int,
+    /** Caller's unit count of the edge (syllables of a romanised word); not used by the decoder. */
+    val units: Int = 1,
+)
 
 internal class LatticePath(val edges: List<LatticeEdge>, val score: Double)
 

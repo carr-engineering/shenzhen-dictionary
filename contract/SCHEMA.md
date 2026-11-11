@@ -47,7 +47,8 @@ CREATE TABLE entry(
   syllables TEXT NOT NULL,            -- toneless, space-joined: 'ni hao'
   tones BLOB NOT NULL,                -- one byte per syllable, 0 = unspecified
   flags INTEGER NOT NULL,             -- bit0 proper noun, bit1 segmentable, bit2 unihan-only,
-                                      -- bit3 has CC-Canto (cantonese/cantonese_adapted) block
+                                      -- bit3 has CC-Canto (cantonese/cantonese_adapted) block,
+                                      -- bits 4-7 primary-reading rank (note 18)
   freq_rank INTEGER NOT NULL,         -- 1 = most common, 1000000 = unranked
   char_count INTEGER NOT NULL,        -- code points of simp
   natural_key TEXT NOT NULL,          -- 16 lowercase hex chars: first 8 bytes of
@@ -102,6 +103,7 @@ CREATE TABLE syllable(value TEXT PRIMARY KEY, idx INTEGER) WITHOUT ROWID;  -- id
 CREATE TABLE syllable_alias(src TEXT PRIMARY KEY, dst TEXT) WITHOUT ROWID;
 CREATE TABLE syllable_abbrev(abbrev TEXT, syllable TEXT, PRIMARY KEY(abbrev, syllable)) WITHOUT ROWID;
 CREATE TABLE popular(rank INTEGER PRIMARY KEY, entry_id INTEGER);
+CREATE TABLE english_word(word TEXT PRIMARY KEY, freq INTEGER) WITHOUT ROWID;  -- note 19 (optional table)
 ```
 
 ### `entry.body` (zjson)
@@ -217,9 +219,16 @@ change it. The app reads what is described here.
    delete them): look a single radical code point up before normalising.
 5. **`word_freq`** holds every segmentable headword form of at most `max_word_len` code points, in
    both scripts — not only the forms of the source frequency list — so one batched lookup answers
-   "is a word" and "log-probability" (`DATA-112`). `freq` is the observed count (0 = unobserved);
-   `log_prob` is `ln(freq / total_frequency)` for observed forms and a smoothed value (below every
-   observed one, integer-valued) otherwise.
+   "is a word" and "log-probability" (`DATA-112`). `freq` is the count in the frequency list
+   (0 = not listed). `log_prob` is the **language model's unigram of the entry's word** (natural
+   log, the unquantised value behind `lm_entry.lm_unigram`): for Mandarin the blend of the libime
+   unigram and the frequency list, for Cantonese the frequency table. A word no corpus observed gets
+   the smoothed value — a flat one below every observed word for multi-character words, a lower one
+   for a single character, the lowest for a Unihan-only character (integer-valued). The app's
+   unigram DAG (`TXT-012`, used when the language-model file is absent) and its bigram lattice
+   therefore score on one scale. The Mandarin frequency list repeats a word's count under its
+   traditional forms; such a copy is not evidence for another entry whose *simplified* form it is
+   (龢 / 龢, 妳 / 妳) and is dropped before ranking.
 6. **`entry.freq_rank`**: position of the form in the frequency list (1-based, ties broken by form);
    entries the list lacks are ranked after it by their observed LM unigram (meta `freq_rank_lm_fill`
    = 1); everything else, and every Unihan-only entry, has 1000000.
@@ -252,3 +261,40 @@ change it. The app reads what is described here.
 17. Shared data files in `contract/`: `labels.json`, `normalisation-vectors.json`, `golden-queries.json`
     (data-level lookups with expected entries for the fixture and the full datasets; types are described
     in the file), `lm-quality.json` (`PIPE-075`), `fixture/` (output of `build.py --fixture`).
+18. **Primary-reading rank** — `entry.flags` bits 4–7 (`(flags >> 4) & 15`, capped at 15): the entry's
+    position among the entries that share its headword (simplified form in the Mandarin dataset,
+    traditional in the Cantonese one); 0 = the primary reading. Order: own HSK level, lowest first
+    (行 xíng L3 before háng L5) → for a single character the Unihan reading order (`kHanyuPinlu`
+    corpus counts, then `kMandarin`; Cantonese: `kCantonese`) → common before proper noun → entries
+    with senses before pure variants → more senses → id. The app uses it (a) to pick the **one**
+    entry standing for a bare headword — a passage segment's default reading, a decomposition row —
+    as (Unihan-only last, rank, common before proper, frequency rank, id), and (b) as the last key
+    before the id in every ranked list (`SRCH-070`: …, common before proper, rank, id), so 石 lists
+    shí before dàn. `hsk_char.entry_id` is the rank-0 entry unless an HSK row names the character.
+    The `abbr_idx` postings of one word list its primary reading first (ties of the unigram order).
+19. **`english_word`** (optional table; `meta.english_word_total` = token count of the source corpus):
+    the 10,000 most frequent English word forms with their corpus counts
+    (`pipeline/sources-pinned/freq/en_common.tsv`), plus — with `freq` 0 — words the definitions use
+    in lowercase in at least five senses and that are a complete reading in the dataset's syllable
+    inventory. It answers "does this romanised query read as English?" for side selection
+    (`SRCH-024`, `SRCH-027`): a `ROMANISATION` query forces the Chinese side when the English side
+    has no match, **or** when the Chinese side has a whole-query match (a dictionary entry in the
+    `MATCHES` section) and the query (i) is not made of words of this table only and (ii) is not
+    likely the start of one — the share `sum(freq of the words starting with the last word) /
+    english_word_total` is less than a tenth of the probability (language-model unigram less token
+    cost) of the best whole-query Chinese match. `nh`, `dian`, `xuexi`, `ren`, `hao` force Chinese;
+    `hen`, `fan`, `long`, `can`, `sang` (English words) and `ca` (start of `can`, `call`, …) keep the
+    remembered side. A query made of words of this table is combined (`SRCH-060`) only through its
+    full-syllable readings. Without the table the app applies the plain "no English match" rule.
+20. **Passage segmentation** (`TXT-012`, `TXT-026`): with `has_frequency_data`, `has_bigram_model` and
+    the language-model file present, the app decodes a character lattice whose edges are the
+    segmentable headwords of the run — language-model word and unigram from `lm_entry`, bigram blocks
+    of the distinct left words, `-20` for an unknown character or a Unihan-only entry — with `k = 1`
+    and a per-word penalty of 1 nat (a near tie goes to the longer dictionary word). Two batched
+    reads are added to the headword lookup: `lm_entry` and `bigram`.
+21. **`reading_display`** attaches a comma token to the syllable before it (`yī bù zuò, èr bù xiū`);
+    `syllables`, `tones` and `reading_canonical` keep one token per source token (note 3), so a
+    display string may have fewer space-separated parts than `tones` has elements.
+22. **Combinations** (`SRCH-063`): besides the top-5 rule, a sequence is offered only when its score is
+    within 2.5 nats of the best sequence and of the best single word spelling the whole query, and
+    is at least −6.5 nats per syllable.

@@ -116,7 +116,22 @@ def parse_pinyin(raw: str) -> tuple:
             tones.append(0)
     if not syls:
         full = False
-    return (" ".join(disp), " ".join(canon), tuple(syls), tuple(tones), proper, full, " ".join(cased))
+    return (join_display(disp), " ".join(canon), tuple(syls), tuple(tones), proper, full, " ".join(cased))
+
+
+_CLOSING_PUNCT = {",", "，", "、"}
+
+
+def join_display(tokens) -> str:
+    """Display reading: tokens space-joined, a comma attached to the syllable before it
+    ('yī cùn jīn, cùn jīn'); syllables / tones keep one token per source token (SCHEMA note 3)."""
+    out = []
+    for t in tokens:
+        if t in _CLOSING_PUNCT and out:
+            out[-1] += t
+        else:
+            out.append(t)
+    return " ".join(out)
 
 
 _UNSPACED_RE = re.compile(r"[A-Za-zü]+?[1-5]|[A-Za-zü]+$")
@@ -216,7 +231,7 @@ def parse_jyutping(raw: str) -> tuple:
     if not syls:
         full = False
     c = " ".join(canon)
-    return (c, c, tuple(syls), tuple(tones), full)
+    return (join_display(canon), c, tuple(syls), tuple(tones), full)
 
 
 def is_key_token(s: str) -> bool:

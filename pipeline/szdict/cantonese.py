@@ -23,7 +23,9 @@ from .senses import parse_gloss, plain_text
 
 CANTO_RE = re.compile(r"(\S+)\s+(\S+)\s+\[([^\]]*)\]\s+\{(.*?)\}\s*(?:/(.*)/)?\s*(#.*)?$")
 _H = HANZI_CLASS
-PLECO_RE = re.compile(f"([{_H}]+)([a-züāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ']+) \\[([{_H}]+)\\]", re.I)
+_PY = "a-züāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ'"
+# Pleco-style reference of an adapted line: `他tā [他]`, `安徽省 Ānhuī Shěng [安徽省]` (GLB-014, PIPE-079)
+PLECO_RE = re.compile(f"([{_H}]+) ?([{_PY}]+(?: [{_PY}]+)*) \\[([{_H}]+)\\]", re.I)
 REG_RE = re.compile(r"\s*\[(colloquial|written and colloquial|written)\]\s*$", re.I)
 REG_TAG = {"colloquial": "colloquial", "written and colloquial": "written_colloquial", "written": "written"}
 POS_RE = re.compile(r"(?:^|(?<=;\s)|(?<=,\s))\((noun|verb|adjective|adverb|adj|adv)\)\s*", re.I)
@@ -108,15 +110,28 @@ class CantoParser:
                 self.by_simp[e["simp"]].append(e)
 
     def _pleco(self, m: re.Match) -> str:
-        hz, pin, _br = m.group(1), m.group(2), m.group(3)
+        hz, pin, br = m.group(1), m.group(2), m.group(3)
         self.stats["pleco_refs"] += 1
-        numbered = marked_to_numbered(pin.lower(), len(hz))
+        numbered = marked_to_numbered(pin.lower(), len(hz)) if len(br) == len(hz) else None
         if numbered is None:
             self.stats["pleco_refs_unparsed_pinyin"] += 1
-            return hz
+            return m.group(0) if " " in pin or m.group(0)[len(hz)] == " " else hz
         toneless = re.sub(r"\d", "", numbered)
         cands = [e for e in self.by_simp.get(hz, ()) if re.sub(r"\d", "", e["canonical"]) == toneless]
+        if not cands and br != hz:                             # the bracket holds the simplified form
+            cands = [e for e in self.by_simp.get(br, ()) if re.sub(r"\d", "", e["canonical"]) == toneless]
+            if cands:
+                hz = br
         exact = [e for e in cands if e["canonical"] == numbered] or cands
+        # the capitalisation of the source words tells homographs apart (渤海 Bó Hǎi / Bó hǎi)
+        cased = []
+        for word in pin.replace("'", " ").split():
+            syl = (marked_to_numbered(word.lower()) or "").split()
+            if syl and word[0].isupper():
+                syl[0] = syl[0][0].upper() + syl[0][1:]
+            cased += syl
+        same_case = [e for e in exact if e["cased"] == " ".join(cased)]
+        exact = same_case or exact
         trads = sorted({e["trad"] for e in exact})
         if exact:
             numbered = exact[0]["cased"] if len({e["cased"] for e in exact}) == 1 else numbered
@@ -131,7 +146,7 @@ class CantoParser:
         return [p for p in parts if p]
 
     def adapted(self, body: str):
-        body = re.sub(rf"\]\s*/\s*(?=[{_H}]+[a-züà-ǜ]+ \[)", "], ", body)
+        body = re.sub(rf"\]\s*/\s*(?=[{_H}]+ ?[a-züà-ǜ' ]+ \[)", "], ", body)
         senses, notes = [], []
         for g in body.split("/"):
             g = g.strip()
@@ -184,6 +199,55 @@ class CantoParser:
                     senses += s
                     notes += [x for x in n if x["kind"] not in ("also_pr", "taiwan_pr")]
         return senses, notes
+
+
+class SimplifiedFixer:
+    """CC-Canto's simplified column, checked character by character against the simplifications
+    CC-CEDICT attests (PIPE-078 hygiene). Applies to headwords CC-CEDICT lacks — the others take
+    CC-CEDICT's own pair:
+      A. a character CC-CEDICT keeps unchanged in simplified script but CC-Canto replaced with a
+         different, unattested character is restored (佢哋: 渠哋 → 佢哋; 阿 → 啊, 擘 → 掰, 捱 → 挨);
+      B. a character left unsimplified although CC-CEDICT always simplifies it to one common (URO)
+         character is simplified (口垃濕 → 口垃湿);
+      C. a replacement CC-CEDICT does not attest, for a character it simplifies otherwise, becomes
+         the attested form (個囉: 个罗 → 个啰).
+    Cantonese characters without an attested simplification keep their own form (嗰, 攞, 餸)."""
+
+    def __init__(self, cedict_entries: list[dict]):
+        self.t2s: dict[str, Counter] = defaultdict(Counter)
+        for c in cedict_entries:
+            if len(c["trad"]) == len(c["simp"]):
+                for a, b in zip(c["trad"], c["simp"]):
+                    self.t2s[a][b] += 1
+        self.changes: Counter = Counter()
+
+    def fix(self, trad: str, simp: str) -> str:
+        if len(trad) != len(simp):
+            return simp
+        out = []
+        for a, b in zip(trad, simp):
+            known = self.t2s.get(a)
+            new = b
+            if known and b not in known:
+                best = known.most_common(1)[0][0]
+                if a in known and b != a:
+                    new, rule = a, "A"                                    # restore the character itself
+                elif b == a and len(known) == 1 and "\u4e00" <= best <= "\u9fff":
+                    new, rule = best, "B"                                 # unsimplified in the simplified column
+                elif b != a and "\u4e00" <= best <= "\u9fff":
+                    new, rule = best, "C"                                 # unattested replacement
+                if new != b:
+                    self.changes[(rule, a, b, new)] += 1
+            out.append(new)
+        return "".join(out)
+
+    def report(self) -> dict:
+        per_rule = Counter()
+        for (rule, _a, _b, _n), n in self.changes.items():
+            per_rule[rule] += n
+        top = [f"{a}: {b} -> {n} ({rule}, {cnt})" for (rule, a, b, n), cnt in self.changes.most_common(40)]
+        return {"characters_changed": sum(self.changes.values()), "distinct_mappings": len(self.changes),
+                "per_rule": dict(sorted(per_rule.items())), "most_common": top}
 
 
 def _norm_sense(t: str) -> str:
@@ -239,6 +303,7 @@ def build_cantonese(man: Dataset, hsk_rows: list[dict], cfg: Config):
     for hw in c_by_hw:
         hw_by_trad[hw[0]].append(hw)
     parser = CantoParser(man, kstats)
+    simp_fixer = SimplifiedFixer(C)
     K: dict[tuple[str, str], dict[str, dict]] = defaultdict(dict)       # headword -> jyut -> record
     k_order: list[tuple[str, str]] = []
     for trad, simp, pin, jys, body, adapted in read_canto(cfg.refs / "cccanto-webdist.txt", kstats):
@@ -256,7 +321,7 @@ def build_cantonese(man: Dataset, hsk_rows: list[dict], cfg: Config):
             kstats["pinyin_respaced"] += 1
         hws = hw_by_trad.get(trad)
         if not hws:
-            hw = (trad, simp)
+            hw = (trad, simp_fixer.fix(trad, simp))
         elif (trad, simp) in c_by_hw:
             hw = (trad, simp)
         else:
@@ -542,7 +607,6 @@ def build_cantonese(man: Dataset, hsk_rows: list[dict], cfg: Config):
     from .yue_corpus import cantonese_lm
     clm = cantonese_lm(ds, cfg, corpus)
     assign_frequency(ds, "trad", dict(zip(clm.words, clm.logp)), clm.observed)
-    lmmod.build_abbr(ds, clm, cfg)
 
     # --- English postings (DATA-076): Cantonese blocks per entry (flag 1); Mandarin block once per
     #     CC-CEDICT entry on its primary Cantonese entry; Unihan flag 2
@@ -604,6 +668,7 @@ def build_cantonese(man: Dataset, hsk_rows: list[dict], cfg: Config):
                         "primary_entry_decisions": decisions, "rows_without_jyutping": sum(r["_nojy"] for r in rows),
                         "entries_with_levels_via_variant": via}
     build_hsk_chars(ds, cfg, sort_key_of=lambda e: pin_of.get(e["id"]) or hskmod.entry_sort_key(e))
+    lmmod.build_abbr(ds, clm, cfg)          # after the reading ranks: a word's primary reading leads its postings
 
     # --- report
     nk, tg = Counter(), Counter()
@@ -615,6 +680,7 @@ def build_cantonese(man: Dataset, hsk_rows: list[dict], cfg: Config):
                 tg[t] += 1
     ds.report.update({
         "join": dict(sorted(stats.items())), "cccanto_hygiene": dict(sorted(kstats.items())),
+        "cccanto_simplified_forms": simp_fixer.report(),
         "readings_file_hygiene": dict(sorted(rstats.items())),
         "notes": {"by_kind": dict(sorted(nk.items()))}, "tags": dict(sorted(tg.items())),
         "blocks": dict(sorted(Counter(b["kind"] for e in ds.entries for b in e["blocks"]).items())),

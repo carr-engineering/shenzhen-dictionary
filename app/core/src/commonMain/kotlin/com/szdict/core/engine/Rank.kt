@@ -54,6 +54,7 @@ internal object Ranking {
         if (pa.freqRank != pb.freqRank) return@Comparator pa.freqRank.compareTo(pb.freqRank)
         if (pa.charCount != pb.charCount) return@Comparator pa.charCount.compareTo(pb.charCount)
         if (pa.isProper != pb.isProper) return@Comparator if (pa.isProper) 1 else -1
+        if (pa.readingRank != pb.readingRank) return@Comparator pa.readingRank.compareTo(pb.readingRank)
         pa.id.compareTo(pb.id)
     }
 
@@ -64,6 +65,21 @@ internal object Ranking {
         if (pa.freqRank != pb.freqRank) return@Comparator pa.freqRank.compareTo(pb.freqRank)
         if (pa.charCount != pb.charCount) return@Comparator pa.charCount.compareTo(pb.charCount)
         if (pa.isProper != pb.isProper) return@Comparator if (pa.isProper) 1 else -1
+        if (pa.readingRank != pb.readingRank) return@Comparator pa.readingRank.compareTo(pb.readingRank)
+        pa.id.compareTo(pb.id)
+    }
+
+    /**
+     * The one entry that stands for a bare headword (a segment's default reading, a decomposition
+     * row): dictionary entries before Unicode-only ones, then the dataset's primary-reading rank
+     * (HSK level, the character's most common reading, common before proper noun), then the tie
+     * rule of GLB-013 and the id.
+     */
+    val primary: Comparator<Proj> = Comparator { pa, pb ->
+        if (pa.isUnihan != pb.isUnihan) return@Comparator if (pa.isUnihan) 1 else -1
+        if (pa.readingRank != pb.readingRank) return@Comparator pa.readingRank.compareTo(pb.readingRank)
+        if (pa.isProper != pb.isProper) return@Comparator if (pa.isProper) 1 else -1
+        if (pa.freqRank != pb.freqRank) return@Comparator pa.freqRank.compareTo(pb.freqRank)
         pa.id.compareTo(pb.id)
     }
 

@@ -158,7 +158,10 @@ class ContractVectorsTest {
             }
             "segmentation" -> {
                 val p = dict.analyse(query, SegmentationMode.HANZI)
-                val want = expected.jsonObject[if (dict.info().hasFrequencyData) "dag" else "greedy"]!!.strings()
+                // The bigram lattice when the dataset carries the model (SCHEMA note 20), else the unigram DAG, else greedy.
+                val info = dict.info()
+                val strategy = if (!info.hasFrequencyData) "greedy" else if (info.hasBigramModel && "lattice" in expected.jsonObject) "lattice" else "dag"
+                val want = expected.jsonObject[strategy]!!.strings()
                 assertEquals(want, p.segments.map { query.substring(it.start, it.end) }, id)
             }
             "merge_group" -> {

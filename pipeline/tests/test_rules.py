@@ -181,3 +181,60 @@ def test_vectors_file_is_current():
     import make_vectors
     stored = json.loads((REPO / "contract" / "normalisation-vectors.json").read_text("utf-8"))
     assert stored == json.loads(json.dumps(make_vectors.build(), ensure_ascii=False))
+
+
+# --- quality pass: display readings, Pleco references, CC-Canto simplified forms, reading ranks ---------
+def test_display_reading_attaches_commas():
+    d, c, syl, tones = parse_pinyin("yi1 bu4 zuo4 , er4 bu4 xiu1")[:4]
+    assert d == "yī bù zuò, èr bù xiū"
+    assert c == "yi1 bu4 zuo4 , er4 bu4 xiu1" and len(syl) == len(tones) == 7      # one token per source token
+    assert parse_pinyin("Ma3 ding1 · Lu4 de2")[0] == "Mǎ dīng · Lù dé"            # a middle dot keeps its spaces
+
+
+def test_pleco_reference_forms():
+    from szdict.cantonese import PLECO_RE
+    cases = {
+        "Mandarin equivalent: 他tā [他]": ("他", "tā"),
+        "abbr. for Anhui Province 安徽省 Ānhuī Shěng [安徽省]": ("安徽省", "Ānhuī Shěng"),
+        "same as 渤海 Bó Hǎi [渤海], Bohai Sea": ("渤海", "Bó Hǎi"),
+        "the first emperor 秦始皇 Qín Shǐhuáng [秦始皇]": ("秦始皇", "Qín Shǐhuáng"),
+        "abbr. for 陕西Shǎnxī [陕西]": ("陕西", "Shǎnxī"),
+    }
+    for text, (hz, pin) in cases.items():
+        m = PLECO_RE.search(text)
+        assert m and (m.group(1), m.group(2)) == (hz, pin), text
+    assert PLECO_RE.search("see 楞迦 Sri Lanka") is None
+    assert marked_to_numbered("ānhuī shěng", 3) == "an1 hui1 sheng3"
+
+
+def test_cccanto_simplified_forms():
+    from szdict.cantonese import SimplifiedFixer
+    cedict = [{"trad": t, "simp": s} for t, s in (
+        ("佢", "佢"), ("阿姨", "阿姨"), ("濕", "湿"), ("潮濕", "潮湿"), ("囉", "啰"), ("乾", "干"), ("乾", "乾"), ("個", "个"))]
+    fx = SimplifiedFixer(cedict)
+    assert fx.fix("佢哋", "渠哋") == "佢哋"            # A: the character itself is the simplified form
+    assert fx.fix("阿乜人", "啊乜人") == "阿乜人"
+    assert fx.fix("口垃濕", "口垃濕") == "口垃湿"       # B: left unsimplified
+    assert fx.fix("個囉", "个罗") == "个啰"            # C: unattested replacement
+    assert fx.fix("乾手", "干手") == "干手" and fx.fix("乾手", "乾手") == "乾手"   # both attested: kept
+    assert fx.fix("嗰排", "嗰排") == "嗰排"            # Cantonese character without an attested simplification
+    assert fx.report()["per_rule"] == {"A": 2, "B": 1, "C": 1}
+
+
+def test_reading_rank_order():
+    from szdict.core import Dataset, assign_reading_ranks, flags_of
+    ds = Dataset("mandarin")
+    base = dict(display="", cased="", syllables=(), tones=(), rsrc=0)
+    dan = ds.add(trad="石", simp="石", canonical="dan4", senses=[{}, {}], **base)
+    shi = ds.add(trad="石", simp="石", canonical="shi2", senses=[{}], **base)
+    name = ds.add(trad="石", simp="石", canonical="shi2", senses=[{}], proper=True, **base)
+    hang = ds.add(trad="行", simp="行", canonical="hang2", senses=[{}], hsk=[{"l": 5}], **base)
+    xing = ds.add(trad="行", simp="行", canonical="xing2", senses=[{}], hsk=[{"l": 3}], **base)
+    er = ds.add(trad="兒", simp="儿", canonical="er2", senses=[{}], **base)
+    r = ds.add(trad="兒", simp="儿", canonical="r5", senses=[{}, {}, {}], **base)
+    assign_reading_ranks(ds, {"石": {"kHanyuPinlu": "shí(1006)", "kMandarin": "shí"},
+                              "行": {"kHanyuPinlu": "xíng(2943) háng(218)"}, "儿": {"kHanyuPinlu": "r(4527) ér(1000)"}})
+    assert [e["rrank"] for e in (shi, name, dan)] == [0, 1, 2]       # Unihan order, then common before proper
+    assert (xing["rrank"], hang["rrank"]) == (0, 1)                  # lower HSK level first
+    assert (er["rrank"], r["rrank"]) == (0, 1)                       # the non-syllabic suffix never leads
+    assert flags_of(dan) >> 4 == 2 and flags_of(shi) >> 4 == 0

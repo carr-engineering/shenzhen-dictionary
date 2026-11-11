@@ -39,6 +39,10 @@ CASES = [
     {"id": "m-hanzi-unihan", "mode": "mandarin", "type": "headword_exact", "query": "㐀"},
     {"id": "m-hanzi-radical-form", "mode": "mandarin", "type": "headword_exact", "query": "⻊", "raw": True},
     {"id": "m-segment", "mode": "mandarin", "type": "segmentation", "query": "我们研究生命科学"},
+    {"id": "m-segment-bank", "mode": "mandarin", "type": "segmentation", "query": "银行行长"},
+    {"id": "m-segment-bridge", "mode": "mandarin", "type": "segmentation", "query": "南京市长江大桥"},
+    {"id": "m-segment-paddle", "mode": "mandarin", "type": "segmentation", "query": "乒乓球拍卖完了"},
+    {"id": "m-segment-monk", "mode": "mandarin", "type": "segmentation", "query": "结婚的和尚未结婚的"},
     {"id": "m-merge-hou", "mode": "mandarin", "type": "merge_group", "query": "后", "script": 0},
     {"id": "m-merge-zan", "mode": "mandarin", "type": "merge_group", "query": "赞", "script": 0},
     {"id": "m-redirect-erhua", "mode": "mandarin", "type": "redirect", "query": "一点儿"},
@@ -65,6 +69,8 @@ CASES = [
     {"id": "c-none-entry", "mode": "cantonese", "type": "headword_exact", "query": "上升", "blocks": True},
     {"id": "c-none-entry-no-reading", "mode": "cantonese", "type": "reading_rows", "query": "上升"},
     {"id": "c-segment-pronoun-ge", "mode": "cantonese", "type": "segmentation", "query": "佢嘅朋友係我哋嘅老師"},
+    {"id": "c-segment-eat", "mode": "cantonese", "type": "segmentation", "query": "佢哋喺邊度食飯"},
+    {"id": "c-segment-film", "mode": "cantonese", "type": "segmentation", "query": "我哋聽日去睇戲"},
     {"id": "c-hsk-chars-l1", "mode": "cantonese", "type": "hsk_chars", "level": 1, "top": 10},
     {"id": "c-popular", "mode": "cantonese", "type": "popular", "top": 10},
 ]
@@ -94,7 +100,7 @@ class Index:
     def order(self, ids, alt=None):
         E = self.ds.entries
         return sorted(ids, key=lambda i: (E[i]["unihan"], (alt or {}).get(i, 0) > 0, E[i]["freq_rank"], len(E[i]["simp"]),
-                                          E[i]["proper"], i))
+                                          E[i]["proper"], min(E[i].get("rrank", 0), 15), i))
 
 
 def evaluate(case: dict, ix: Index):
@@ -131,7 +137,7 @@ def evaluate(case: dict, ix: Index):
         key = case.get("key", q)
         out = []
         seen = set()
-        for _neg, eid, _wid, _code, alt, syl in lm.abbr.get(key, ()):
+        for _neg, _wid, _rr, eid, _code, alt, syl in lm.abbr.get(key, ()):
             if "initials" in case and not all(ix.syl[s].startswith(p) for s, p in zip(syl, case["initials"])):
                 continue
             if eid in seen:
@@ -161,7 +167,7 @@ def evaluate(case: dict, ix: Index):
                         hits[e["id"]] = 2 if e["unihan"] else 0
                         break
         ids = sorted(hits, key=lambda i: (hits[i] != 1 if ds.id == "cantonese" else False, E[i]["unihan"], E[i]["freq_rank"],
-                                          len(E[i]["simp"]), E[i]["proper"], i))
+                                          len(E[i]["simp"]), E[i]["proper"], min(E[i].get("rrank", 0), 15), i))
         return [dict(desc(E[i]), **({"flags": hits[i]} if case.get("flags") else {})) for i in ids][:top or 10]
     if t == "segmentation":
         wf = ds.word_freq
@@ -188,7 +194,10 @@ def evaluate(case: dict, ix: Index):
                     greedy.append(q[i:j])
                     i = j
                     break
-        return {"dag": dag[::-1], "greedy": greedy}
+        out = {"dag": dag[::-1], "greedy": greedy}
+        if lm.has_bigrams:
+            out["lattice"] = lmmod.segment_lattice(ds, lm, ix.head, q)
+        return out
     if t == "merge_group":
         form = "simp" if case["script"] == 0 else "trad"
         out = []
@@ -264,16 +273,16 @@ def run(datasets: dict, cfg, update: bool) -> tuple[bool, dict]:
 
 TYPES = {
     "headword_exact": "entries whose headword key (any kind) equals the SRCH-010 key of `query` (or the raw query when `raw`), "
-                      "ordered by (Unihan-only last, freq_rank, char_count, proper noun last, id)",
+                      "ordered by (Unihan-only last, freq_rank, char_count, proper noun last, reading rank, id)",
     "reading_exact": "entries with a reading row for the toneless `syllables` (space-joined key) whose tones match `tones` "
                      "(0 = any): dictionary entries before Unihan-only ones (SRCH-079), then main-reading matches before alternative-reading "
-                     "matches (`alt` 1 also_pr, 2 taiwan_pr), then freq_rank, char_count, proper noun last, id",
+                     "matches (`alt` 1 also_pr, 2 taiwan_pr), then freq_rank, char_count, proper noun last, reading rank (flags bits 4-7), id",
     "reading_rows": "number of entries of the headword and how many of them have a reading row (0 for reading_source none)",
     "abbrev": "first postings of abbr_idx[`key` or `query`] in stored order, filtered to syllables starting with `initials`, one per entry",
     "combination": "best word sequence of the lattice decoder for a pure first-letter query (bigram model, DATA-153 scoring)",
     "english": "entries with one sense containing every SRCH-013 token of `query`; Cantonese: CC-Canto postings (flags 1) first, "
                "Mandarin-block senses only on the primary Cantonese entry",
-    "segmentation": "`dag`: maximum-probability segmentation with word_freq.log_prob (unknown single character = -20, TXT-012); `greedy`: forward longest match",
+    "segmentation": "`dag`: maximum-probability segmentation with word_freq.log_prob (unknown single character = -20, TXT-012) — the app's fallback without the language-model file; `lattice`: the bigram lattice the app decodes when the language model is present (TXT-026, SCHEMA note 20: quantised unigram / bigram / backoff, 1 nat per word); `greedy`: forward longest match",
     "merge_group": "merge groups whose primary has the headword in the given script (0 simplified, 1 traditional)",
     "redirect": "redirect of each entry with that headword: kind, resolved flag and target",
     "hsk_entry": "entry.hsk / entry.hsk_via of the entries with that headword",
