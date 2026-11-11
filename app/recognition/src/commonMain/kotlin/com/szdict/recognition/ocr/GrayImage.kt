@@ -241,8 +241,10 @@ internal object InkAnalysis {
             for (x in lo until hi) count += mask[y * w + x]
             rows[y] = count
         }
-        // A row of text carries far more ink than the trace of a slanted page edge crossing it.
-        val inked = max(2, ((hi - lo) * .015).toInt())
+        // A row of text carries far more ink than the trace of a slanted page edge crossing it, or
+        // than the valley between two lines set close together.
+        val typical = rows.copyOfRange(coreTop.coerceIn(0, h), coreBottom.coerceIn(coreTop.coerceIn(0, h), h)).sorted().let { if (it.isEmpty()) 0 else it[it.size * 3 / 4] }
+        val inked = max(max(2, ((hi - lo) * .015).toInt()), (typical * .12).toInt())
         // A blank band this tall ends the line; thinner ones are gaps inside glyphs (二, i, ；).
         val tolerance = max(1, ((coreBottom - coreTop) * .08).roundToInt())
         var top = coreTop
@@ -279,6 +281,37 @@ internal object InkAnalysis {
             return count
         }
         return ink(top - reach, top - gap) >= 2 && ink(bottom + gap, bottom + reach) >= 2
+    }
+
+    /**
+     * Row ranges of the text lines stacked inside one crop: maximal runs of inked rows (judged on
+     * columns `[colLo, colHi)`) separated by blank bands, ignoring runs much thinner than the
+     * tallest (dots, accents, a rule). One range for an ordinary single line.
+     */
+    fun stackedLines(mask: ByteArray, w: Int, h: Int, colLo: Int, colHi: Int): List<IntArray> {
+        val lo = colLo.coerceIn(0, w)
+        val hi = colHi.coerceIn(lo, w)
+        val rows = IntArray(h)
+        for (y in 0 until h) for (x in lo until hi) rows[y] += mask[y * w + x]
+        val typical = rows.sorted()[h * 3 / 4]
+        val inked = max(max(2, ((hi - lo) * .015).toInt()), (typical * .12).toInt())
+        val gap = max(2, (h * .04).roundToInt())
+        val bands = ArrayList<IntArray>()
+        var start = -1
+        var blank = 0
+        for (y in 0..h) {
+            val count = if (y < h) rows[y] else 0
+            if (count >= inked) {
+                if (start < 0) start = y
+                blank = 0
+            } else if (start >= 0 && (++blank >= gap || y == h)) {
+                bands.add(intArrayOf(start, y - blank + 1))
+                start = -1
+                blank = 0
+            }
+        }
+        val tallest = bands.maxOfOrNull { it[1] - it[0] } ?: 0
+        return bands.filter { it[1] - it[0] >= max(8.0, tallest * .25) }
     }
 
     /**

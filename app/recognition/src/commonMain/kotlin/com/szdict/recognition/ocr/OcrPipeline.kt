@@ -75,9 +75,6 @@ internal class OcrPipeline(
     /** Optional diagnostics sink (one message per detected region). */
     private val trace: ((String) -> Unit)? = null,
 ) {
-    /** Ink threshold for the page being read (see InkAnalysis.inkBounds). */
-    private var inkThreshold = 18
-
     /** A prepared line crop, upright and contrast-normalised. */
     private class Crop(
         val gray: Gray,
@@ -213,7 +210,8 @@ internal class OcrPipeline(
      * lines; this is decided per region, which lets a column stand beside a block of horizontal text.
      */
     private fun detectLayout(page: Gray): Layout {
-        val (upright, fine) = detectRegions(page)
+        val (merged, fine) = detectRegions(page)
+        val upright = merged.flatMap { splitStacked(page, it) }
         val turnedPage = page.rotate90()
         // Turned (x', y') is page (y', pageHeight - x'); a turned line runs up the page.
         val turned = detectRegions(turnedPage, fine).first.map { it.copy(cx = it.cy, cy = page.h - it.cx, angle = it.angle - PI / 2) }
@@ -231,6 +229,41 @@ internal class OcrPipeline(
             Geometry.joinCollinear(rows.map { extendAlongInk(page, it, columnBoxes) }),
             Geometry.joinCollinear(columns.map { extendAlongInk(page, it, rowBoxes) }),
         )
+    }
+
+    /**
+     * The detector sometimes reports two lines set close above each other as one region (a sign's
+     * Chinese name with its English name underneath). A region whose ink falls into separate row
+     * bands is cut into one region per band.
+     */
+    private fun splitStacked(page: Gray, region: Region): List<Region> {
+        if (region.w < region.h * 1.5 || region.h < 16) return listOf(region)
+        // Seen with headroom: the detected box often cuts through the smaller of the two lines.
+        val pad = ceil(region.h * .35).toInt()
+        val w = ceil(region.w).toInt()
+        val h = ceil(region.h).toInt() + 2 * pad
+        var ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
+        if (ink.box == null) return listOf(region)
+        // Level the lines first: a blank band between them only shows when they run along the rows.
+        var angle = region.angle
+        val skew = if (region.w > region.h * 3) InkAnalysis.residualSkew(ink.mask, w, h) else 0.0
+        if (skew != 0.0) {
+            angle += skew
+            ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, angle, w, h))
+        }
+        // Whole lines seen in the crop (a band touching its edge is a neighbour cut off). Two or
+        // more mean the detected box holds, or is crowded by, a second line: the box is replaced
+        // by one region per line lying at least a third inside it.
+        val whole = InkAnalysis.stackedLines(ink.mask, w, h, 0, w).filter { it[0] > 0 && it[1] < h }
+        if (whole.size < 2) return listOf(region)
+        val bands = whole.filter { (min(it[1], h - pad) - max(it[0], pad)) * 3 >= it[1] - it[0] }
+        if (bands.isEmpty()) return listOf(region)
+        val c = cos(angle)
+        val s = sin(angle)
+        return bands.map { (top, bottom) ->
+            val v = (top + bottom) / 2.0 - h / 2.0
+            region.copy(cx = region.cx - v * s, cy = region.cy + v * c, h = (bottom - top) * 1.1, angle = angle)
+        }
     }
 
     private fun intersection(a: Box, b: Box): Double =
@@ -321,14 +354,18 @@ internal class OcrPipeline(
      */
     private fun extendAlongInk(page: Gray, region: Region, obstacles: List<Box>): Region {
         if (region.w < region.h * 1.2) return region // single glyphs may be parts of a vertical column
-        val reach = (region.h * 8).roundToInt()
+        val reach = (region.h * 4).roundToInt()
         val core = ceil(region.w).toInt()
         val w = core + 2 * reach
-        val pad = max(3, ceil(region.h * .35).toInt())
+        val pad = max(3, ceil(region.h * .45).toInt())
         val h = max(4, ceil(region.h).toInt()) + 2 * pad
-        val ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h), inkThreshold)
+        val ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
         if (ink.box == null) return region
         val (top, bottom) = InkAnalysis.textRows(ink.mask, w, h, pad + (region.h * .2).toInt(), h - pad - (region.h * .2).toInt(), reach, reach + core)
+        // Without room above and below the band to tell glyphs from things crossing it (the band
+        // reaches the crop edge, or is much taller than the detector said), nothing is added.
+        val room = ((bottom - top) * .3).toInt()
+        if (top - room < 0 || bottom + room > h) return region
         val inked = BooleanArray(w) { x ->
             var any = false
             for (y in top until bottom) if (ink.mask[y * w + x].toInt() != 0) { any = true; break }
@@ -375,14 +412,14 @@ internal class OcrPipeline(
         val pad = if (region.vertical) 2 else max(2, ceil(region.h * .35).toInt())
         val w = max(1, ceil(region.w + 4).toInt())
         val h = max(1, ceil(region.h).toInt() + 2 * pad)
-        var ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h), inkThreshold)
+        var ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
         if (ink.box == null) return null
         if (!region.vertical && region.w > region.h * 3) {
             // The detector's angle is coarse; a residual tilt over a long line shrinks and skews the glyphs.
             val skew = InkAnalysis.residualSkew(ink.mask, w, h)
             if (skew != 0.0) {
                 region = region.copy(angle = region.angle + skew)
-                ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h), inkThreshold)
+                ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
             }
         }
         if (!region.vertical) InkAnalysis.dropSolid(ink.mask, w, h, rows = region.w > region.h * 3)
