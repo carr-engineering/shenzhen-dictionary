@@ -32,6 +32,8 @@ internal fun AssetManager.loadModel(path: String): ByteBuffer {
 internal fun AssetManager.loadLabels(path: String): List<String> =
     open(path).use { it.readBytes() }.toString(Charsets.UTF_8).split('\n').let { if (it.last().isEmpty()) it.dropLast(1) else it }
 
+// Plain CPU kernels: the graphs are small, quantised and resized per line, where XNNPACK brought no
+// measurable gain; this also keeps results identical to the reference interpreter.
 private fun interpreter(model: ByteBuffer, threads: Int): Interpreter =
     Interpreter(model, Interpreter.Options().setNumThreads(threads).setUseXNNPACK(false))
 
