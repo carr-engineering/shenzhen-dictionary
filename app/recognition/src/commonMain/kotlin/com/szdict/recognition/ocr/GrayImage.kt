@@ -182,20 +182,29 @@ internal object InkAnalysis {
             }
         }
         val radius = max(8, (h * .45).roundToInt())
-        // Signed deviation from the local mean, clamped to a byte.
+        // A second, stroke-sized neighbourhood: a stroke stands out from it as well, whereas the
+        // inside of a shadow, a dark panel or a wall beside a sign, and any soft lighting edge, do not.
+        val near = max(3, (h * .15).roundToInt())
+        fun mean(x: Int, y: Int, r: Int): Double {
+            val a = max(0, x - r)
+            val b = min(w, x + r + 1)
+            val c = max(0, y - r)
+            val d = min(h, y + r + 1)
+            return (integral[d * iw + b] - integral[c * iw + b] - integral[d * iw + a] + integral[c * iw + a]).toDouble() / ((b - a) * (d - c))
+        }
+        // Signed deviation from the local mean, clamped to a byte; zero where the pixel does not
+        // also stand out from its stroke-sized neighbourhood.
         val deviation = ByteArray(w * h)
         var skew = 0.0
-        for (y in 0 until h) {
-            val c = max(0, y - radius)
-            val d = min(h, y + radius + 1)
-            for (x in 0 until w) {
-                val a = max(0, x - radius)
-                val b = min(w, x + radius + 1)
-                val mean = (integral[d * iw + b] - integral[c * iw + b] - integral[d * iw + a] + integral[c * iw + a]).toDouble() / ((b - a) * (d - c))
-                val dev = (src[x, y] - mean).roundToInt().coerceIn(-127, 127)
-                deviation[y * w + x] = dev.toByte()
-                if (dev < -threshold || dev > threshold) skew += dev.toDouble() * dev * dev
-            }
+        val half = threshold / 2
+        for (y in 0 until h) for (x in 0 until w) {
+            val g = src[x, y]
+            val dev = (g - mean(x, y, radius)).roundToInt().coerceIn(-127, 127)
+            if (dev >= -threshold && dev <= threshold) continue
+            val local = g - mean(x, y, near)
+            if ((dev < 0 && local > -half) || (dev > 0 && local < half)) continue
+            deviation[y * w + x] = dev.toByte()
+            skew += dev.toDouble() * dev * dev
         }
         val dark = skew > 0
         val gray = Gray(w, h, src.px.copyOf())
@@ -217,20 +226,23 @@ internal object InkAnalysis {
     }
 
     /**
-     * Ink box of the text line whose rows `[coreTop, coreBottom)` the detector reported, in a crop
-     * cut with headroom above and below. The band grows from the core over rows that carry ink and
-     * stops at the first blank band, so glyph tops and bottoms the detector cut off are recovered
-     * while the neighbouring lines stay out.
+     * Rows `[top, bottom)` of the text line whose rows `[coreTop, coreBottom)` the detector
+     * reported, in a crop cut with headroom above and below. Only columns `[colLo, colHi)` - where
+     * the detector saw the text - are consulted. The band grows from the core over rows that carry
+     * ink and stops at the first blank band, so glyph tops and bottoms the detector cut off are
+     * recovered while the neighbouring lines stay out.
      */
-    fun lineBand(mask: ByteArray, w: Int, h: Int, coreTop: Int, coreBottom: Int): IntArray? {
+    fun textRows(mask: ByteArray, w: Int, h: Int, coreTop: Int, coreBottom: Int, colLo: Int, colHi: Int): IntArray {
+        val lo = colLo.coerceIn(0, w)
+        val hi = colHi.coerceIn(lo, w)
         val rows = IntArray(h)
         for (y in 0 until h) {
             var count = 0
-            for (x in 0 until w) count += mask[y * w + x]
+            for (x in lo until hi) count += mask[y * w + x]
             rows[y] = count
         }
         // A row of text carries far more ink than the trace of a slanted page edge crossing it.
-        val inked = max(2, (w * .015).toInt())
+        val inked = max(2, ((hi - lo) * .015).toInt())
         // A blank band this tall ends the line; thinner ones are gaps inside glyphs (二, i, ；).
         val tolerance = max(1, ((coreBottom - coreTop) * .08).roundToInt())
         var top = coreTop
@@ -247,6 +259,58 @@ internal object InkAnalysis {
             if (rows[y] >= inked) { bottom = y + 1; blank = 0 } else blank++
             y++
         }
+        // Shrink to rows that actually carry ink.
+        while (top < bottom - 1 && rows[top] < inked) top++
+        while (bottom > top + 1 && rows[bottom - 1] < inked) bottom--
+        return intArrayOf(top, bottom)
+    }
+
+    /**
+     * Whether the run of inked columns `[from, to)` sticks out of the text band `[top, bottom)` both
+     * above and below. A glyph of the line stays within the band; the edge of a page or panel, a
+     * frame, a cast shadow or the wall beside a sign crosses it.
+     */
+    fun crossesBand(mask: ByteArray, w: Int, h: Int, from: Int, to: Int, top: Int, bottom: Int): Boolean {
+        val gap = max(2, ((bottom - top) * .12).roundToInt())
+        val reach = max(gap + 2, ((bottom - top) * .4).roundToInt())
+        fun ink(rowFrom: Int, rowTo: Int): Int {
+            var count = 0
+            for (y in max(0, rowFrom) until min(h, rowTo)) for (x in from until to) count += mask[y * w + x]
+            return count
+        }
+        return ink(top - reach, top - gap) >= 2 && ink(bottom + gap, bottom + reach) >= 2
+    }
+
+    /**
+     * Ink box of a text line in a crop cut with headroom: the rows found by [textRows], and the
+     * columns holding ink in those rows, without runs at either end that cross the band
+     * ([crossesBand]). Cleared runs are also removed from [mask].
+     */
+    fun lineBand(mask: ByteArray, w: Int, h: Int, coreTop: Int, coreBottom: Int, colLo: Int = 0, colHi: Int = w): IntArray? {
+        val (top, bottom) = textRows(mask, w, h, coreTop, coreBottom, colLo, colHi)
+        val inked = BooleanArray(w) { x ->
+            var any = false
+            for (y in top until bottom) if (mask[y * w + x].toInt() != 0) { any = true; break }
+            any
+        }
+        fun trim(step: Int) {
+            var x = if (step > 0) 0 else w - 1
+            val stop = if (step > 0) colLo.coerceIn(0, w) else colHi.coerceIn(0, w) - 1
+            while (x != stop && x in 0 until w) {
+                if (!inked[x]) { x += step; continue }
+                var end = x
+                while (end in 0 until w && inked[end]) end += step
+                val from = min(x, end + 1 - (if (step > 0) 1 else 0))
+                val lo = if (step > 0) x else end + 1
+                val hi = if (step > 0) end else x + 1
+                if (!crossesBand(mask, w, h, lo, hi, top, bottom)) return
+                for (xx in lo until hi) { inked[xx] = false; for (y in 0 until h) mask[y * w + xx] = 0 }
+                x = end
+                if (from < 0) return
+            }
+        }
+        trim(1)
+        trim(-1)
         var x0 = w
         var x1 = 0
         var y0 = h
@@ -350,7 +414,7 @@ internal object InkAnalysis {
                 cnt[(y + 1) * iw + x + 1] = cnt[y * iw + x + 1] + rowCnt
             }
         }
-        val radius = max(8, (h * .45).roundToInt())
+        val radius = max(6, (h * .25).roundToInt())
         val depth = IntArray(w * h)
         val hist = IntArray(256)
         var inked = 0

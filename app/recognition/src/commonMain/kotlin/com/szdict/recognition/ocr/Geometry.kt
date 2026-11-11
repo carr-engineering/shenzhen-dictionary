@@ -19,7 +19,23 @@ internal data class Region(
     val proposals: Int = 1,
     val vertical: Boolean = false,
     val charHeight: Double = 0.0,
-)
+    /**
+     * The part of the region the detector itself reported, as a width and an offset of its centre
+     * along the baseline from the region centre; negative width when that is the whole region. Parts
+     * added later (ink extension, absorbed fragments) are less certain to be this line's text.
+     */
+    val anchorW: Double = -1.0,
+    val anchorShift: Double = 0.0,
+) {
+    /** The same line stretched to [width] with its centre moved [shift] along the baseline. */
+    fun stretched(shift: Double, width: Double): Region = copy(
+        cx = cx + shift * cos(angle),
+        cy = cy + shift * sin(angle),
+        w = width,
+        anchorW = if (anchorW < 0) w else anchorW,
+        anchorShift = anchorShift - shift,
+    )
+}
 
 /** Axis-aligned box `[x0, y0, x1, y1]`. */
 internal class Box(val x0: Double, val y0: Double, val x1: Double, val y1: Double) {
@@ -204,7 +220,10 @@ internal object Geometry {
                 if (j == i) continue
                 val p = merged[j]
                 val larger = p.w * p.h > r.w * r.h || (p.w * p.h == r.w * r.h && j < i)
-                if (larger && abs(p.angle - r.angle) < .2 && overlap(bounds(p), rb) > .75) { dominated = true; break }
+                // Rotated rectangles: on a tilted page a short line's bounding box lies inside its neighbour's.
+                if (larger && abs(p.angle - r.angle) < .2 && overlap(bounds(p), rb) > .75 &&
+                    intersectionArea(corners(p), corners(r)) > .75 * r.w * r.h
+                ) { dominated = true; break }
             }
             if (!dominated) kept.add(r)
         }
@@ -232,7 +251,7 @@ internal object Geometry {
                     val lo = min(-p.w / 2, du - r.w / 2)
                     val hi = max(p.w / 2, du + r.w / 2)
                     val shift = (lo + hi) / 2
-                    out[out.indexOf(p)] = p.copy(cx = p.cx + shift * c, cy = p.cy + shift * s, w = hi - lo)
+                    out[out.indexOf(p)] = p.stretched(shift, hi - lo)
                     out.remove(r)
                     changed = true
                     break@search
@@ -269,7 +288,9 @@ internal object Geometry {
                     val bottom = max(p.h / 2, dv + r.h / 2)
                     val u = (lo + hi) / 2
                     val v = (top + bottom) / 2
-                    out[i] = p.copy(cx = p.cx + u * c - v * s, cy = p.cy + u * s + v * c, w = hi - lo, h = bottom - top, score = max(p.score, r.score), proposals = p.proposals + r.proposals)
+                    out[i] = p.stretched(u, hi - lo).let {
+                        it.copy(cx = it.cx - v * s, cy = it.cy + v * c, h = bottom - top, score = max(p.score, r.score), proposals = p.proposals + r.proposals)
+                    }
                     out.removeAt(j)
                     changed = true
                     break@search

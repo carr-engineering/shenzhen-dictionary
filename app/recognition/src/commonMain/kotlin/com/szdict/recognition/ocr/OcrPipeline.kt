@@ -75,6 +75,9 @@ internal class OcrPipeline(
     /** Optional diagnostics sink (one message per detected region). */
     private val trace: ((String) -> Unit)? = null,
 ) {
+    /** Ink threshold for the page being read (see InkAnalysis.inkBounds). */
+    private var inkThreshold = 18
+
     /** A prepared line crop, upright and contrast-normalised. */
     private class Crop(
         val gray: Gray,
@@ -319,12 +322,18 @@ internal class OcrPipeline(
     private fun extendAlongInk(page: Gray, region: Region, obstacles: List<Box>): Region {
         if (region.w < region.h * 1.2) return region // single glyphs may be parts of a vertical column
         val reach = (region.h * 8).roundToInt()
-        val w = ceil(region.w).toInt() + 2 * reach
-        val h = max(4, ceil(region.h * .8).toInt())
-        val ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
+        val core = ceil(region.w).toInt()
+        val w = core + 2 * reach
+        val pad = max(3, ceil(region.h * .35).toInt())
+        val h = max(4, ceil(region.h).toInt()) + 2 * pad
+        val ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h), inkThreshold)
         if (ink.box == null) return region
-        val fill = IntArray(w)
-        for (y in 0 until h) for (x in 0 until w) fill[x] += ink.mask[y * w + x]
+        val (top, bottom) = InkAnalysis.textRows(ink.mask, w, h, pad + (region.h * .2).toInt(), h - pad - (region.h * .2).toInt(), reach, reach + core)
+        val inked = BooleanArray(w) { x ->
+            var any = false
+            for (y in top until bottom) if (ink.mask[y * w + x].toInt() != 0) { any = true; break }
+            any
+        }
         val limit = max(3, (region.h * .9).roundToInt())
         val cosA = cos(region.angle)
         val sinA = sin(region.angle)
@@ -334,40 +343,18 @@ internal class OcrPipeline(
             val py = region.cy + (x + .5 - w / 2.0) * sinA
             return obstacles.any { px > it.x0 && px < it.x1 && py > it.y0 && py < it.y1 }
         }
-        // Walks outward over runs of inked columns. A run whose columns are inked over the whole
-        // band is a bar - the edge of a page, panel or frame, or the wall beside a sign - unless it
-        // is thin and more ink follows closely, as with a stroke standing apart in its glyph
-        // (川, 引). The line ends before a bar.
-        val solid = max(2, (h * .9).toInt())
-        val thick = max(4, (region.h * .35).roundToInt())
-        val near = max(2, (region.h * .3).roundToInt())
-        fun runEnd(x: Int, step: Int): Int {
-            var end = x
-            while (end in 0 until w && fill[end] > 0) end += step
-            return end
-        }
-        fun isBar(x: Int, end: Int, step: Int): Boolean {
-            var full = 0
-            var i = x
-            while (i != end) { if (fill[i] >= solid) full++; i += step }
-            return full * 10 >= abs(end - x) * 6
-        }
+        // Walks outward over runs of inked columns and stops at the first run that is not a glyph
+        // of this line: one that crosses the text band (see InkAnalysis.crossesBand).
         fun walk(from: Int, step: Int): Int {
             var edge = from
             var blank = 0
-            // Start inside the region so a glyph the detected edge cuts through is judged whole.
-            var x = from - step * min(region.w / 2, region.h * .6).toInt()
+            var x = from
             while (x in 0 until w && blank <= limit && !blocked(x)) {
-                if (fill[x] == 0) { blank++; x += step; continue }
-                val end = runEnd(x, step)
-                if (isBar(x, end, step)) {
-                    if (abs(end - x) >= thick) break
-                    // Thin: a stroke only if ordinary ink follows within a stroke gap.
-                    var next = end
-                    while (next in 0 until w && fill[next] == 0 && abs(next - end) < near) next += step
-                    if (next !in 0 until w || fill[next] == 0 || isBar(next, runEnd(next, step), step)) break
-                }
-                if ((end - edge) * step > 0) edge = end
+                if (!inked[x]) { blank++; x += step; continue }
+                var end = x
+                while (end in 0 until w && inked[end]) end += step
+                if (InkAnalysis.crossesBand(ink.mask, w, h, min(x, end + 1), max(x + 1, end), top, bottom)) break
+                edge = end
                 blank = 0
                 x = end
             }
@@ -378,8 +365,7 @@ internal class OcrPipeline(
         val growRight = (right - (w - reach)).toDouble()
         val growLeft = (reach - left).toDouble()
         if (growRight <= 0 && growLeft <= 0) return region
-        val shift = (growRight - growLeft) / 2
-        return region.copy(cx = region.cx + shift * cos(region.angle), cy = region.cy + shift * sin(region.angle), w = region.w + growLeft + growRight)
+        return region.stretched((growRight - growLeft) / 2, region.w + growLeft + growRight)
     }
 
     private fun cropRegion(page: Gray, detected: Region): Crop? {
@@ -389,18 +375,22 @@ internal class OcrPipeline(
         val pad = if (region.vertical) 2 else max(2, ceil(region.h * .35).toInt())
         val w = max(1, ceil(region.w + 4).toInt())
         val h = max(1, ceil(region.h).toInt() + 2 * pad)
-        var ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
+        var ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h), inkThreshold)
         if (ink.box == null) return null
         if (!region.vertical && region.w > region.h * 3) {
             // The detector's angle is coarse; a residual tilt over a long line shrinks and skews the glyphs.
             val skew = InkAnalysis.residualSkew(ink.mask, w, h)
             if (skew != 0.0) {
                 region = region.copy(angle = region.angle + skew)
-                ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
+                ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h), inkThreshold)
             }
         }
         if (!region.vertical) InkAnalysis.dropSolid(ink.mask, w, h, rows = region.w > region.h * 3)
-        val box = (if (region.vertical) ink.box else InkAnalysis.lineBand(ink.mask, w, h, pad, h - pad)) ?: return null
+        // Rows are judged where the detector itself saw the text, not on what was added at the ends.
+        val anchorW = if (region.anchorW < 0) region.w else region.anchorW
+        val colLo = (w / 2.0 + region.anchorShift - anchorW / 2).toInt()
+        val colHi = ceil(w / 2.0 + region.anchorShift + anchorW / 2).toInt()
+        val box = (if (region.vertical) ink.box else InkAnalysis.lineBand(ink.mask, w, h, pad, h - pad, colLo, colHi)) ?: return null
         val c = cos(region.angle)
         val s = sin(region.angle)
         val u = (box[0] + box[2]) / 2.0 - w / 2.0
