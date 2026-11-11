@@ -78,16 +78,22 @@ fun tonedReading(reading: Reading, toneColors: Boolean, palette: DictionaryPalet
     buildAnnotatedString {
         val parts = reading.display.split(' ').filter { it.isNotBlank() }
         val tones = reading.tones
-        if (!toneColors || parts.size != tones.size) {
+        // A syllable with attached punctuation ("zuò,") also consumes the punctuation's tone-0 slot.
+        val attached = parts.count { it.isNotEmpty() && isReadingPunctuation(it.last()) && it.length > 1 }
+        if (!toneColors || parts.size + attached != tones.size) {
             append(reading.display)
             return@buildAnnotatedString
         }
+        var n = 0
         parts.forEachIndexed { index, syllable ->
             if (index > 0) append(" ")
-            val tone = tones[index]
+            val tone = tones[n++]
             if (tone <= 0) append(syllable) else withStyle(SpanStyle(color = palette.tone(tone))) { append(syllable) }
+            if (syllable.length > 1 && isReadingPunctuation(syllable.last())) n++
         }
     }
+
+private fun isReadingPunctuation(c: Char): Boolean = c == ',' || c == '，' || c == '·' || c == ';' || c == '、'
 
 fun codePointStrings(text: String): List<String> {
     val out = ArrayList<String>(text.length)
