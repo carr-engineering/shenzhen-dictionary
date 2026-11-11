@@ -89,9 +89,13 @@ data class OcrLine(
  * @property box the glyph's quad in image pixels. It is derived from the recogniser's emission
  *   position and the ink profile of the line, so it is a good estimate (suitable for hit-testing and
  *   highlighting), not a segmentation ground truth.
- * @property confidence the score of the best reading, same scale as [OcrAlt.score].
+ * @property confidence the probability of the best reading, in `0..1`; always
+ *   `alternatives.first().score`. Low values (under about 0.5) mark characters the recogniser was
+ *   unsure of, typically because a look-alike scored almost as high.
  * @property alternatives the readings the recogniser considered likely at this position, best first,
- *   including the top-1. Typically visually similar characters (e.g. 己 / 已 / 巳).
+ *   including the top-1. Typically visually similar characters (e.g. 己 / 已 / 巳). In a Chinese line
+ *   look-alikes from other scripts (kana, Latin letters, digits, symbols) are ranked down, see
+ *   [OcrAlt.score].
  */
 data class OcrChar(
     val text: String,
@@ -107,6 +111,9 @@ data class OcrChar(
  *   character was emitted, renormalised over real symbols (the CTC blank is excluded) and averaged
  *   over the emission frames weighted by how much non-blank mass each frame carries. Scores of all
  *   symbols at one position sum to 1; the returned top-K list is a prefix of that distribution.
+ *   In a line that is Chinese, candidates of other scripts under a Han top reading are down-weighted
+ *   (kana by 10, Latin letters, digits and symbols by 4) and the freed probability is spread over
+ *   the remaining candidates; a kana top reading is replaced by a Han look-alike close behind it.
  *   The network's logits are 8-bit quantised, so near-ties are common and scores are a ranking aid
  *   rather than calibrated probabilities.
  */

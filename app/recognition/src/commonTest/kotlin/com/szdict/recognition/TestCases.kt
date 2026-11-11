@@ -15,6 +15,8 @@ class OcrCase(val file: String, val expected: String, private val accept: ((Stri
     }
 }
 
+private const val PAGE_SHENZHEN = "深圳是一座年轻的现代化城市\n这里有很多高楼和美丽的公园\n每天都有人来这里工作和生活\n我们喜欢在海边散步看日落\n欢迎你来深圳旅游"
+private const val PAGE_DIRECTIONS = "请问地铁站怎么走\n一直往前走到红绿灯向右转\n大约需要十分钟就可以到达\n如果下雨可以坐公共汽车\n谢谢你的帮助再见"
 private const val MIXED_ROWS = "请勿靠近施工现场\n前方道路正在维修\n行人请走左侧通道\n谢谢您的理解配合"
 
 /** The reference pipeline's controlled test images (`web-ocr/tests`) and one look-alike image. */
@@ -43,6 +45,15 @@ object OcrCases {
         OcrCase.close("mixed-near.png", MIXED_ROWS + "\n小心地滑注意安全", 2),
         OcrCase.close("mixed-2col.png", MIXED_ROWS + "\n小心地滑注意安全\n高空作业禁止通行", 3),
         OcrCase.close("mixed-3col-loose.png", MIXED_ROWS + "\n小心地滑注意安全\n高空作业禁止通行\n佩戴安全帽进入", 3),
+        // Photo-like degradations of rendered text (tools/make_eval_set.py --testdata).
+        OcrCase.close("photo-combined.jpg", PAGE_DIRECTIONS, 3),
+        OcrCase.close("photo-rotated-15.png", PAGE_DIRECTIONS, 3),
+        OcrCase.close("photo-perspective-25.png", PAGE_SHENZHEN, 3),
+        OcrCase.close("photo-colour-panel.png", PAGE_SHENZHEN, 3),
+        OcrCase.close("photo-dark-panel.png", "注意安全小心地滑\n禁止吸烟请勿大声喧哗\n出口在左边洗手间在右边\n营业时间上午九点到晚上十点\n本店商品明码标价", 3),
+        OcrCase.close("photo-shadow.png", "学习中文需要每天练习\n先学会拼音再认识汉字\n多听多说多读多写进步很快\n遇到不懂的词语就查字典\n坚持一年就能看懂报纸", 3),
+        OcrCase.close("photo-sign-red.jpg", "小心台阶\n注意安全", 1),
+        OcrCase.close("photo-sign-dark.jpg", "深圳北站\n出发层", 1),
         OcrCase("similar.png", "我已经吃过了\n未来的土地很大") { text ->
             // 已/己 and 未/末 are genuinely ambiguous to the recogniser; the right reading must be the
             // top-1 or among the alternatives, which the alternatives tests check per character.

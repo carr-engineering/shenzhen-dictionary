@@ -78,7 +78,8 @@ class RecognizersInstrumentedTest {
                 for (c in line.chars) {
                     assertEquals(c.text, c.alternatives.first().text)
                     assertEquals(c.confidence, c.alternatives.first().score)
-                    assertTrue(c.alternatives.size <= 8)
+                    assertTrue(c.alternatives.size in 5..8, "five to eight candidates per character")
+                    assertTrue(c.confidence > 0f && c.confidence <= 1f)
                     assertTrue(c.alternatives.zipWithNext().all { (a, b) -> a.score >= b.score }, "alternatives are best first")
                     for (p in c.box.points) {
                         assertTrue(p.x >= -3f && p.x <= img.width + 3f && p.y >= -3f && p.y <= img.height + 3f, "glyph box inside the image: $p")

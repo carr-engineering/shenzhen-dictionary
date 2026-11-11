@@ -13,7 +13,12 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 out = Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)
-only = set(sys.argv[2:])
+only = {a for a in sys.argv[2:] if not a.startswith("--")}
+# --testdata: also copy the few cases the committed tests use into the instrumented-test assets.
+TESTDATA = {"photo__2.jpg": "photo-combined.jpg", "sign__0.jpg": "photo-sign-red.jpg", "sign__3.jpg": "photo-sign-dark.jpg",
+            "darkpanel__4.png": "photo-dark-panel.png", "colourpanel__0.png": "photo-colour-panel.png",
+            "rotation15__2.png": "photo-rotated-15.png", "perspective25__0.png": "photo-perspective-25.png",
+            "lighting__3.png": "photo-shadow.png"}
 
 ASSET = "/System/Library/AssetsV2/com_apple_MobileAsset_Font8"
 FONTS = {
@@ -208,4 +213,22 @@ for n, lines in enumerate(SIGNS):
     wall.paste(sign, (150, 130))
     wall = lighting(wall, n + 40, shadow=n % 2 == 0)
     save("sign", n, noise(perspective(wall, yaw=14 if n % 2 else -14, pitch=6, fill=(150, 150, 146)), 6, n), lines, jpeg=75)
+# Look-alike characters, one confusable set per line, in every typeface at two sizes and as a photo.
+# (壸, the look-alike of 壶, is not in the recogniser's alphabet and cannot be scored.)
+# Each character sits in a carrier phrase so the page looks like text, not like a grid of glyphs;
+# the evaluation scores only the look-alike characters (RECOGNITION_EVAL_CHARS).
+LOOKALIKE_SETS = ["已己巳", "未末", "土士", "日曰", "大太犬", "人入八", "千干于", "刀力", "天夫", "戊戌戍", "壶"]
+LOOKALIKES = ["".join(("请写" if i == 0 else "再写") + ch + "字" for i, ch in enumerate(group)) for group in LOOKALIKE_SETS]
+for n, (fname, bold) in enumerate([("hei", False), ("heibold", False), ("song", False), ("song", True), ("kai", False), ("pingfang", False)]):
+    for size in (28, 44):
+        page = render(LOOKALIKES, fname, size, bold=bold, spacing=1.6)
+        save("lookalike", n * 2 + (size > 30), page, LOOKALIKES)
+    page = render(LOOKALIKES, fname, 40, bold=bold, spacing=1.6)
+    photo = noise(perspective(lighting(page, n + 60), yaw=10 if n % 2 else -10, pitch=5).filter(ImageFilter.GaussianBlur(0.8)), 6, n)
+    save("lookalikephoto", n, photo, LOOKALIKES, jpeg=70)
+if "--testdata" in sys.argv:
+    import shutil
+    target = Path(__file__).resolve().parent.parent / "src/androidInstrumentedTest/assets/testdata"
+    for source, name in TESTDATA.items():
+        shutil.copyfile(out / source, target / name)
 print("evaluation set written to", out)

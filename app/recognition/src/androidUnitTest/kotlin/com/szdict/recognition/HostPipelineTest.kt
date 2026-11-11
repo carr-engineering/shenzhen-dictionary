@@ -102,10 +102,17 @@ class HostPipelineTest {
         assumeTrue("no host Python configured", nets != null)
         nets!!
         try {
-            val options = com.szdict.recognition.ocr.OcrOptions(fineDetection = System.getenv("RECOGNITION_NO_FINE") == null)
+            val options = com.szdict.recognition.ocr.OcrOptions(fineDetection = System.getenv("RECOGNITION_NO_FINE") == null, scriptPrior = System.getenv("RECOGNITION_NO_SCRIPT_PRIOR") == null)
             val pipeline = OcrPipeline(nets, HostNets.labels("ocr/hani-labels.txt"), HostNets.labels("ocr/latn-labels.txt"), options)
             class Tally(var images: Int = 0, var chars: Int = 0, var top1: Int = 0, var top5: Int = 0, var ms: Double = 0.0, var marked: Int = 0, var markedWrong: Int = 0, var wrong: Int = 0)
             val tallies = sortedMapOf<String, Tally>()
+            // "top5" column: how many alternatives count (RECOGNITION_EVAL_TOPK, default 5).
+            val topK = (System.getenv("RECOGNITION_EVAL_TOPK") ?: "5").toInt()
+            val only = System.getenv("RECOGNITION_EVAL_CHARS")
+            fun scored(c: Char) = only == null || c in only
+            val charTotal = sortedMapOf<Char, Int>()
+            val charTop1 = HashMap<Char, Int>()
+            val charTopK = HashMap<Char, Int>()
             val details = StringBuilder()
             fun han(s: String) = s.filter { it.code in 0x3400..0x9FFF }
             for (file in dir!!.listFiles { f -> f.extension in setOf("png", "jpg", "jpeg") }!!.sortedBy { it.name }) {
@@ -115,18 +122,31 @@ class HostPipelineTest {
                 val result = pipeline.recognize(image(file))
                 val ms = (System.nanoTime() - start) / 1e6
                 val chars = result.lines.flatMap { it.chars }
-                fun aligned(match: (OcrChar, Char) -> Boolean): Int {
+                // Longest common subsequence with a match predicate; counts the matched ground-truth
+                // characters that are scored (all, or those listed in RECOGNITION_EVAL_CHARS).
+                fun aligned(hits: MutableMap<Char, Int>, match: (OcrChar, Char) -> Boolean): Int {
                     val table = Array(expected.length + 1) { IntArray(chars.size + 1) }
                     for (i in 1..expected.length) for (j in 1..chars.size) {
                         table[i][j] = maxOf(table[i - 1][j], table[i][j - 1], table[i - 1][j - 1] + if (match(chars[j - 1], expected[i - 1])) 1 else 0)
                     }
-                    return table[expected.length][chars.size]
+                    var i = expected.length
+                    var j = chars.size
+                    var found = 0
+                    while (i > 0 && j > 0) {
+                        if (match(chars[j - 1], expected[i - 1]) && table[i][j] == table[i - 1][j - 1] + 1) {
+                            if (scored(expected[i - 1])) { found++; hits.merge(expected[i - 1], 1, Int::plus) }
+                            i--; j--
+                        } else if (table[i - 1][j] >= table[i][j - 1]) i-- else j--
+                    }
+                    return found
                 }
-                val top1 = aligned { c, e -> c.text == e.toString() }
-                val top5 = aligned { c, e -> c.alternatives.take(5).any { it.text == e.toString() } }
+                val top1 = aligned(charTop1) { c, e -> c.text == e.toString() }
+                val top5 = aligned(charTopK) { c, e -> c.alternatives.take(topK).any { it.text == e.toString() } }
+                val total = expected.count { scored(it) }
+                for (c in expected) if (scored(c)) charTotal.merge(c, 1, Int::plus)
                 val tally = tallies.getOrPut(file.name.substringBefore("__")) { Tally() }
-                tally.images++; tally.chars += expected.length; tally.top1 += top1; tally.top5 += top5; tally.ms += ms
-                details.append("${file.name}\t$top1/${expected.length}\t$top5\t${result.lines.joinToString(" | ") { it.text }}\n")
+                tally.images++; tally.chars += total; tally.top1 += top1; tally.top5 += top5; tally.ms += ms
+                details.append("${file.name}\t$top1/$total\t$top5\t${result.lines.joinToString(" | ") { it.text }}\n")
             }
             val table = StringBuilder("category\timages\tchars\ttop1\ttop5\tms\n")
             var chars = 0; var top1 = 0; var top5 = 0
@@ -135,6 +155,10 @@ class HostPipelineTest {
                 chars += t.chars; top1 += t.top1; top5 += t.top5
             }
             table.append("ALL\t${tallies.values.sumOf { it.images }}\t$chars\t${"%.1f".format(100.0 * top1 / chars)}\t${"%.1f".format(100.0 * top5 / chars)}\t\n")
+            if (only != null) {
+                table.append("\nper character: top-1 / top-$topK / occurrences\n")
+                for (c in only) charTotal[c]?.let { table.append("$c\t${charTop1[c] ?: 0}\t${charTopK[c] ?: 0}\t$it\n") }
+            }
             println(table)
             System.getProperty("recognition.hostOut")?.let { File(it).apply { mkdirs() } }?.let {
                 File(it, "eval-table.tsv").writeText(table.toString())

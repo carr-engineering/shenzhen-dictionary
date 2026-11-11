@@ -125,6 +125,90 @@ class PureLogicTest {
     }
 
     @Test
+    fun scriptPriorRanksOtherScriptsDownInChineseLinesOnly() {
+        fun alts(vararg pairs: Pair<String, Float>) = pairs.map { OcrAlt(it.first, it.second) }
+        val chinese = listOf(
+            alts("施" to .9f, "旅" to .05f),
+            alts("工" to .5f, "エ" to .3f, "T" to .1f, "士" to .06f, "土" to .04f),
+            alts("口" to .3f, "ロ" to .5f).sortedByDescending { it.score }, // kana first, Han close behind
+            alts("3" to .6f, "了" to .3f), // a digit the recogniser put first stays
+            alts("楼" to .8f, "樓" to .1f),
+        )
+        val ranked = com.szdict.recognition.ocr.ScriptPrior.rerank(chinese, 4)
+        assertEquals(listOf("工", "士", "土", "エ"), ranked[1].map { it.text })
+        assertEquals(1f, ranked[1].sumOf { it.score.toDouble() }.toFloat() + /* dropped T */ .1f * .25f / (.5f + .03f + .025f + .06f + .04f), 1e-3f)
+        assertTrue(ranked[1][0].score > .5f, "freed probability goes to the remaining candidates")
+        assertEquals(listOf("口", "ロ"), ranked[2].map { it.text })
+        assertEquals(listOf("3", "了"), ranked[3].map { it.text })
+        for (list in ranked) assertTrue(list.zipWithNext().all { (a, b) -> a.score >= b.score })
+
+        // A Japanese line (kana among the top readings) and a Latin line are left as they are.
+        val japanese = listOf(alts("日" to .9f), alts("本" to .9f), alts("の" to .8f, "的" to .1f), alts("カ" to .6f, "力" to .4f), alts("ー" to .7f, "一" to .3f))
+        assertEquals(japanese, com.szdict.recognition.ocr.ScriptPrior.rerank(japanese, 4))
+        val latin = listOf(alts("l" to .5f, "丨" to .3f), alts("o" to .6f, "口" to .2f))
+        assertEquals(latin, com.szdict.recognition.ocr.ScriptPrior.rerank(latin, 4))
+    }
+
+    @Test
+    fun convexIntersectionMeasuresSharedAreaOfRotatedRectangles() {
+        val a = Geometry.corners(Region(50.0, 50.0, 100.0, 20.0, 0.0, 1.0))
+        val b = Geometry.corners(Region(50.0, 50.0, 100.0, 20.0, Math.PI / 2, 1.0))
+        assertEquals(2000.0, Geometry.area(a.toList()), 1e-6)
+        assertEquals(400.0, Geometry.intersectionArea(a, b), 1e-6)
+        // Two neighbouring lines of text tilted by 15 degrees: bounding boxes overlap, the lines do not.
+        val upper = Region(200.0, 100.0, 400.0, 40.0, .26, 1.0)
+        val lower = Region(190.0, 158.0, 300.0, 40.0, .26, 1.0)
+        assertTrue(Geometry.overlap(Geometry.bounds(upper), Geometry.bounds(lower)) > .3)
+        assertEquals(0.0, Geometry.intersectionArea(Geometry.corners(upper), Geometry.corners(lower)), 1e-6)
+    }
+
+    @Test
+    fun inkPolarityFollowsTheStrokesNotTheBrightness() {
+        // Thin strokes on a mid-grey panel: lighter strokes in one crop, darker in the other.
+        fun crop(paper: Int, stroke: Int): Gray {
+            val g = Gray(120, 40)
+            g.px.fill(paper.toByte())
+            for (x in 10 until 110 step 12) for (y in 8 until 32) for (dx in 0 until 3) g.px[y * 120 + x + dx] = stroke.toByte()
+            return g
+        }
+        val light = com.szdict.recognition.ocr.InkAnalysis.inkBounds(crop(140, 250))
+        val dark = com.szdict.recognition.ocr.InkAnalysis.inkBounds(crop(140, 30))
+        assertTrue(light.dark, "light strokes are flipped")
+        assertFalse(dark.dark)
+        assertEquals(light.box!!.toList(), dark.box!!.toList())
+        assertEquals(listOf(10, 8, 109, 32), dark.box!!.toList())
+        // Normalised: paper white, strokes black, whichever way round it started.
+        for (ink in listOf(light, dark)) {
+            val clean = com.szdict.recognition.ocr.InkAnalysis.normalizeContrast(ink)
+            assertTrue(clean[11, 20] < 40, "stroke is black")
+            assertTrue(clean[17, 20] > 230 && clean[60, 3] > 230, "paper is white")
+        }
+        // The inside of a wide dark block is not ink: it does not stand out from its own neighbourhood.
+        val block = Gray(120, 40)
+        block.px.fill(200.toByte())
+        for (y in 0 until 40) for (x in 0 until 50) block.px[y * 120 + x] = 40
+        val mask = com.szdict.recognition.ocr.InkAnalysis.inkBounds(block).mask
+        assertEquals(0, mask[20 * 120 + 10].toInt())
+    }
+
+    @Test
+    fun stackedLinesAreSeparatedAtTheBlankBandBetweenThem() {
+        // A tall line (rows 10..40) above a short one (rows 46..58), with dots above (rows 2..3).
+        val w = 100
+        val h = 64
+        val mask = ByteArray(w * h)
+        fun fill(from: Int, to: Int, every: Int) { for (y in from until to) for (x in 0 until w step every) mask[y * w + x] = 1 }
+        fill(2, 4, 9)
+        fill(10, 40, 3)
+        fill(46, 58, 3)
+        val bands = com.szdict.recognition.ocr.InkAnalysis.stackedLines(mask, w, h, 0, w).map { it[0] to it[1] }
+        assertEquals(listOf(10 to 40, 46 to 58), bands)
+        // The line band grows from a core inside the tall line and stops at the valley.
+        val rows = com.szdict.recognition.ocr.InkAnalysis.textRows(mask, w, h, 15, 35, 0, w)
+        assertEquals(listOf(10, 40), rows.toList())
+    }
+
+    @Test
     fun quarterTurnMapsPixelsClockwise() {
         val src = Gray(3, 2)
         for (i in src.px.indices) src.px[i] = i.toByte()

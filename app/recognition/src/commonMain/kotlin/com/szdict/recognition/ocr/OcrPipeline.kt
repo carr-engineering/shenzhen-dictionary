@@ -60,6 +60,8 @@ internal class OcrOptions(
     val inkHeight: Int = 20,
     /** Whether small text gets a second, finer detector pass. */
     val fineDetection: Boolean = true,
+    /** Whether candidates are re-ranked by the script of their line (see ScriptPrior). */
+    val scriptPrior: Boolean = true,
 )
 
 /**
@@ -160,6 +162,8 @@ internal class OcrPipeline(
 
         /** A region at least this many times longer than tall holds several glyphs. */
         const val MULTI_GLYPH = 2.5
+
+        const val EXTRA_CANDIDATES = 8
 
         /** Line height in detector pixels under which the detector starts to miss text. */
         const val SMALL_TEXT = 20.0
@@ -510,16 +514,18 @@ internal class OcrPipeline(
         val labels = if (model == SequenceModel.HANI) haniLabels else latnLabels
         val strip = normalized(crop, 2048)
         val out = nets.sequence(model, strip.columns, strip.width)
-        trace?.invoke("STRIP ${strip.width} " + strip.columns.joinToString("") { ((it.toInt() and 0xFF) / 16).toString(16) })
-        var emissions = trimSpaces(CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives, labels.indexOf(" ")), labels)
+        // More candidates than are returned, so that the list is still full after re-ranking by script.
+        var emissions = trimSpaces(CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives + EXTRA_CANDIDATES, labels.indexOf(" ")), labels)
         // Glyph spacing in a column is leading, not word spacing.
         if (column) emissions = emissions.filter { !labels[it.label].isBlank() }
         if (emissions.isEmpty()) return null
         val spans = CharLayout.spans(strip.columns, strip.width, emissions.map { it.peakFrame }, emissions.map { labels[it.label].isBlank() }, model.emissionOffset)
         val (x0, y0, x1, y1) = crop.box
         val chars = ArrayList<OcrChar>(emissions.size)
-        emissions.forEachIndexed { i, e ->
-            val alternatives = List(e.labels.size) { OcrAlt(labels[e.labels[it]], e.scores[it]) }
+        val candidates = emissions.map { e -> List(e.labels.size) { OcrAlt(labels[e.labels[it]], e.scores[it]) } }
+        val ranked = if (options.scriptPrior) ScriptPrior.rerank(candidates, options.alternatives) else candidates.map { it.take(options.alternatives) }
+        emissions.forEachIndexed { i, _ ->
+            val alternatives = ranked[i]
             val quad = if (crop.cells != null) {
                 val source = crop.source!!
                 val centre = (spans[i][0] + spans[i][1]) / 2 - 6
