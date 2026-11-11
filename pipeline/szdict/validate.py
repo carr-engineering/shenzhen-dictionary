@@ -151,7 +151,7 @@ def validate_dataset(cfg: Config, ds_id: str, fixture: bool) -> Gates:
     for gid, script, members, variants in con.execute("SELECT id, script, members, variants FROM merge_group"):
         m = read_varints(members)
         g.check("05_references", all(i in ids for i in m), f"merge group {gid}")
-        g.check("06_merge_groups", len(m) >= 2 and len(set(json.loads(variants))) >= 2, f"merge group {gid}")
+        g.check("06_merge_groups", len(m) >= 2 and len(set(json.loads(variants))) >= 1, f"merge group {gid}")
     for eid, rows in con.execute("SELECT entry_id, rows FROM within"):
         vals = read_varints(rows)
         g.check("05_references", eid in ids and all(vals[i + 2] in ids for i in range(0, len(vals), 3)), f"within {eid}")

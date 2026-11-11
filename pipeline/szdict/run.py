@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import lm as lmmod
 from .config import PIPELINE, REPO, Config, git
-from .core import (SCHEMA_VERSION, MAX_WORD_LEN, Dataset, assign_frequency, entry_gloss, sha256_file,
+from .core import (SCHEMA_VERSION, MAX_WORD_LEN, Dataset, assign_frequency, audio_word_key, entry_gloss, sha256_file,
                    write_main)
 from .enc import cjson
 
@@ -58,9 +58,36 @@ def base_meta(ds: Dataset, cfg: Config, ver: dict, ihash: str) -> None:
     ds.meta_built_at = ver["built_at"]
 
 
+def attach_packs(ds: Dataset, cfg: Config) -> None:
+    """Audio keys (DATA-172, gate 12), `asset_packs` and `decomposition_hashes` from the packs built by
+    pipeline/packs/build_packs.py, when they are present in the output directory."""
+    packs = cfg.out / "packs"
+    info = {"audio_catalogue": False, "audio_word_keys": 0}
+    cat = packs / "audio" / "catalog.json"
+    if cat.exists() and ds.id == "mandarin":
+        keys = set(json.loads(cat.read_text("utf-8")).get("mandarin", {}).get("word_keys", []))
+        info["audio_catalogue"] = True
+        for e in ds.entries:
+            k = None if e["unihan"] else audio_word_key(e)
+            if k in keys:
+                e["audio_key"] = k
+                info["audio_word_keys"] += 1
+    files = []
+    if packs.is_dir():
+        for p in sorted(packs.glob("*.db")) + ([cat] if cat.exists() else []):
+            files.append({"name": str(p.relative_to(cfg.out)), "sha256": sha256_file(p), "size": p.stat().st_size})
+    ds.meta["asset_packs"] = cjson(files)
+    deco = {f["name"].split("/")[-1].removesuffix(".db"): f["sha256"] for f in files
+            if f["name"].split("/")[-1].startswith(("decomposition", "strokes"))}
+    ds.meta["decomposition_hashes"] = cjson(deco)
+    info["asset_packs"] = [f["name"] for f in files]
+    ds.report["packs"] = info
+
+
 def finish_dataset(ds: Dataset, lm, cfg: Config, report: dict) -> None:
     out = cfg.out
     out.mkdir(parents=True, exist_ok=True)
+    attach_packs(ds, cfg)
     lm_path = out / f"{ds.id}-lm.db"
     lmmod.write_lm(ds, lm, lm_path)
     ds.meta.update({

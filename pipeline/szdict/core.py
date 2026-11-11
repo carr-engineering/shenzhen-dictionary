@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import math
 import os
 import sqlite3
@@ -198,7 +199,11 @@ def finish_redirects(ds: Dataset) -> None:
 def count_refs(ds: Dataset) -> None:
     total = unresolved = 0
     for e in ds.entries:
-        for ref in iter_refs(e):
+        refs = [seg for s in e["senses"] for seg in s["seg"] if seg["k"] == "ref"]
+        refs += [r for n in e["notes"] for r in n["refs"]]
+        if e["redirect"]:
+            refs += [seg for seg in e["redirect"]["seg"] if seg["k"] == "ref"]
+        for ref in refs:
             total += 1
             if ref.get("id") is None:
                 unresolved += 1
@@ -259,6 +264,7 @@ def build_merge_groups(ds: Dataset) -> None:
                     variants.append(m[alt])
             if len(variants) < 2:
                 continue
+            variants = [v for v in variants if v != key[0]]      # the display line never repeats the headword
             groups.append({"script": script, "members": [m["id"] for m in members], "variants": variants})
     for gid, g in enumerate(groups, 1):
         g["id"] = gid
@@ -717,6 +723,14 @@ def write_main(ds: Dataset, path: Path) -> dict:
     counts["content_hash"] = digest
     counts["file_size"] = os.path.getsize(path)
     return counts
+
+
+def audio_word_key(e: dict) -> str | None:
+    """MED-005 canonical word key, or None when a syllable carries no tone digit."""
+    toks = e["canonical"].split()
+    if not toks or any(not re.fullmatch(r"[a-zü]+[1-6]", t) for t in toks):
+        return None
+    return "_".join(t.replace("ü", "v") for t in toks)
 
 
 def sha256_file(path: Path) -> str:

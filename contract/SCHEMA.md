@@ -238,3 +238,17 @@ change it. The app reads what is described here.
     UTF-8 / raw bytes — followed by `\n`. The meta rows `content_hash` and `built_at` are skipped.
 11. Extra `meta` keys: `max_syllable_len`, `freq_rank_lm_fill`.
 12. `label` rows: `contract/labels.json` is the reviewed source (`PIPE-079`); `hsk_pos_label` likewise.
+13. **`merge_group.variants`** lists the members' alternate-script forms without the group's own
+    displayed headword (里 → `["裡","裏"]`); a group still needs two or more members and two or more
+    distinct alternate forms before that exclusion (`DATA-080`).
+14. **Radical forms** (`headword.kind` 3): a CJK Radicals Supplement / CJK Strokes code point keys the
+    entries of its `EquivalentUnifiedIdeograph.txt` ideograph and, when that ideograph is itself a
+    radical variant (`kRSUnicode` residual 0), of the radical's main ideograph in `CJKRadicals.txt`
+    (⻊ → 𧾷 and 足).
+15. **Unihan-only entries** are not created for a compatibility ideograph whose NFKC form is a unified
+    ideograph that has an entry (its folded key would duplicate that character's card).
+16. `audio_key`, `asset_packs` and `decomposition_hashes` are filled from `pipeline/out/packs/` when the
+    packs exist at dataset build time (build packs first, then datasets); otherwise NULL / `[]` / `{}`.
+17. Shared data files in `contract/`: `labels.json`, `normalisation-vectors.json`, `golden-queries.json`
+    (data-level lookups with expected entries for the fixture and the full datasets; types are described
+    in the file), `lm-quality.json` (`PIPE-075`), `fixture/` (output of `build.py --fixture`).

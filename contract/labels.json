@@ -788,91 +788,91 @@
  "hsk_pos": [
   {
    "token": "名",
-   "en": "noun",
+   "en": "Noun",
    "zh_hans": "名词",
    "zh_hant": "名詞"
   },
   {
    "token": "动",
-   "en": "verb",
+   "en": "Verb",
    "zh_hans": "动词",
    "zh_hant": "動詞"
   },
   {
    "token": "形",
-   "en": "adjective",
+   "en": "Adjective",
    "zh_hans": "形容词",
    "zh_hant": "形容詞"
   },
   {
    "token": "副",
-   "en": "adverb",
+   "en": "Adverb",
    "zh_hans": "副词",
    "zh_hant": "副詞"
   },
   {
    "token": "代",
-   "en": "pronoun",
+   "en": "Pronoun",
    "zh_hans": "代词",
    "zh_hant": "代詞"
   },
   {
    "token": "数",
-   "en": "numeral",
+   "en": "Numeral",
    "zh_hans": "数词",
    "zh_hant": "數詞"
   },
   {
    "token": "量",
-   "en": "measure word",
+   "en": "Measure word",
    "zh_hans": "量词",
    "zh_hant": "量詞"
   },
   {
    "token": "介",
-   "en": "preposition",
+   "en": "Preposition",
    "zh_hans": "介词",
    "zh_hant": "介詞"
   },
   {
    "token": "连",
-   "en": "conjunction",
+   "en": "Conjunction",
    "zh_hans": "连词",
    "zh_hant": "連詞"
   },
   {
    "token": "助",
-   "en": "particle",
+   "en": "Particle",
    "zh_hans": "助词",
    "zh_hant": "助詞"
   },
   {
    "token": "叹",
-   "en": "interjection",
+   "en": "Interjection",
    "zh_hans": "叹词",
    "zh_hant": "嘆詞"
   },
   {
    "token": "拟声",
-   "en": "onomatopoeia",
+   "en": "Onomatopoeia",
    "zh_hans": "拟声词",
    "zh_hant": "擬聲詞"
   },
   {
    "token": "前缀",
-   "en": "prefix",
+   "en": "Prefix",
    "zh_hans": "前缀",
    "zh_hant": "前綴"
   },
   {
    "token": "后缀",
-   "en": "suffix",
+   "en": "Suffix",
    "zh_hans": "后缀",
    "zh_hant": "後綴"
   },
   {
    "token": "数量",
-   "en": "numeral-measure compound",
+   "en": "Numeral-measure compound",
    "zh_hans": "数量词",
    "zh_hant": "數量詞"
   }

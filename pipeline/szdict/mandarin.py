@@ -65,10 +65,16 @@ def add_unihan_entries(ds: Dataset, cfg: Config, reading_field: str) -> dict:
         headwords.add(e["trad"])
     chars = sorted(ch for ch, f in data.items() if "kDefinition" in f and ch not in headwords
                    and uh.is_ideograph(ch))
+    # a compatibility ideograph whose NFKC form is a unified ideograph with an entry gets no entry of
+    # its own: its folded headword key would add a second card to that character's exact group
+    pool = set(chars)
+    folded_away = [ch for ch in chars if fold(ch) != ch and (fold(ch) in headwords or fold(ch) in pool)]
+    chars = [ch for ch in chars if ch not in set(folded_away)]
     if cfg.fixture:
         chars = [c for c in chars if c in cfg.fixture_chars]
     candidates = set(chars)
-    stats = Counter(ideographs_read=len(data), with_definition=sum(1 for f in data.values() if "kDefinition" in f))
+    stats = Counter(ideographs_read=len(data), with_definition=sum(1 for f in data.values() if "kDefinition" in f),
+                    compatibility_ideographs_skipped=len(folded_away))
     for ch in chars:
         f = data[ch]
         senses = uh.definition_senses(f["kDefinition"], ds.script)

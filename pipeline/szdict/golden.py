@@ -93,7 +93,7 @@ class Index:
 
     def order(self, ids, alt=None):
         E = self.ds.entries
-        return sorted(ids, key=lambda i: ((alt or {}).get(i, 0) > 0, E[i]["unihan"], E[i]["freq_rank"], len(E[i]["simp"]),
+        return sorted(ids, key=lambda i: (E[i]["unihan"], (alt or {}).get(i, 0) > 0, E[i]["freq_rank"], len(E[i]["simp"]),
                                           E[i]["proper"], i))
 
 
@@ -172,7 +172,7 @@ def evaluate(case: dict, ix: Index):
         for i in range(n):
             for j in range(i + 1, min(n, i + maxlen) + 1):
                 hit = wf.get(q[i:j])
-                lp = hit[1] if hit else (-30.0 if j == i + 1 else None)
+                lp = hit[1] if hit else (-20.0 if j == i + 1 else None)
                 if lp is not None and best[i] + lp > best[j]:
                     best[j], back[j] = best[i] + lp, i
         dag = []
@@ -266,13 +266,14 @@ TYPES = {
     "headword_exact": "entries whose headword key (any kind) equals the SRCH-010 key of `query` (or the raw query when `raw`), "
                       "ordered by (Unihan-only last, freq_rank, char_count, proper noun last, id)",
     "reading_exact": "entries with a reading row for the toneless `syllables` (space-joined key) whose tones match `tones` "
-                     "(0 = any), main-reading matches before alternative-reading matches (`alt` 1 also_pr, 2 taiwan_pr), then as above",
+                     "(0 = any): dictionary entries before Unihan-only ones (SRCH-079), then main-reading matches before alternative-reading "
+                     "matches (`alt` 1 also_pr, 2 taiwan_pr), then freq_rank, char_count, proper noun last, id",
     "reading_rows": "number of entries of the headword and how many of them have a reading row (0 for reading_source none)",
     "abbrev": "first postings of abbr_idx[`key` or `query`] in stored order, filtered to syllables starting with `initials`, one per entry",
     "combination": "best word sequence of the lattice decoder for a pure first-letter query (bigram model, DATA-153 scoring)",
     "english": "entries with one sense containing every SRCH-013 token of `query`; Cantonese: CC-Canto postings (flags 1) first, "
                "Mandarin-block senses only on the primary Cantonese entry",
-    "segmentation": "`dag`: maximum-probability segmentation with word_freq.log_prob (unknown single character = -30); `greedy`: forward longest match",
+    "segmentation": "`dag`: maximum-probability segmentation with word_freq.log_prob (unknown single character = -20, TXT-012); `greedy`: forward longest match",
     "merge_group": "merge groups whose primary has the headword in the given script (0 simplified, 1 traditional)",
     "redirect": "redirect of each entry with that headword: kind, resolved flag and target",
     "hsk_entry": "entry.hsk / entry.hsk_via of the entries with that headword",
