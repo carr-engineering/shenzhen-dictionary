@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
  * e.g. "+2 more within 「有用」" / "− Origin of 有").
  */
 @Composable
-internal fun ExpanderToggle(
+fun ExpanderToggle(
     label: String,
     expanded: Boolean,
     onToggle: () -> Unit,

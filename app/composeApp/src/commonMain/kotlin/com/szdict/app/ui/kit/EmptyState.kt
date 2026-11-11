@@ -12,7 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun EmptyState(text: String) {
+fun EmptyState(text: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()

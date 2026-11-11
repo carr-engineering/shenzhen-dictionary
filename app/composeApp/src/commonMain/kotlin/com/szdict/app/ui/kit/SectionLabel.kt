@@ -18,7 +18,7 @@ import com.szdict.app.ui.theme.LocalDictionaryPalette
  * (web `.section-label` + `.section-count`, e.g. CONTAINS 「有用」 ELSEWHERE 1).
  */
 @Composable
-internal fun SectionLabel(
+fun SectionLabel(
     text: String,
     count: Int? = null,
     modifier: Modifier = Modifier

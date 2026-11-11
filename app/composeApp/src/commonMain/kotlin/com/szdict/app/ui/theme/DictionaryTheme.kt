@@ -9,7 +9,9 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.dp
-import com.szdict.app.settings.ThemeMode
+import com.szdict.core.api.DictMode
+import com.szdict.core.api.ThemeMode
+import androidx.compose.runtime.staticCompositionLocalOf
 
 private fun schemeFrom(palette: DictionaryPalette, dark: Boolean) = if (dark) {
     darkColorScheme(
@@ -56,17 +58,19 @@ private val dictionaryShapes = Shapes(
 )
 
 @Composable
-internal fun DictionaryTheme(
-    themeMode: ThemeMode = ThemeMode.System,
+fun DictionaryTheme(
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    mode: DictMode = DictMode.MANDARIN,
     content: @Composable () -> Unit
 ) {
     val dark = when (themeMode) {
-        ThemeMode.Light -> false
-        ThemeMode.Dark -> true
-        ThemeMode.System -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
-    val palette = if (dark) DarkDictionaryPalette else LightDictionaryPalette
-    CompositionLocalProvider(LocalDictionaryPalette provides palette) {
+    val base = if (dark) DarkDictionaryPalette else LightDictionaryPalette
+    val palette = if (mode == DictMode.CANTONESE) base.forCantonese(dark) else base
+    CompositionLocalProvider(LocalDictionaryPalette provides palette, LocalIsDark provides dark) {
         MaterialTheme(
             colorScheme = schemeFrom(palette, dark),
             shapes = dictionaryShapes,
@@ -74,3 +78,5 @@ internal fun DictionaryTheme(
         )
     }
 }
+
+val LocalIsDark = staticCompositionLocalOf { false }

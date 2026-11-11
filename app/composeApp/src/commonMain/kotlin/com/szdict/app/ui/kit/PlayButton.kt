@@ -26,7 +26,7 @@ import com.szdict.app.ui.theme.LocalDictionaryPalette
  * a restrained breathing pulse for the duration of actual audio playback.
  */
 @Composable
-internal fun PlayButton(
+fun PlayButton(
     enabled: Boolean,
     playing: Boolean = false,
     onClick: () -> Unit,

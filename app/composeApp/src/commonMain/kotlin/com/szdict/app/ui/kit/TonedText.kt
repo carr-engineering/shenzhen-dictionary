@@ -2,144 +2,103 @@ package com.szdict.app.ui.kit
 
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import com.szdict.app.core.numberedToTones
-import com.szdict.app.engine.EntryDetailData
-import com.szdict.app.engine.ScriptMode
-import com.szdict.app.model.DictionaryEntry
 import com.szdict.app.ui.theme.DictionaryPalette
 import com.szdict.app.ui.theme.LocalDictionaryPalette
+import com.szdict.core.api.Reading
 
+/** Headword text, tone-coloured per character only when the counts align (GLB-066). */
 @Composable
-internal fun TonedHanziText(
+fun TonedHanziText(
     text: String,
-    pinyinNumbered: String,
+    reading: Reading,
     toneColors: Boolean,
     style: TextStyle,
     modifier: Modifier = Modifier,
     fontWeight: FontWeight? = null,
     color: Color = Color.Unspecified,
     maxLines: Int = Int.MAX_VALUE,
-    overflow: TextOverflow = TextOverflow.Clip
+    overflow: TextOverflow = TextOverflow.Clip,
 ) {
-    Text(
-        text = tonedHanziAnnotatedString(text, pinyinNumbered, toneColors, LocalDictionaryPalette.current),
-        modifier = modifier,
-        style = style,
-        fontWeight = fontWeight,
-        color = color,
-        maxLines = maxLines,
-        overflow = overflow
-    )
+    val palette = LocalDictionaryPalette.current
+    val annotated = remember(text, reading, toneColors, palette) { tonedHanzi(text, reading, toneColors, palette) }
+    Text(annotated, modifier, style = style, fontWeight = fontWeight, color = color, maxLines = maxLines, overflow = overflow)
 }
 
+/**
+ * Reading line. When [visible] is false the text keeps its measured space but is not drawn and is
+ * hidden from accessibility (GLB-120, GLB-122).
+ */
 @Composable
-internal fun TonedPinyinText(
-    text: String,
-    pinyinNumbered: String,
+fun TonedReadingText(
+    reading: Reading,
     toneColors: Boolean,
     style: TextStyle,
     modifier: Modifier = Modifier,
+    visible: Boolean = true,
     color: Color = Color.Unspecified,
     fontWeight: FontWeight? = null,
     maxLines: Int = Int.MAX_VALUE,
-    overflow: TextOverflow = TextOverflow.Clip
+    overflow: TextOverflow = TextOverflow.Clip,
 ) {
+    val palette = LocalDictionaryPalette.current
+    val annotated = remember(reading, toneColors, palette) { tonedReading(reading, toneColors, palette) }
     Text(
-        text = tonedPinyinAnnotatedString(text, pinyinNumbered, toneColors, LocalDictionaryPalette.current),
-        modifier = modifier,
-        style = style,
-        color = color,
-        fontWeight = fontWeight,
-        maxLines = maxLines,
-        overflow = overflow
+        annotated,
+        modifier.then(if (visible) Modifier else Modifier.alpha(0f).hiddenFromAccessibility()),
+        style = style, color = color, fontWeight = fontWeight, maxLines = maxLines, overflow = overflow,
     )
 }
 
-internal fun tonedHanziAnnotatedString(
-    text: String,
-    pinyinNumbered: String,
-    toneColors: Boolean,
-    palette: DictionaryPalette
-) = buildAnnotatedString {
-    val chars = codePointStrings(text)
-    val tones = numberedToTones(pinyinNumbered)
-    if (!toneColors || chars.size != tones.size) {
-        append(text)
-        return@buildAnnotatedString
-    }
-    chars.forEachIndexed { index, char ->
-        withStyle(SpanStyle(color = palette.tone(tones[index]))) {
-            append(char)
+fun tonedHanzi(text: String, reading: Reading, toneColors: Boolean, palette: DictionaryPalette): AnnotatedString =
+    buildAnnotatedString {
+        val chars = codePointStrings(text)
+        val tones = reading.tones
+        if (!toneColors || tones.isEmpty() || chars.size != tones.size) {
+            append(text)
+            return@buildAnnotatedString
+        }
+        chars.forEachIndexed { index, char ->
+            val tone = tones[index]
+            if (tone <= 0) append(char) else withStyle(SpanStyle(color = palette.tone(tone))) { append(char) }
         }
     }
-}
 
-internal fun tonedPinyinAnnotatedString(
-    text: String,
-    pinyinNumbered: String,
-    toneColors: Boolean,
-    palette: DictionaryPalette
-) = buildAnnotatedString {
-    val syllables = text.split(Regex("\\s+")).filter { it.isNotBlank() }
-    val tones = numberedToTones(pinyinNumbered)
-    if (!toneColors || syllables.size != tones.size) {
-        append(text)
-        return@buildAnnotatedString
-    }
-    syllables.forEachIndexed { index, syllable ->
-        if (index > 0) append(" ")
-        withStyle(SpanStyle(color = palette.tone(tones[index]))) {
-            append(syllable)
+fun tonedReading(reading: Reading, toneColors: Boolean, palette: DictionaryPalette): AnnotatedString =
+    buildAnnotatedString {
+        val parts = reading.display.split(' ').filter { it.isNotBlank() }
+        val tones = reading.tones
+        if (!toneColors || parts.size != tones.size) {
+            append(reading.display)
+            return@buildAnnotatedString
+        }
+        parts.forEachIndexed { index, syllable ->
+            if (index > 0) append(" ")
+            val tone = tones[index]
+            if (tone <= 0) append(syllable) else withStyle(SpanStyle(color = palette.tone(tone))) { append(syllable) }
         }
     }
-}
 
-internal fun codePointStrings(text: String): List<String> {
-    val out = mutableListOf<String>()
+fun codePointStrings(text: String): List<String> {
+    val out = ArrayList<String>(text.length)
     var index = 0
     while (index < text.length) {
-        val codePoint = text.codePointAt(index)
-        out += String(intArrayOf(codePoint), 0, 1)
-        index += Character.charCount(codePoint)
+        val end = if (text[index].isHighSurrogate() && index + 1 < text.length && text[index + 1].isLowSurrogate()) index + 2 else index + 1
+        out += text.substring(index, end)
+        index = end
     }
     return out
 }
 
-internal fun headword(entry: DictionaryEntry, script: ScriptMode): String {
-    return if (script == ScriptMode.Traditional) entry.traditional else entry.simplified
-}
-
-internal fun otherScript(entry: DictionaryEntry, script: ScriptMode): String? {
-    return when (script) {
-        ScriptMode.Simplified -> entry.traditional.takeIf { it != entry.simplified }
-        ScriptMode.Traditional -> entry.simplified.takeIf { it != entry.traditional }
-    }
-}
-
-internal fun variantForms(data: EntryDetailData, script: ScriptMode): List<String>? {
-    val members = data.groupMembers ?: return null
-    return members
-        .mapNotNull(data.entries::get)
-        .map { otherScriptForm(it, script) }
-        .distinct()
-        .takeIf { it.isNotEmpty() }
-}
-
-internal fun otherScriptForm(entry: DictionaryEntry, script: ScriptMode): String {
-    return if (script == ScriptMode.Traditional) entry.simplified else entry.traditional
-}
-
-internal fun isHanzi(char: Char): Boolean {
-    return char in '一'..'鿿' ||
-        char in '㐀'..'䶿' ||
-        char in '豈'..'﫿' ||
-        char == '〇'
-}
+fun codePointLength(text: String, index: Int): Int =
+    if (text[index].isHighSurrogate() && index + 1 < text.length && text[index + 1].isLowSurrogate()) 2 else 1

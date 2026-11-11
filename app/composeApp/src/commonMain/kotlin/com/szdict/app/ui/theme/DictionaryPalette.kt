@@ -32,12 +32,25 @@ data class DictionaryPalette(
     val segA: Color,
     val segB: Color
 ) {
+    /** Tone colour by tone number with a safe fallback (GLB-064). */
     fun tone(tone: Int): Color = tones.getOrElse(tone - 1) { tones.last() }
+    val highlight: Color get() = hlBg
+
+    /** Six-tone palette for Jyutping (GLB-064): T1–T4 reused, plus T5 and T6. */
+    fun forCantonese(dark: Boolean): DictionaryPalette = copy(
+        tones = tones.take(4) + if (dark) listOf(Color(0xFFC49A4E), Color(0xFF97A0B4)) else listOf(Color(0xFF7A5A24), Color(0xFF5A6478))
+    )
+
+    fun part(index: Int, dark: Boolean): Color {
+        val colors = if (dark) listOf(Color(0xFF6FA8F0), Color(0xFFE0A84A), Color(0xFF5FBF88))
+        else listOf(Color(0xFF1E6FD0), Color(0xFFC27C0E), Color(0xFF2E8B57))
+        return colors[index.mod(colors.size)]
+    }
     fun hsk(level: Int): Color = hskColors.getOrElse(level - 1) { hskColors.last() }
     fun hskTint(level: Int): Color = hskTints.getOrElse(level - 1) { hskTints.last() }
 }
 
-internal val LightDictionaryPalette = DictionaryPalette(
+val LightDictionaryPalette = DictionaryPalette(
     bg = Color(0xFFFAF7F1),
     bgSoft = Color(0xFFF2EEE5),
     panel = Color(0xFFFFFDF8),
@@ -78,7 +91,7 @@ internal val LightDictionaryPalette = DictionaryPalette(
     segB = Color(0x121E6FD0)
 )
 
-internal val DarkDictionaryPalette = DictionaryPalette(
+val DarkDictionaryPalette = DictionaryPalette(
     bg = Color(0xFF17140F),
     bgSoft = Color(0xFF242019),
     panel = Color(0xFF1E1A14),
@@ -119,4 +132,4 @@ internal val DarkDictionaryPalette = DictionaryPalette(
     segB = Color(0x216F9FD6)
 )
 
-internal val LocalDictionaryPalette = staticCompositionLocalOf { LightDictionaryPalette }
+val LocalDictionaryPalette = staticCompositionLocalOf { LightDictionaryPalette }

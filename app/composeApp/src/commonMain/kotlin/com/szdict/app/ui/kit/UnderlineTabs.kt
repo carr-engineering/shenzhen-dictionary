@@ -27,7 +27,7 @@ import com.szdict.app.ui.theme.LocalDictionaryPalette
  * labels over a 2dp baseline, active tab in accent with an accent underline.
  */
 @Composable
-internal fun UnderlineTabs(
+fun UnderlineTabs(
     labels: List<String>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,

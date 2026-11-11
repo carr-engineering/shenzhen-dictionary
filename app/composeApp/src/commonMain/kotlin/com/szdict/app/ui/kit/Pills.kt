@@ -25,7 +25,7 @@ import com.szdict.app.ui.theme.LocalDictionaryPalette
  * Header nav pill (web `.tabs button`): quiet text, accent-soft wash when active.
  */
 @Composable
-internal fun NavPill(
+fun NavPill(
     label: String,
     selected: Boolean,
     onClick: () -> Unit
@@ -54,7 +54,7 @@ internal fun NavPill(
  * one bordered rounded container, active segment = solid accent.
  */
 @Composable
-internal fun SegmentedPillRow(
+fun SegmentedPillRow(
     options: List<String>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit
@@ -96,7 +96,7 @@ internal fun SegmentedPillRow(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun HskBadge(
+fun HskBadge(
     levels: List<Int>,
     compact: Boolean = false,
     posLabels: Map<Int, String> = emptyMap(),
@@ -131,10 +131,10 @@ internal fun HskBadge(
     }
 }
 
-internal fun hskLevelLabel(level: Int): String =
+fun hskLevelLabel(level: Int): String =
     if (level == 7) "HSK 7–9" else "HSK $level"
 
-internal fun hskBadgeLabel(level: Int, posLabel: String? = null, count: Int? = null): String {
+fun hskBadgeLabel(level: Int, posLabel: String? = null, count: Int? = null): String {
     val levelLabel = hskLevelLabel(level)
     return when {
         posLabel != null -> "$levelLabel • $posLabel"
@@ -147,7 +147,7 @@ internal fun hskBadgeLabel(level: Int, posLabel: String? = null, count: Int? = n
  * Small neutral count chip shown next to section labels (web `.section-count`).
  */
 @Composable
-internal fun CountChip(count: Int) {
+fun CountChip(count: Int) {
     val palette = LocalDictionaryPalette.current
     Surface(
         shape = CircleShape,
