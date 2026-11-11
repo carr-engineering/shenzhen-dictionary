@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.listSaver
@@ -42,7 +43,7 @@ internal class RelatedSection(first: RelatedPage) {
     var loading by mutableStateOf(false)
 
     /** Rows fetched so far, including ones dropped by de-duplication: the next page's offset. */
-    var fetched: Int = first.offset + first.cards.size
+    var fetched by mutableIntStateOf(first.offset + first.cards.size)
 
     val hasMore: Boolean get() = fetched < total
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +70,9 @@ internal fun LazyListScope.wordsTabItems(derived: EntryDerived, actions: EntryAc
         if (section.hasMore) {
             item(key = "words-more-$kind") {
                 val remaining = (section.total - section.cards.size).coerceAtLeast(1)
+                // ENT-064: the last section keeps loading as the user scrolls to its end; earlier
+                // sections page on demand so the sections after them stay reachable.
+                if (index == sections.lastIndex) LaunchedEffect(section.fetched) { loadMore(section, derived, actions) }
                 Box(rowPadding.fillMaxWidth().padding(top = 4.dp).alpha(if (section.loading) 0.5f else 1f)) {
                     ExpanderToggle(
                         label = strings.text("Show {0} more", minOf(remaining, RELATED_PAGE_SIZE)),

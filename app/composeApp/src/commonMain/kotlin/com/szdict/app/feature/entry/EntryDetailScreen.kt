@@ -89,6 +89,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /**
@@ -314,7 +315,7 @@ private fun EntryReady(
             )
         }
     }
-    val actions = remember(route.key, script) {
+    val actions = remember(route.key, script, strings) {
         EntryActions(
             session = session,
             route = route,
@@ -376,7 +377,9 @@ private fun EntryReady(
                         // ENT-034: the route tab is authoritative over the pager's own saved page.
                         val restored = pageForTab(tabs, restoredTab(tabs, savedTab))
                         if (pagerState.currentPage != restored) pagerState.scrollToPage(restored)
-                        snapshotFlow { pagerState.settledPage }.collect { page -> tabs.getOrNull(page)?.let { savedTab = it.name } }
+                        // Only later page changes are the user's: the first emission is the restored page,
+                        // which must not overwrite a saved STROKES tab while stroke data is still loading.
+                        snapshotFlow { pagerState.settledPage }.drop(1).collect { page -> tabs.getOrNull(page)?.let { savedTab = it.name } }
                     }
                     UnderlineTabs(
                         labels = tabs.map { it.label },

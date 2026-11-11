@@ -51,6 +51,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -292,7 +293,8 @@ internal fun exampleAnnotatedString(
     if (passage != null && passage.text == text) {
         for (offset in exampleTapOffsets(text, passage.coveredOffsets)) {
             addLink(
-                LinkAnnotation.Clickable(tag = "example-hanzi-$offset", linkInteractionListener = { onTap(offset) }),
+                // Explicit empty styles: a character keeps its tone colour and gets no link decoration.
+                LinkAnnotation.Clickable(tag = "example-hanzi-$offset", styles = TextLinkStyles(style = SpanStyle()), linkInteractionListener = { onTap(offset) }),
                 offset, offset + codePointLength(text, offset),
             )
         }

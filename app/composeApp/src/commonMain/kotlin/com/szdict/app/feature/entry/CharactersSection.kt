@@ -148,7 +148,7 @@ internal fun CharactersSection(
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
 
     val state = derived.decomp
-    val blocks = (state as? DecompLoad.Ready)?.characters?.filter { it.available && it.root != null }
+    val blocks = remember(state) { (state as? DecompLoad.Ready)?.characters?.filter { it.available && it.root != null } }
     // ENT-124: paths that no longer exist after a script change are dropped.
     LaunchedEffect(blocks) {
         if (blocks == null) return@LaunchedEffect
@@ -217,7 +217,7 @@ private class BlockContext(
     val selected: String?,
     val active: String?,
     val onToggle: (String, Boolean) -> Unit,
-    val onHover: (String?) -> Unit,
+    val onHover: (key: String, on: Boolean) -> Unit,
     val onSwatchPlaced: (String, Offset) -> Unit,
     val actions: EntryActions,
 )
@@ -252,7 +252,7 @@ private fun CharacterBlock(
         selected = selected,
         active = active?.let { pathKey(it.path) },
         onToggle = onToggle,
-        onHover = { key -> hovered = key },
+        onHover = { key, on -> if (on) hovered = key else if (hovered == key) hovered = null },
         onSwatchPlaced = { key, position -> if (key == activeKey) swatch = position },
         actions = actions,
     )
@@ -519,7 +519,7 @@ private fun PartRow(node: DecompNode, context: BlockContext, topLevel: Boolean) 
     val hovered by interaction.collectIsHoveredAsState()
     val focused by interaction.collectIsFocusedAsState()
     if (!topLevel) {
-        LaunchedEffect(hovered || focused) { context.onHover(if (hovered || focused) key else null) }
+        LaunchedEffect(hovered || focused) { context.onHover(key, hovered || focused) }
     }
 
     val description = remember(node, strings, prefs.showPronunciation) { partDescription(node, topLevel, prefs.showPronunciation, strings) }
