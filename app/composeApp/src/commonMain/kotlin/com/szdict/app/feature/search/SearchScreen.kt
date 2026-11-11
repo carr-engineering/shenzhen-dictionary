@@ -166,7 +166,7 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
     }
     val openEntry: (EntryCard) -> Unit = { card ->
         leaveField()
-        session.openEntry(card.id, session.mode)
+        session.openEntry(card.id, holder.linkMode ?: session.mode)
     }
 
     // ---- clipboard (SRCH-124) ----
@@ -311,7 +311,7 @@ internal class CardContext(
     val playingKey: Any? get() = playing.value
 
     val audio: (EntryCard) -> CardAudio? = { card ->
-        CardAudio(playing = playing.value == card.id) { session.play(card.id, card.audio, session.mode) }
+        CardAudio(playing = playing.value == card.id) { session.play(card.id, card.audio, holder.linkMode ?: session.mode) }
     }
 
     /** Inside-words expander for [card] (SRCH-105); rows come from [entryId]'s `within` list. */

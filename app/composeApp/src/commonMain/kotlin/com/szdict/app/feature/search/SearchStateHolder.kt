@@ -157,6 +157,10 @@ class SearchStateHolder(
         )
     }
 
+    /** Mode of a search opened from a link in another mode; cleared by the next user edit. */
+    var linkMode: com.szdict.core.api.DictMode? = null
+        private set
+
     fun start() {
         if (started) return
         started = true
@@ -170,7 +174,14 @@ class SearchStateHolder(
         scope.launch {
             com.szdict.app.integration.IncomingIntents.pendingRoute.collect {
                 val route = com.szdict.app.integration.IncomingIntents.consumeRouteIf { r -> r is com.szdict.core.api.Route.Search }
-                if (route is com.szdict.core.api.Route.Search && route.query.isNotBlank()) paste(route.query)
+                if (route is com.szdict.core.api.Route.Search && route.query.isNotBlank()) {
+                    if (route.mode != session.mode) {
+                        // A link's mode applies to that search only; the persisted mode is untouched (GLB-110).
+                        linkMode = route.mode
+                        setField(TextFieldValue(route.query, TextRange(route.query.length)), user = false)
+                        submit(newQuery = true)
+                    } else paste(route.query)
+                }
             }
         }
     }
@@ -235,6 +246,7 @@ class SearchStateHolder(
         input = next
         if (!changed) return
         if (user) {
+            linkMode = null
             userEdited = true
             session.clearRoutes()   // SRCH-133
             session.updateSettings(debounceMs = 750) { it.withLastQuery(it.dictionaryMode, text) }   // SRCH-140
@@ -284,7 +296,8 @@ class SearchStateHolder(
         if (newQuery) awaitingSide = true
         searching = true
         countsCurrent = false
-        latest.submit(SearchRequest(++seq, q, session.mode, session.script, session.dataGeneration))
+        val mode = linkMode ?: session.mode
+        latest.submit(SearchRequest(++seq, q, mode, session.settings.value.script(mode), session.dataGeneration))
     }
 
     private suspend fun runSearch(request: SearchRequest) {
