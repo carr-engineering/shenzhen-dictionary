@@ -64,3 +64,18 @@ android {
         }
     }
 }
+
+// Dataset, packs and audio come from the pipeline output (PROD-090); they are copied into the
+// (gitignored) Android assets so the APK installs everything except the voice model (PROD-070).
+val syncDatasetAssets by tasks.registering(Sync::class) {
+    val out = rootProject.file("../pipeline/out")
+    from(out) {
+        include("mandarin.db", "mandarin-lm.db", "cantonese.db", "cantonese-lm.db")
+        include("mandarin-widget.json", "cantonese-widget.json")
+        include("packs/**")
+        into("data")
+    }
+    into(layout.projectDirectory.dir("src/androidMain/assets"))
+    preserve { include("models/**") }
+}
+tasks.named("preBuild") { dependsOn(syncDatasetAssets) }

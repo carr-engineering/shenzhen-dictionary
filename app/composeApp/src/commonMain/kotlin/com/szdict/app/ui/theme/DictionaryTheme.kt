@@ -1,0 +1,76 @@
+package com.szdict.app.ui.theme
+
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.dp
+import com.szdict.app.settings.ThemeMode
+
+private fun schemeFrom(palette: DictionaryPalette, dark: Boolean) = if (dark) {
+    darkColorScheme(
+        primary = palette.accent,
+        onPrimary = palette.onAccent,
+        primaryContainer = palette.accentSoft,
+        onPrimaryContainer = palette.accent,
+        secondary = palette.indigoGray,
+        tertiary = palette.tones[2],
+        background = palette.bg,
+        onBackground = palette.fg,
+        surface = palette.panel,
+        onSurface = palette.fg,
+        surfaceVariant = palette.bgSoft,
+        onSurfaceVariant = palette.muted,
+        outline = palette.border,
+        outlineVariant = palette.border
+    )
+} else {
+    lightColorScheme(
+        primary = palette.accent,
+        onPrimary = palette.onAccent,
+        primaryContainer = palette.accentSoft,
+        onPrimaryContainer = palette.accent,
+        secondary = palette.indigoGray,
+        tertiary = palette.tones[2],
+        background = palette.bg,
+        onBackground = palette.fg,
+        surface = palette.panel,
+        onSurface = palette.fg,
+        surfaceVariant = palette.bgSoft,
+        onSurfaceVariant = palette.muted,
+        outline = palette.border,
+        outlineVariant = palette.border
+    )
+}
+
+private val dictionaryShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(10.dp),
+    large = RoundedCornerShape(12.dp),
+    extraLarge = RoundedCornerShape(16.dp)
+)
+
+@Composable
+internal fun DictionaryTheme(
+    themeMode: ThemeMode = ThemeMode.System,
+    content: @Composable () -> Unit
+) {
+    val dark = when (themeMode) {
+        ThemeMode.Light -> false
+        ThemeMode.Dark -> true
+        ThemeMode.System -> isSystemInDarkTheme()
+    }
+    val palette = if (dark) DarkDictionaryPalette else LightDictionaryPalette
+    CompositionLocalProvider(LocalDictionaryPalette provides palette) {
+        MaterialTheme(
+            colorScheme = schemeFrom(palette, dark),
+            shapes = dictionaryShapes,
+            content = content
+        )
+    }
+}

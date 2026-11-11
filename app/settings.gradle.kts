@@ -18,6 +18,11 @@ dependencyResolutionManagement {
     repositories {
         // Locally published sibling libraries (opencc-kmp, shenzhen-hanzi-animator); see app/README.
         maven { url = uri(rootDir.resolve("local-maven")) }
+        // opencc-kmp (ARCH-196) is consumed from its own local publication until it is on Maven Central.
+        maven {
+            url = uri(rootDir.resolve("../../opencc-kmp/.cache/maven"))
+            content { includeGroup("io.github.opencckmp") }
+        }
         google()
         mavenCentral()
     }
