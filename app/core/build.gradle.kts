@@ -19,6 +19,9 @@ kotlin {
             api("androidx.sqlite:sqlite:2.7.1")
             implementation("androidx.sqlite:sqlite-bundled:2.7.1")
         }
+        // Shared JVM-family actuals (inflate, Unicode normalisation, file access) for both targets.
+        jvmMain { kotlin.srcDir("src/jvmAndAndroidMain/kotlin") }
+        androidMain { kotlin.srcDir("src/jvmAndAndroidMain/kotlin") }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
