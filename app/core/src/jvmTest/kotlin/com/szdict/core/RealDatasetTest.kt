@@ -79,8 +79,14 @@ class RealDatasetTest {
             assertEquals(SearchSide.CHINESE, dict.search(q, s).forcedSide, q)
         }
         // … while English words that are also pinyin, and the start of common English words, keep the remembered side.
-        for (q in listOf("long", "can", "men", "sang", "he", "ban", "pan", "fan", "sun", "song", "hen", "ca", "hello", "graduate student")) {
+        for (q in listOf("long", "can", "men", "sang", "he", "ban", "pan", "fan", "sun", "song", "hen", "ca")) {
             assertEquals(null, dict.search(q, s).forcedSide, q)
+        }
+        // A side with no result never wins over the side that answers the query.
+        for (q in listOf("love", "hello", "graduate student")) {
+            val r = dict.search(q, s)
+            assertTrue(r.chinese.isEmpty && r.english.count > 0, q)
+            assertEquals(SearchSide.ENGLISH, r.forcedSide, q)
         }
         assertTrue(dict.search("nh", s).english.count > 0 && dict.search("ren", s).english.count > 0)
     }
@@ -218,7 +224,7 @@ class RealDatasetTest {
         assertTrue(r.english.count > 0)
         val heads = r.english.sections.first().cards.take(10).map { it.headword }
         assertTrue("研究生" in heads, heads.toString())
-        assertEquals(null, r.forcedSide)
+        assertEquals(SearchSide.ENGLISH, r.forcedSide) // English results only
         assertTrue(dict.search("stud", s).english.count > 0)
     }
 

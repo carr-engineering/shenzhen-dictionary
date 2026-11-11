@@ -82,7 +82,9 @@ data class SideResult(
  * Response for one query (docs/03 §7). Both sides are always computed (SRCH-002).
  *
  * Side selection (SRCH-024): when [forcedSide] is non-null the UI selects it and must not persist
- * it as the remembered side (SRCH-026); when null the remembered side applies.
+ * it as the remembered side (SRCH-026); when null the remembered side applies. Besides the rules
+ * of SRCH-024 a side is forced when the other one has no result at all for the query (`love` opens
+ * on the English page, whatever side is remembered).
  */
 data class SearchResult(
     /** The query as given (after line-break normalisation, SRCH-011). */

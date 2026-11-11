@@ -117,7 +117,7 @@ class FixtureDatasetTest {
         }
         assertEquals(SearchSide.CHINESE, dict.search("nh", s).forcedSide)      // no English match
         assertEquals(SearchSide.CHINESE, dict.search("ni3hao3", s).forcedSide) // explicit tone
-        assertNull(dict.search("hi", s).forcedSide)                            // also reads as English
+        assertEquals(SearchSide.ENGLISH, dict.search("hi", s).forcedSide)      // English results only
         // Tone-only differences (SRCH-165).
         assertEquals(listOf(3), dict.search("hao3", s).zh(SectionKind.MATCHES)!!.cards.map { it.reading.tones[0] })
         assertEquals(setOf(3, 4), dict.search("hao", s).zh(SectionKind.MATCHES)!!.cards.map { it.reading.tones[0] }.toSet())
@@ -264,6 +264,7 @@ class FixtureDatasetTest {
             entry("擦", "擦", "ca1", "to wipe; CA (abbr.)", 3900, 300)
             entry("肽键", "肽键", "tai4 jian4", "peptide bond CO-NH", 9000)
             entry("母雞", "母鸡", "mu3 ji1", "hen", 7000)
+            entry("KV車", "KV车", "K V che1", "", 8000)
             englishWords.putAll(words)
         }.build()
         val english = mapOf("hen" to 3, "rent" to 20, "render" to 5, "can" to 3000, "call" to 900, "cat" to 100, "go" to 2000, "good" to 1500)
@@ -285,9 +286,17 @@ class FixtureDatasetTest {
             val ca = dict.search("ca", s)
             assertEquals("擦", ca.heads(SectionKind.MATCHES).first())
             assertNull(ca.forcedSide, "ca: en=${ca.english.count}")
-            // No whole-query Chinese match: the plain rule (English matches keep the remembered side).
-            assertNull(dict.search("goo", s).forcedSide, "goo")
-            assertNull(dict.search("graduate student", s).forcedSide, "graduate student")
+            // A side with no result never wins: English results only open the English page, and the
+            // other way round, whatever side is remembered (forced, so not persisted).
+            val goo = dict.search("goo", s)
+            assertTrue(goo.chinese.isEmpty && goo.english.count > 0)
+            assertEquals(SearchSide.ENGLISH, goo.forcedSide)
+            assertEquals(SearchSide.ENGLISH, dict.search("graduate student", s).forcedSide)
+            val kv = dict.search("kv", s)                                   // LATIN: a Latin headword, no English match
+            assertEquals(QueryKind.LATIN, kv.kind)
+            assertTrue(kv.english.isEmpty && kv.chinese.count > 0)
+            assertEquals(SearchSide.CHINESE, kv.forcedSide)
+            assertNull(dict.search("qqqq", s).let { r -> r.forcedSide.takeIf { r.kind == QueryKind.LATIN } }) // nothing anywhere: remembered side
             // Tones and Hanzi always force.
             assertEquals(SearchSide.CHINESE, dict.search("hen3", s).forcedSide)
         }

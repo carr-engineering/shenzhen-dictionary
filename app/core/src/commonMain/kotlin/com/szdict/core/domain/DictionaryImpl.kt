@@ -219,7 +219,14 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
             c.kind == QueryKind.ROMANISATION && (english.count == 0 || pronunciationOnly(words, known, zh)) -> SearchSide.CHINESE
             else -> null
         }
-        val result = SearchResult(query, c.key, c.display, c.kind, script, forced, chinese, english, false, generation)
+        // A side without any result never wins over one that has some: the query opens on the side that
+        // answers it, as a forced (not remembered, SRCH-026) choice like the other automatic switches.
+        val side = when {
+            forced != SearchSide.ENGLISH && chinese.isEmpty && !english.isEmpty -> SearchSide.ENGLISH
+            forced == null && english.isEmpty && !chinese.isEmpty -> SearchSide.CHINESE
+            else -> forced
+        }
+        val result = SearchResult(query, c.key, c.display, c.kind, script, side, chinese, english, false, generation)
         val needs = options.combinations && c.kind == QueryKind.ROMANISATION && store.hasLm && c.roman?.paths?.any { it.tokens.size >= 2 } == true
         val whole = zh.sections.firstOrNull { it.kind == SectionKind.MATCHES }?.rows?.let { rows -> IntArray(rows.size) { rows[it].proj.id } } ?: IntArray(0)
         return Base(c, script, options, result, whole, needs, allEnglish)

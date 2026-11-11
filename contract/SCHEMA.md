@@ -286,6 +286,9 @@ change it. The app reads what is described here.
     `hen`, `fan`, `long`, `can`, `sang` (English words) and `ca` (start of `can`, `call`, …) keep the
     remembered side. A query made of words of this table is combined (`SRCH-060`) only through its
     full-syllable readings. Without the table the app applies the plain "no English match" rule.
+    Whatever the rules above select, a side with no result at all never wins over a side that has
+    some: the app then forces the side that answers the query (`love` → English, also when Chinese
+    is the remembered side); like every forced side it is not persisted (`SRCH-026`).
 20. **Passage segmentation** (`TXT-012`, `TXT-026`): with `has_frequency_data`, `has_bigram_model` and
     the language-model file present, the app decodes a character lattice whose edges are the
     segmentable headwords of the run — language-model word and unigram from `lm_entry`, bigram blocks

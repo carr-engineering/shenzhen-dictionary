@@ -185,15 +185,37 @@ class SearchStateHolderTest {
         assertEquals(SearchSide.CHINESE, f.holder.side)          // forced: no English match
         f.holder.onManualSide(SearchSide.ENGLISH)
         assertEquals(SearchSide.ENGLISH, f.holder.side)          // manual is authoritative (SRCH-025)
-        f.type("good"); advanceTimeBy(100)
+        f.type("fa"); advanceTimeBy(100)                         // 发 fā / fate, family: both sides answer
         assertEquals(SearchSide.ENGLISH, f.holder.side)          // remembered side
         f.holder.onManualSide(SearchSide.CHINESE)
         assertEquals(SearchSide.CHINESE, f.session.settings.value.searchSide)   // ambiguous query teaches (SRCH-026)
         f.type("你好"); advanceTimeBy(100)
         f.holder.onManualSide(SearchSide.ENGLISH)
         assertEquals(SearchSide.CHINESE, f.session.settings.value.searchSide)   // forced query does not
+        f.type("fa"); advanceTimeBy(100)
+        assertEquals(SearchSide.CHINESE, f.holder.side)          // remembered side again
+        // A remembered side with no result never wins over the side that answers the query:
+        // `water` has English results only, so it opens on the English page — forced, not remembered.
         f.type("water"); advanceTimeBy(100)
+        assertEquals(SearchSide.ENGLISH, f.holder.side)
+        assertEquals(SearchSide.CHINESE, f.session.settings.value.searchSide)
+        f.holder.onManualSide(SearchSide.CHINESE)                // looking at the empty page teaches nothing
+        f.holder.onManualSide(SearchSide.ENGLISH)
+        assertEquals(SearchSide.CHINESE, f.session.settings.value.searchSide)
+        f.type("fa"); advanceTimeBy(100)
         assertEquals(SearchSide.CHINESE, f.holder.side)
+    }
+
+    @Test
+    fun emptyRememberedSideYieldsToTheOtherSide() = runTest {
+        // The other direction: English remembered (fresh install), a query only the Chinese side answers.
+        val f = Fixture(this)
+        advanceTimeBy(100)
+        f.type("good"); advanceTimeBy(100)
+        assertEquals(SearchSide.ENGLISH, f.holder.side)          // English results only
+        f.type("xiexie"); advanceTimeBy(100)
+        assertEquals(SearchSide.CHINESE, f.holder.side)          // Chinese results only
+        assertEquals(SearchSide.ENGLISH, f.session.settings.value.searchSide)
     }
 
     @Test

@@ -135,6 +135,9 @@ class FakeDictionary(override val mode: DictMode = DictMode.MANDARIN) : Dictiona
         }.sortedWith(rank)
         val english = SideResult(SearchSide.ENGLISH, en.size, listOfNotNull(section(SectionKind.ENGLISH, "e", null, en, script)))
         if (kind == QueryKind.ROMANISATION && en.isEmpty()) forced = SearchSide.CHINESE
+        // A side without any result never wins over one that has some (as in the real engine).
+        if (forced != SearchSide.ENGLISH && chinese.isEmpty && !english.isEmpty) forced = SearchSide.ENGLISH
+        else if (forced == null && english.isEmpty && !chinese.isEmpty) forced = SearchSide.CHINESE
         return SearchResult(query, lower, q, kind, script, forced, chinese, english, false, generation)
     }
 
