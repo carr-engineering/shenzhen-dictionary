@@ -323,26 +323,26 @@ private fun EntryReady(
             onRef = { ref ->
                 lookupJob[0]?.cancel()
                 lookupStatus = null
-                val target = ref.targetId
-                if (target != null) {
-                    session.openEntry(target, route.mode)
-                } else {
-                    lookupJob[0] = scope.launch {
-                        try {
-                            val found = session.dictionary(route.mode)
-                                .resolveReference(ref.traditional, ref.simplified, ref.readingCanonical, script)
-                            val cards = (found.matches + found.inside.map { it.card }).distinctBy { it.id }
-                            when {
-                                cards.isEmpty() -> lookupStatus = strings.text("No dictionary entry")
-                                cards.size == 1 -> session.openEntry(cards[0].id, route.mode)
-                                // ENT-106: never silently pick one of several readings.
-                                else -> openCards(strings.text("Words at 「{0}」", found.form), found.form, cards)
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            lookupStatus = strings.text("Unable to load word choices") + (e.message?.let { ": $it" } ?: "")
+                // ENT-054: a reference always offers its entry plus the words inside it; only a
+                // reference with a single candidate (one character, one reading) opens directly.
+                lookupJob[0] = scope.launch {
+                    try {
+                        val found = session.dictionary(route.mode)
+                            .resolveReference(ref.traditional, ref.simplified, ref.readingCanonical, script)
+                        val resolved = found.matches.firstOrNull { it.id == ref.targetId }
+                        val matches = if (resolved != null) listOf(resolved) + found.matches.filter { it.id != resolved.id } else found.matches
+                        val cards = (matches + found.inside.map { it.card }).distinctBy { it.id }
+                        when {
+                            cards.isEmpty() -> ref.targetId?.let { session.openEntry(it, route.mode) }
+                                ?: run { lookupStatus = strings.text("No dictionary entry") }
+                            cards.size == 1 -> session.openEntry(cards[0].id, route.mode)
+                            // ENT-106: never silently pick one of several readings.
+                            else -> openCards(strings.text("Words at 「{0}」", found.form), found.form, cards)
                         }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        lookupStatus = strings.text("Unable to load word choices") + (e.message?.let { ": $it" } ?: "")
                     }
                 }
             },

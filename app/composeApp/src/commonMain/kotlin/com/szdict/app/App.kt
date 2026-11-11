@@ -41,6 +41,7 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -52,6 +53,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -109,7 +115,21 @@ fun App(session: AppSession) {
                 val imeVisible = WindowInsets.isImeVisible
                 val topRoute = session.routes.lastOrNull()
                 val fullScreenRoute = topRoute != null && (!twoPane || topRoute !is DetailRoute.Entry)
-                val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !fullScreenRoute
+                // Settings-family routes keep the primary navigation visible (SET-005); an entry covers it.
+                val coversNavigation = topRoute is DetailRoute.Entry && !twoPane
+                val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !coversNavigation
+
+                // A route that covers the destination takes the focus away from it: no caret handle,
+                // keyboard or handwriting sheet of a covered field survives or comes back (GLB-059).
+                val focusManager = LocalFocusManager.current
+                val softKeyboard = LocalSoftwareKeyboardController.current
+                LaunchedEffect(fullScreenRoute) {
+                    if (fullScreenRoute) {
+                        focusManager.clearFocus(force = true)
+                        softKeyboard?.hide()
+                        session.handwritingVisible = false
+                    }
+                }
 
                 // Back precedence, innermost first (PROD-056, ARCH-052). Later handlers win.
                 BackHandler(enabled = session.routes.isNotEmpty()) { session.routes.lastOrNull()?.let { session.popRoute(it.key) } }
@@ -128,7 +148,11 @@ fun App(session: AppSession) {
                             val sheetInset = maxOf(wordSheetHeight, handwritingHeight)
                             CompositionLocalProvider(LocalSheetInset provides sheetInset) {
                                 val stateHolder = rememberSaveableStateHolder()
-                                Row(Modifier.fillMaxSize()) {
+                                // A covered destination is neither focusable nor read by a screen reader.
+                                val covered = if (fullScreenRoute) {
+                                    Modifier.focusProperties { canFocus = false }.clearAndSetSemantics { }
+                                } else Modifier
+                                Row(Modifier.fillMaxSize().then(covered)) {
                                     Box(Modifier.weight(1f).fillMaxHeight()) {
                                         stateHolder.SaveableStateProvider("dest-${session.destination}-${session.dataGeneration}") {
                                             when (session.destination) {
@@ -220,7 +244,8 @@ private fun DetailHost(session: AppSession, twoPane: Boolean, entriesOnly: Boole
                 }
             }
             else -> stateHolder.SaveableStateProvider("route-${route.key}") {
-                Box(Modifier.fillMaxSize().background(palette.bg)) {
+                // The route is opaque to touches too: nothing reaches the screen it covers.
+                Box(Modifier.fillMaxSize().background(palette.bg).pointerInput(Unit) { }) {
                     val onBack = { session.popRoute(route.key); Unit }
                     when (route) {
                         is DetailRoute.Entry -> EntryDetailScreen(session, route, twoPane, onBack, onClose = session::clearRoutes)

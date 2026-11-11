@@ -143,7 +143,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRuby(
             val tone = tones.getOrElse(n) { 0 }
             val color = if (toneColors && tone > 0) palette.tone(tone) else palette.muted
             val measured = measurer.measure(syllables[n], rubyStyle.copy(color = color), softWrap = false, maxLines = 1)
-            val available = box.width + 2.dp.toPx()
+            // Slightly narrower than the glyph cell, so neighbouring readings never touch.
+            val available = box.width - 1.5.dp.toPx()
             val scale = if (measured.size.width > available) (available / measured.size.width).coerceAtLeast(0.6f) else 1f
             val w = measured.size.width * scale
             val x = box.center.x - w / 2f

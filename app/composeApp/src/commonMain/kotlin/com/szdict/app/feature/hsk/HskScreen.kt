@@ -361,7 +361,8 @@ private fun LevelChip(level: HskLevelCount, selected: Boolean, onClick: () -> Un
 internal fun PronunciationToggle(shown: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
     val palette = LocalDictionaryPalette.current
     val strings = appStrings()
-    val label = strings.text("Show pronunciation")
+    // GLB-080: labelled by what a tap does, as on every other screen.
+    val label = strings.text(if (shown) "Hide pronunciation" else "Show pronunciation")
     val stateText = if (shown) strings.text("On") else strings.text("Off")
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
         Surface(

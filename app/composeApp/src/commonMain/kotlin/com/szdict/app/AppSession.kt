@@ -159,7 +159,8 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
 
     private fun onModeChanged() {
         dataGeneration++
-        routes.clear()
+        // Entry ids are dataset-scoped (ENT-093); Settings stays open over the refreshed Search (SET-005).
+        routes.removeAll { it is DetailRoute.Entry }
         closeWordSheet(userDismissed = false)
         handwritingVisible = false   // HW-024
         stopPlayback()
