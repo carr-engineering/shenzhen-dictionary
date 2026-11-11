@@ -204,13 +204,17 @@ class DataStoreSettingsStorage(private val context: Context) : SettingsStorage {
         prefs.asMap().entries.mapNotNull { (k, v) -> (v as? String)?.let { k.name to it } }.toMap()
     }
 
-    override suspend fun update(changes: Map<String, String?>) {
+    // DataStore runs the edit block in the caller's context. Off the main thread, so that
+    // [flushBlocking] (called from onStop on the main thread) can never wait on an earlier edit
+    // whose block is queued behind it on the main looper — that deadlock was an ANR.
+    override suspend fun update(changes: Map<String, String?>) = withContext(Dispatchers.IO) {
         context.settingsDataStore.edit { prefs ->
             for ((key, value) in changes) {
                 val prefKey = stringPreferencesKey(key)
                 if (value == null) prefs.remove(prefKey) else prefs[prefKey] = value
             }
         }
+        Unit
     }
 
     override fun flushBlocking(changes: Map<String, String?>) {
