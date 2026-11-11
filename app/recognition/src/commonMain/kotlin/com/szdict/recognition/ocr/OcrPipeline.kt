@@ -54,10 +54,12 @@ internal class OcrOptions(
      * The working image, from which lines are cut for the recogniser, is capped to this many pixels
      * on its longer side. (Detection runs on a copy of at most 1280 pixels.)
      */
-    val maxSide: Int = 2400,
+    val maxSide: Int = 2560,
     val maxLines: Int = 200,
     /** Height the ink is scaled to inside the 24-px recogniser input. */
     val inkHeight: Int = 20,
+    /** Whether small text gets a second, finer detector pass. */
+    val fineDetection: Boolean = true,
 )
 
 /**
@@ -158,6 +160,9 @@ internal class OcrPipeline(
 
         /** A region at least this many times longer than tall holds several glyphs. */
         const val MULTI_GLYPH = 2.5
+
+        /** Line height in detector pixels under which the detector starts to miss text. */
+        const val SMALL_TEXT = 20.0
     }
 
     private fun readRegions(page: Gray, regions: List<Region>, checkpoint: () -> Unit): List<Line> {
@@ -205,10 +210,10 @@ internal class OcrPipeline(
      * lines; this is decided per region, which lets a column stand beside a block of horizontal text.
      */
     private fun detectLayout(page: Gray): Layout {
-        val upright = detectRegions(page)
+        val (upright, fine) = detectRegions(page)
         val turnedPage = page.rotate90()
         // Turned (x', y') is page (y', pageHeight - x'); a turned line runs up the page.
-        val turned = detectRegions(turnedPage).map { it.copy(cx = it.cy, cy = page.h - it.cx, angle = it.angle - PI / 2) }
+        val turned = detectRegions(turnedPage, fine).first.map { it.copy(cx = it.cy, cy = page.h - it.cx, angle = it.angle - PI / 2) }
         val rowBoxes = upright.filter { it.w >= it.h * MULTI_GLYPH }.map { Geometry.bounds(it) }
         val columns = turned.filter { r ->
             if (r.w < r.h * MULTI_GLYPH) return@filter false
@@ -264,11 +269,36 @@ internal class OcrPipeline(
         return kept
     }
 
-    /** One detector pass: proposals merged into line regions, in the given raster's pixels. */
-    private fun detectRegions(page: Gray): List<Region> {
+    /**
+     * Detector proposals merged into line regions, in the given raster's pixels. The first pass sees
+     * the page at 640 to 1280 pixels; when it finds small text (or nothing), a second pass at twice
+     * that size or at the page's full resolution reads the lines too small for the first.
+     */
+    private fun detectRegions(page: Gray, fine: Boolean? = null): Pair<List<Region>, Boolean> {
+        val longest = max(page.w, page.h)
+        val coarseSide = min(1280, max(640, longest))
+        var proposals = propose(page, coarseSide)
+        var usedFine = false
+        // Small pages are magnified for the second pass, large ones seen at full resolution.
+        val fineSide = min(options.maxSide, max(longest, coarseSide * 2))
+        if (options.fineDetection && fineSide > coarseSide * 1.25) {
+            val toDetector = coarseSide.toDouble() / longest
+            val small = proposals.count { it.score >= STRONG_PROPOSAL && it.h * toDetector < SMALL_TEXT }
+            if (fine ?: (small >= 3 || proposals.none { it.score >= STRONG_PROPOSAL })) {
+                // At that size the coarse pass places lines only roughly (its cells are 16 pixels):
+                // small text comes from the fine pass alone, large text from the coarse one.
+                proposals = proposals.filter { it.h * toDetector >= SMALL_TEXT * 1.25 } + propose(page, fineSide)
+                usedFine = true
+            }
+        }
+        val regions = Geometry.absorbFragments(Geometry.mergeProposals(proposals, STRONG_PROPOSAL).filter { it.w > 4 && it.h > 5 && it.h < longest * 1.3 })
+        return regions to usedFine
+    }
+
+    /** One detector pass with the page scaled to [side] pixels on its longer side. */
+    private fun propose(page: Gray, side: Int): List<Region> {
         val w = page.w
         val h = page.h
-        val side = min(1280, max(640, max(w, h)))
         val scale = side.toDouble() / max(w, h)
         val dw = max(32, ceil(w * scale / 32).toInt() * 32)
         val dh = max(32, ceil(h * scale / 32).toInt() * 32)
@@ -277,8 +307,7 @@ internal class OcrPipeline(
         val out = nets.detect(small.px, dw, dh)
         check(out.rows == dh / 16 && out.cols == dw / 16) { "Detector output dimensions do not match input" }
         // Weak proposals bridge the glyphs the detector is unsure about (thin strokes, dense characters).
-        val proposals = Geometry.decodeDetector(out.data, out.rows, out.cols, out.scale.toDouble(), out.zeroPoint, w.toDouble() / dw, h.toDouble() / dh, WEAK_PROPOSAL)
-        return Geometry.absorbFragments(Geometry.mergeProposals(proposals, STRONG_PROPOSAL).filter { it.w > 4 && it.h > 5 && it.h < max(w, h) * 1.3 })
+        return Geometry.decodeDetector(out.data, out.rows, out.cols, out.scale.toDouble(), out.zeroPoint, w.toDouble() / dw, h.toDouble() / dh, WEAK_PROPOSAL)
     }
 
     /**

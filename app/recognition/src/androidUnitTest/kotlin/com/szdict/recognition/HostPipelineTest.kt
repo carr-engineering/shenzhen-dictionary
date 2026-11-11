@@ -102,7 +102,8 @@ class HostPipelineTest {
         assumeTrue("no host Python configured", nets != null)
         nets!!
         try {
-            val pipeline = OcrPipeline(nets, HostNets.labels("ocr/hani-labels.txt"), HostNets.labels("ocr/latn-labels.txt"))
+            val options = com.szdict.recognition.ocr.OcrOptions(fineDetection = System.getenv("RECOGNITION_NO_FINE") == null)
+            val pipeline = OcrPipeline(nets, HostNets.labels("ocr/hani-labels.txt"), HostNets.labels("ocr/latn-labels.txt"), options)
             class Tally(var images: Int = 0, var chars: Int = 0, var top1: Int = 0, var top5: Int = 0, var ms: Double = 0.0, var marked: Int = 0, var markedWrong: Int = 0, var wrong: Int = 0)
             val tallies = sortedMapOf<String, Tally>()
             val details = StringBuilder()

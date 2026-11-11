@@ -193,6 +193,8 @@ for n, lines in enumerate(TEXTS):
     small = render(lines, fname, 30 if n % 2 else 40)
     frame.paste(small, (300 + 200 * n, 400 + 150 * n))
     save("small12mp", n, frame, lines, jpeg=88)
+    # Small type at its natural size (a screenshot or a scan at low resolution).
+    save("smalltext", n, render(lines, "hei" if n == 5 else fname, 14 + n % 3 * 2, margin=30), lines)
     photo = perspective(lighting(page, n + 20), yaw=12 if n % 2 else -12, pitch=6)
     photo = photo.rotate(4 if n % 2 else -3, expand=True, fillcolor=(205, 205, 205), resample=Image.Resampling.BICUBIC)
     photo = noise(photo.filter(ImageFilter.GaussianBlur(1.0)), 8, n)
