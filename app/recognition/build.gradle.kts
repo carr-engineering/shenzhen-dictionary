@@ -58,6 +58,10 @@ tasks.withType<Test>().configureEach {
     System.getenv("RECOGNITION_HOST_PYTHON")?.let { systemProperty("recognition.hostPython", it) }
     System.getenv("RECOGNITION_TEST_IMAGES")?.let { systemProperty("recognition.testImages", it) }
     System.getenv("RECOGNITION_HOST_OUT")?.let { systemProperty("recognition.hostOut", it) }
+    // Optional accuracy evaluation over <name>.png|jpg + <name>.txt pairs (tools/make_eval_set.py).
+    System.getenv("RECOGNITION_EVAL_DIR")?.let { systemProperty("recognition.evalDir", it) }
+    // Host-harness runs read images from outside the project: never treat them as up to date.
+    if (System.getenv("RECOGNITION_HOST_PYTHON") != null) outputs.upToDateWhen { false }
     maxHeapSize = "1g"
 }
 

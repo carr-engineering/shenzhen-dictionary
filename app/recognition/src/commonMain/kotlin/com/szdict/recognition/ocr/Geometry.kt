@@ -57,6 +57,47 @@ internal object Geometry {
         return intersection / max(1.0, min(a.width * a.height, b.width * b.height))
     }
 
+    /** Area of a convex polygon given as `[x, y]` points in order (either winding). */
+    fun area(polygon: List<DoubleArray>): Double {
+        var sum = 0.0
+        for (i in polygon.indices) {
+            val a = polygon[i]
+            val b = polygon[(i + 1) % polygon.size]
+            sum += a[0] * b[1] - b[0] * a[1]
+        }
+        return abs(sum) / 2
+    }
+
+    /** Area shared by two convex quadrilaterals (Sutherland-Hodgman clipping). */
+    fun intersectionArea(a: Array<DoubleArray>, b: Array<DoubleArray>): Double {
+        var clip = b.toList()
+        // Clip against a counter-clockwise polygon (in a y-up sense; only consistency matters).
+        var signed = 0.0
+        for (i in clip.indices) signed += clip[i][0] * clip[(i + 1) % clip.size][1] - clip[(i + 1) % clip.size][0] * clip[i][1]
+        if (signed < 0) clip = clip.reversed()
+        var subject = a.toList()
+        for (i in clip.indices) {
+            if (subject.isEmpty()) return 0.0
+            val p = clip[i]
+            val q = clip[(i + 1) % clip.size]
+            fun side(v: DoubleArray) = (q[0] - p[0]) * (v[1] - p[1]) - (q[1] - p[1]) * (v[0] - p[0])
+            val out = ArrayList<DoubleArray>()
+            for (j in subject.indices) {
+                val current = subject[j]
+                val next = subject[(j + 1) % subject.size]
+                val sc = side(current)
+                val sn = side(next)
+                if (sc >= 0) out.add(current)
+                if ((sc >= 0) != (sn >= 0)) {
+                    val t = sc / (sc - sn)
+                    out.add(doubleArrayOf(current[0] + (next[0] - current[0]) * t, current[1] + (next[1] - current[1]) * t))
+                }
+            }
+            subject = out
+        }
+        return if (subject.size < 3) 0.0 else area(subject)
+    }
+
     /**
      * Decodes the RPN head: per 16-px cell `[objectness, dx, dy, log w, log h, cos, sin]` against
      * 32-px anchors. [sx]/[sy] map detector pixels back to image pixels.

@@ -126,7 +126,9 @@ internal class OcrPipeline(
         checkpoint()
         val lines = readRegions(page, Geometry.verticalColumns(layout.rows).take(options.maxLines), checkpoint) +
             readColumns(page, layout.columns.take(options.maxLines), checkpoint)
-        val assembled = assembleRows(select(lines))
+        val selected = select(lines)
+        levelBoxes(selected)
+        val assembled = assembleRows(selected)
         // Horizontal text in reading order, then vertical columns right to left.
         val ordered = Geometry.readingOrder(assembled.filter { !it.vertical }, false) { it.box } +
             Geometry.readingOrder(assembled.filter { it.vertical }, true) { it.box }
@@ -251,12 +253,11 @@ internal class OcrPipeline(
         val ranked = deduplicate(lines).sortedByDescending { it.chars.size * it.confidence }
         val kept = ArrayList<Line>()
         for (candidate in ranked) {
-            val area = max(1.0, candidate.box.width * candidate.box.height)
+            val area = max(1.0, Geometry.area(candidate.quad.toList()))
             var covered = 0.0
             for (other in kept) {
                 if (other.vertical == candidate.vertical && abs(other.angle - candidate.angle) < .5) continue
-                covered += max(0.0, min(other.box.x1, candidate.box.x1) - max(other.box.x0, candidate.box.x0)) *
-                    max(0.0, min(other.box.y1, candidate.box.y1) - max(other.box.y0, candidate.box.y0))
+                covered += Geometry.intersectionArea(other.quad, candidate.quad)
             }
             if (covered / area < .3) kept.add(candidate)
         }
@@ -293,11 +294,8 @@ internal class OcrPipeline(
         val h = max(4, ceil(region.h * .8).toInt())
         val ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
         if (ink.box == null) return region
-        val column = BooleanArray(w) { x ->
-            var any = false
-            for (y in 0 until h) if (ink.mask[y * w + x].toInt() != 0) { any = true; break }
-            any
-        }
+        val fill = IntArray(w)
+        for (y in 0 until h) for (x in 0 until w) fill[x] += ink.mask[y * w + x]
         val limit = max(3, (region.h * .9).roundToInt())
         val cosA = cos(region.angle)
         val sinA = sin(region.angle)
@@ -307,20 +305,47 @@ internal class OcrPipeline(
             val py = region.cy + (x + .5 - w / 2.0) * sinA
             return obstacles.any { px > it.x0 && px < it.x1 && py > it.y0 && py < it.y1 }
         }
-        var right = w - reach
-        var blank = 0
-        var x = right
-        while (x < w && blank <= limit && !blocked(x)) {
-            if (column[x]) { right = x + 1; blank = 0 } else blank++
-            x++
+        // Walks outward over runs of inked columns. A run whose columns are inked over the whole
+        // band is a bar - the edge of a page, panel or frame, or the wall beside a sign - unless it
+        // is thin and more ink follows closely, as with a stroke standing apart in its glyph
+        // (川, 引). The line ends before a bar.
+        val solid = max(2, (h * .9).toInt())
+        val thick = max(4, (region.h * .35).roundToInt())
+        val near = max(2, (region.h * .3).roundToInt())
+        fun runEnd(x: Int, step: Int): Int {
+            var end = x
+            while (end in 0 until w && fill[end] > 0) end += step
+            return end
         }
-        var left = reach
-        blank = 0
-        x = left - 1
-        while (x >= 0 && blank <= limit && !blocked(x)) {
-            if (column[x]) { left = x; blank = 0 } else blank++
-            x--
+        fun isBar(x: Int, end: Int, step: Int): Boolean {
+            var full = 0
+            var i = x
+            while (i != end) { if (fill[i] >= solid) full++; i += step }
+            return full * 10 >= abs(end - x) * 6
         }
+        fun walk(from: Int, step: Int): Int {
+            var edge = from
+            var blank = 0
+            // Start inside the region so a glyph the detected edge cuts through is judged whole.
+            var x = from - step * min(region.w / 2, region.h * .6).toInt()
+            while (x in 0 until w && blank <= limit && !blocked(x)) {
+                if (fill[x] == 0) { blank++; x += step; continue }
+                val end = runEnd(x, step)
+                if (isBar(x, end, step)) {
+                    if (abs(end - x) >= thick) break
+                    // Thin: a stroke only if ordinary ink follows within a stroke gap.
+                    var next = end
+                    while (next in 0 until w && fill[next] == 0 && abs(next - end) < near) next += step
+                    if (next !in 0 until w || fill[next] == 0 || isBar(next, runEnd(next, step), step)) break
+                }
+                if ((end - edge) * step > 0) edge = end
+                blank = 0
+                x = end
+            }
+            return edge
+        }
+        val right = walk(w - reach, 1)
+        val left = walk(reach - 1, -1) + 1
         val growRight = (right - (w - reach)).toDouble()
         val growLeft = (reach - left).toDouble()
         if (growRight <= 0 && growLeft <= 0) return region
@@ -345,6 +370,7 @@ internal class OcrPipeline(
                 ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
             }
         }
+        if (!region.vertical) InkAnalysis.dropSolid(ink.mask, w, h, rows = region.w > region.h * 3)
         val box = (if (region.vertical) ink.box else InkAnalysis.lineBand(ink.mask, w, h, pad, h - pad)) ?: return null
         val c = cos(region.angle)
         val s = sin(region.angle)
@@ -356,7 +382,7 @@ internal class OcrPipeline(
             w = (box[2] - box[0]).toDouble(),
             h = (box[3] - box[1]).toDouble(),
         )
-        return Crop(InkAnalysis.normalizeContrast(ink.gray), box, refined, region.cx, region.cy, region.angle)
+        return Crop(InkAnalysis.normalizeContrast(ink), box, refined, region.cx, region.cy, region.angle)
     }
 
     /** Cuts a vertical column into glyph cells and lays them out left to right as one text line. */
@@ -428,6 +454,7 @@ internal class OcrPipeline(
         val labels = if (model == SequenceModel.HANI) haniLabels else latnLabels
         val strip = normalized(crop, 2048)
         val out = nets.sequence(model, strip.columns, strip.width)
+        trace?.invoke("STRIP ${strip.width} " + strip.columns.joinToString("") { ((it.toInt() and 0xFF) / 16).toString(16) })
         var emissions = trimSpaces(CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives, labels.indexOf(" ")), labels)
         // Glyph spacing in a column is leading, not word spacing.
         if (column) emissions = emissions.filter { !labels[it.label].isBlank() }
@@ -503,10 +530,32 @@ internal class OcrPipeline(
         return ranked.filterIndexed { i, line ->
             (0 until i).none {
                 val other = ranked[it]
-                val shared = Geometry.overlap(other.box, line.box)
+                // Rotated rectangles, not their bounding boxes: neighbouring lines of tilted text
+                // have heavily overlapping bounding boxes without sharing any area.
+                val shared = Geometry.intersectionArea(other.quad, line.quad) /
+                    max(1.0, min(Geometry.area(other.quad.toList()), Geometry.area(line.quad.toList())))
                 (other.text.contains(line.text) && shared > .8) ||
                     (shared > .5 && other.vertical == line.vertical)
             }
+        }
+    }
+
+    /**
+     * On a tilted page the bounding boxes of neighbouring lines overlap and say little about rows
+     * and columns. Row assembly and reading order therefore work on boxes taken in the page's own
+     * frame: every line is turned back by the median tilt of the horizontal lines.
+     */
+    private fun levelBoxes(lines: List<Line>) {
+        val angles = lines.filter { !it.vertical && abs(it.angle) < .8 }.map { it.angle }.sorted()
+        if (angles.isEmpty()) return
+        val tilt = angles[angles.size / 2]
+        if (abs(tilt) < .03) return
+        val c = cos(-tilt)
+        val s = sin(-tilt)
+        for (line in lines) {
+            val xs = line.quad.map { it[0] * c - it[1] * s }
+            val ys = line.quad.map { it[0] * s + it[1] * c }
+            line.box = Box(xs.min(), ys.min(), xs.max(), ys.max())
         }
     }
 

@@ -88,6 +88,62 @@ class HostPipelineTest {
         }
     }
 
+    /**
+     * Character accuracy per degradation category over an evaluation directory (`RECOGNITION_EVAL_DIR`,
+     * see tools/make_eval_set.py). Scores Han characters only: top-1 is the share of ground-truth
+     * characters found in order in the output, top-5 counts a character as found when it is among
+     * the first five alternatives at its position.
+     */
+    @Test
+    fun ocrEvaluation() {
+        val dir = System.getProperty("recognition.evalDir")?.let { File(it) }
+        assumeTrue("no evaluation directory configured", dir != null && dir.isDirectory)
+        val nets = HostNets.startOrNull()
+        assumeTrue("no host Python configured", nets != null)
+        nets!!
+        try {
+            val pipeline = OcrPipeline(nets, HostNets.labels("ocr/hani-labels.txt"), HostNets.labels("ocr/latn-labels.txt"))
+            class Tally(var images: Int = 0, var chars: Int = 0, var top1: Int = 0, var top5: Int = 0, var ms: Double = 0.0, var marked: Int = 0, var markedWrong: Int = 0, var wrong: Int = 0)
+            val tallies = sortedMapOf<String, Tally>()
+            val details = StringBuilder()
+            fun han(s: String) = s.filter { it.code in 0x3400..0x9FFF }
+            for (file in dir!!.listFiles { f -> f.extension in setOf("png", "jpg", "jpeg") }!!.sortedBy { it.name }) {
+                val truth = File(dir, file.nameWithoutExtension + ".txt").takeIf { it.exists() }?.readText() ?: continue
+                val expected = han(truth)
+                val start = System.nanoTime()
+                val result = pipeline.recognize(image(file))
+                val ms = (System.nanoTime() - start) / 1e6
+                val chars = result.lines.flatMap { it.chars }
+                fun aligned(match: (OcrChar, Char) -> Boolean): Int {
+                    val table = Array(expected.length + 1) { IntArray(chars.size + 1) }
+                    for (i in 1..expected.length) for (j in 1..chars.size) {
+                        table[i][j] = maxOf(table[i - 1][j], table[i][j - 1], table[i - 1][j - 1] + if (match(chars[j - 1], expected[i - 1])) 1 else 0)
+                    }
+                    return table[expected.length][chars.size]
+                }
+                val top1 = aligned { c, e -> c.text == e.toString() }
+                val top5 = aligned { c, e -> c.alternatives.take(5).any { it.text == e.toString() } }
+                val tally = tallies.getOrPut(file.name.substringBefore("__")) { Tally() }
+                tally.images++; tally.chars += expected.length; tally.top1 += top1; tally.top5 += top5; tally.ms += ms
+                details.append("${file.name}\t$top1/${expected.length}\t$top5\t${result.lines.joinToString(" | ") { it.text }}\n")
+            }
+            val table = StringBuilder("category\timages\tchars\ttop1\ttop5\tms\n")
+            var chars = 0; var top1 = 0; var top5 = 0
+            for ((name, t) in tallies) {
+                table.append("$name\t${t.images}\t${t.chars}\t${"%.1f".format(100.0 * t.top1 / t.chars)}\t${"%.1f".format(100.0 * t.top5 / t.chars)}\t${"%.0f".format(t.ms / t.images)}\n")
+                chars += t.chars; top1 += t.top1; top5 += t.top5
+            }
+            table.append("ALL\t${tallies.values.sumOf { it.images }}\t$chars\t${"%.1f".format(100.0 * top1 / chars)}\t${"%.1f".format(100.0 * top5 / chars)}\t\n")
+            println(table)
+            System.getProperty("recognition.hostOut")?.let { File(it).apply { mkdirs() } }?.let {
+                File(it, "eval-table.tsv").writeText(table.toString())
+                File(it, "eval-details.tsv").writeText(details.toString())
+            }
+        } finally {
+            nets.close()
+        }
+    }
+
     private fun overlay(file: File, result: OcrResult, out: File) {
         val src = ImageIO.read(file)
         val scale = if (maxOf(src.width, src.height) < 600) 3 else 1

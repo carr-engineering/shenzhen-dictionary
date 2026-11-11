@@ -160,36 +160,31 @@ internal class Ink(val box: IntArray?, val gray: Gray, val mask: ByteArray, val 
 
 internal object InkAnalysis {
     /**
-     * Finds ink against the local paper colour. The paper level comes from the crop border (so dark
-     * themes are flipped to dark-on-light); ink is anything clearly darker than the local mean, which
-     * keeps text visible under uneven lighting.
+     * Finds ink against the local paper colour. Ink is anything clearly different from the local
+     * mean, which keeps text visible under uneven lighting. Polarity is decided by the strokes
+     * themselves: strokes cover less area than the paper between them, so they sit further from
+     * the local mean than the paper does; the sign of the skew of the deviations says whether the
+     * strokes are the dark or the light side, and light text is flipped to dark-on-light. This works on coloured panels and on a dark
+     * sign set in a light wall, where the brightness of the crop border says nothing.
+     *
+     * @param threshold minimum difference from the local mean, raised on noisy pages.
      */
-    fun inkBounds(src: Gray): Ink {
+    fun inkBounds(src: Gray, threshold: Int = 18): Ink {
         val w = src.w
         val h = src.h
-        val hist = IntArray(256)
-        var count = 0
-        for (x in 0 until w) { hist[src[x, 0]]++; hist[src[x, h - 1]]++; count += 2 }
-        for (y in 0 until h) { hist[src[0, y]]++; hist[src[w - 1, y]]++; count += 2 }
-        val bg = percentile(hist, count, .7)
-        val dark = bg < 110
-        val gray = Gray(w, h, src.px.copyOf())
-        if (dark) gray.invert()
         val iw = w + 1
         val integral = IntArray(iw * (h + 1))
         for (y in 0 until h) {
             var sum = 0
             for (x in 0 until w) {
-                sum += gray[x, y]
+                sum += src[x, y]
                 integral[(y + 1) * iw + x + 1] = integral[y * iw + x + 1] + sum
             }
         }
         val radius = max(8, (h * .45).roundToInt())
-        val mask = ByteArray(w * h)
-        var x0 = w
-        var y0 = h
-        var x1 = 0
-        var y1 = 0
+        // Signed deviation from the local mean, clamped to a byte.
+        val deviation = ByteArray(w * h)
+        var skew = 0.0
         for (y in 0 until h) {
             val c = max(0, y - radius)
             val d = min(h, y + radius + 1)
@@ -197,11 +192,25 @@ internal object InkAnalysis {
                 val a = max(0, x - radius)
                 val b = min(w, x + radius + 1)
                 val mean = (integral[d * iw + b] - integral[c * iw + b] - integral[d * iw + a] + integral[c * iw + a]).toDouble() / ((b - a) * (d - c))
-                val g = gray[x, y]
-                if (g < mean - 18 && g < 220) {
-                    mask[y * w + x] = 1
-                    x0 = min(x0, x); x1 = max(x1, x + 1); y0 = min(y0, y); y1 = max(y1, y + 1)
-                }
+                val dev = (src[x, y] - mean).roundToInt().coerceIn(-127, 127)
+                deviation[y * w + x] = dev.toByte()
+                if (dev < -threshold || dev > threshold) skew += dev.toDouble() * dev * dev
+            }
+        }
+        val dark = skew > 0
+        val gray = Gray(w, h, src.px.copyOf())
+        if (dark) gray.invert()
+        val mask = ByteArray(w * h)
+        var x0 = w
+        var y0 = h
+        var x1 = 0
+        var y1 = 0
+        for (y in 0 until h) for (x in 0 until w) {
+            val k = y * w + x
+            val dev = if (dark) -deviation[k] else deviation[k].toInt()
+            if (dev < -threshold && (gray.px[k].toInt() and 0xFF) < 220) {
+                mask[k] = 1
+                x0 = min(x0, x); x1 = max(x1, x + 1); y0 = min(y0, y); y1 = max(y1, y + 1)
             }
         }
         return Ink(if (x1 > x0) intArrayOf(x0, y0, x1, y1) else null, gray, mask, dark)
@@ -220,7 +229,8 @@ internal object InkAnalysis {
             for (x in 0 until w) count += mask[y * w + x]
             rows[y] = count
         }
-        val inked = max(2, w / 200)
+        // A row of text carries far more ink than the trace of a slanted page edge crossing it.
+        val inked = max(2, (w * .015).toInt())
         // A blank band this tall ends the line; thinner ones are gaps inside glyphs (二, i, ；).
         val tolerance = max(1, ((coreBottom - coreTop) * .08).roundToInt())
         var top = coreTop
@@ -295,18 +305,72 @@ internal object InkAnalysis {
         return 255
     }
 
-    /** Stretches contrast so paper is white and ink black while keeping antialiased edges. */
-    fun normalizeContrast(gray: Gray): Gray {
+    /**
+     * Clears mask columns (and, with [rows], rows) that are inked over almost the whole crop: the
+     * edge of a page or panel, a frame line, the wall beside a sign. A stroke cannot do that, as
+     * the crop is cut with headroom above and below the glyphs and a line has gaps between glyphs.
+     */
+    fun dropSolid(mask: ByteArray, w: Int, h: Int, rows: Boolean) {
+        val columnLimit = (h * .85).toInt()
+        for (x in 0 until w) {
+            var count = 0
+            for (y in 0 until h) count += mask[y * w + x]
+            if (count >= columnLimit) for (y in 0 until h) mask[y * w + x] = 0
+        }
+        if (!rows) return
+        val rowLimit = (w * .85).toInt()
+        for (y in 0 until h) {
+            var count = 0
+            for (x in 0 until w) count += mask[y * w + x]
+            if (count >= rowLimit) for (x in 0 until w) mask[y * w + x] = 0
+        }
+    }
+
+    /**
+     * The recogniser's view of a line: black ink on white paper. Each pixel is measured against
+     * the local paper level (the mean of the surrounding non-ink pixels), so a lighting gradient,
+     * a cast shadow or a coloured panel all come out as flat white, and the ink scale is set by the
+     * line's own stroke contrast. Antialiased stroke edges are kept.
+     *
+     * @param floor differences from the paper level below this are paper texture or sensor noise.
+     */
+    fun normalizeContrast(ink: Ink, floor: Int = 6): Gray {
+        val gray = ink.gray
+        val w = gray.w
+        val h = gray.h
+        val iw = w + 1
+        val sum = IntArray(iw * (h + 1))
+        val cnt = IntArray(iw * (h + 1))
+        for (y in 0 until h) {
+            var rowSum = 0
+            var rowCnt = 0
+            for (x in 0 until w) {
+                if (ink.mask[y * w + x].toInt() == 0) { rowSum += gray[x, y]; rowCnt++ }
+                sum[(y + 1) * iw + x + 1] = sum[y * iw + x + 1] + rowSum
+                cnt[(y + 1) * iw + x + 1] = cnt[y * iw + x + 1] + rowCnt
+            }
+        }
+        val radius = max(8, (h * .45).roundToInt())
+        val depth = IntArray(w * h)
         val hist = IntArray(256)
-        for (b in gray.px) hist[b.toInt() and 0xFF]++
-        val n = gray.px.size
-        var bg = percentile(hist, n, .8)
-        if (bg == 0) bg = 255
-        val lower = percentile(hist, n, .03)
-        val span = max(50, bg - lower)
-        val lut = ByteArray(256) { v -> ((v - lower) * 255.0 / span).roundToInt().coerceIn(0, 255).toByte() }
-        val out = Gray(gray.w, gray.h)
-        for (i in 0 until n) out.px[i] = lut[gray.px[i].toInt() and 0xFF]
+        var inked = 0
+        for (y in 0 until h) {
+            val c = max(0, y - radius)
+            val d = min(h, y + radius + 1)
+            for (x in 0 until w) {
+                val a = max(0, x - radius)
+                val b = min(w, x + radius + 1)
+                val n = cnt[d * iw + b] - cnt[c * iw + b] - cnt[d * iw + a] + cnt[c * iw + a]
+                val paper = if (n > 0) (sum[d * iw + b] - sum[c * iw + b] - sum[d * iw + a] + sum[c * iw + a]) / n else 255
+                val v = (paper - gray[x, y] - floor).coerceIn(0, 255)
+                depth[y * w + x] = v
+                if (ink.mask[y * w + x].toInt() != 0) { hist[v]++; inked++ }
+            }
+        }
+        // Full black at the depth of solid strokes (upper part of the ink's depth distribution).
+        val full = max(40, percentile(hist, inked, .7))
+        val out = Gray(w, h)
+        for (i in 0 until w * h) out.px[i] = (255 - min(255, depth[i] * 255 / full)).toByte()
         return out
     }
 }
