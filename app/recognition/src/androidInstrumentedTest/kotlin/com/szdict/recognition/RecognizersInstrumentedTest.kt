@@ -153,10 +153,9 @@ class RecognizersInstrumentedTest {
         times.sort()
         Log.i(TAG, "INK intended top-1 $top1/25, top-3 $top3/25, median ${times[times.size / 2]} us, max ${times.last()} us")
         assertTrue(top1 >= 23)
-        // All three script models run the same network.
-        val a = ink.recognize(golden.cases[3].strokes, 0f to 0f, InkModel.TRADITIONAL, 5)
-        val b = ink.recognize(golden.cases[3].strokes, 0f to 0f, InkModel.HONG_KONG, 5)
-        assertEquals(a, b)
+        // The script models share the network and differ only in ranking bias: a character common
+        // to both scripts (十) leads in all of them.
+        for (model in InkModel.entries) assertEquals("十", ink.recognize(golden.cases[3].strokes, 0f to 0f, model, 5).first().text)
         assertEquals(emptyList(), ink.recognize(emptyList(), 0f to 0f, InkModel.SIMPLIFIED))
     }
 

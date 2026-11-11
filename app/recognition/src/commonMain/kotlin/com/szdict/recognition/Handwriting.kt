@@ -14,11 +14,15 @@ data class InkPoint(val x: Float, val y: Float, val t: Long)
 data class InkStroke(val points: List<InkPoint>)
 
 /**
- * Which character set the writer intends (HW-031). The bundled network is the single `zh-Hani`
- * Digital Ink model, which already covers simplified, traditional and Hong Kong characters, so every
- * value runs the same network; the value is part of the contract so a script-specific model or prior
- * can be added without changing callers. Script filtering and frequency re-ranking are the domain
- * layer's job (HW-032).
+ * Which script the writer intends (HW-031).
+ *
+ * The bundled network is the single `zh-Hani` Digital Ink model, which covers simplified,
+ * traditional and Hong Kong characters at once, so every value runs the same network. The value
+ * biases the ranking: characters that exist only in the other script are pushed down
+ * ([SIMPLIFIED] demotes traditional-only forms such as 說 in favour of 说; [TRADITIONAL] and
+ * [HONG_KONG] demote simplified-only forms), and [HONG_KONG] additionally prefers Hong Kong standard
+ * forms (説 over 說). Nothing is removed, and characters shared by both scripts are unaffected.
+ * Filtering to dataset characters and frequency re-ranking remain the domain layer's job (HW-032).
  */
 enum class InkModel { SIMPLIFIED, TRADITIONAL, HONG_KONG }
 
@@ -29,7 +33,9 @@ enum class InkModel { SIMPLIFIED, TRADITIONAL, HONG_KONG }
  * @property score natural-log probability (`<= 0`, higher is better) that the whole ink is exactly
  *   this one character: the exact CTC sum over every alignment that decodes to it. `exp(score)` is a
  *   probability over all single- and multi-character readings, so candidates' probabilities sum to
- *   at most 1. Scores are comparable between candidates of one call and roughly between calls.
+ *   at most 1. A character belonging only to the script not being written has a fixed 2.5 subtracted
+ *   (1.0 for a non-Hong-Kong variant in [InkModel.HONG_KONG]). Scores are comparable between
+ *   candidates of one call and roughly between calls.
  */
 data class InkCandidate(val text: String, val score: Float)
 

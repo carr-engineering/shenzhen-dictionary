@@ -64,6 +64,22 @@ class InkGoldenTest {
     }
 
     @Test
+    fun scriptClassesBiasOnlyOneScriptCharacters() {
+        val labels = HostNets.labels("ink/labels.txt")
+        val scripts = com.szdict.recognition.ink.ScriptClasses(labels, File(HostNets.modelDir, "ink/script-classes.txt").readText())
+        fun penalty(model: InkModel, c: String) = scripts.penalty(model, labels.indexOf(c))
+        // 说 (simplified) / 說 (traditional) / 説 (Hong Kong form); 后 and 里 are shared by both scripts.
+        assertEquals(0f, penalty(InkModel.SIMPLIFIED, "说"))
+        assertEquals(2.5f, penalty(InkModel.SIMPLIFIED, "說"))
+        assertEquals(2.5f, penalty(InkModel.TRADITIONAL, "说"))
+        assertEquals(0f, penalty(InkModel.TRADITIONAL, "說"))
+        assertEquals(1f, penalty(InkModel.HONG_KONG, "說"))
+        assertEquals(2.5f, penalty(InkModel.HONG_KONG, "说"))
+        for (model in InkModel.entries) for (c in listOf("后", "里", "人", "十")) assertEquals(0f, penalty(model, c), "$c in $model")
+        assertEquals(0f, penalty(InkModel.HONG_KONG, "説"))
+    }
+
+    @Test
     fun singleCharacterScoresMatchExhaustivePathEnumeration() {
         // Two symbols plus blank, four frames: enumerate all 81 alignments.
         val logits = floatArrayOf(.3f, -.7f, 1.2f, 1.1f, .2f, -.4f, -.3f, 1.5f, .6f, .7f, -.1f, .4f)

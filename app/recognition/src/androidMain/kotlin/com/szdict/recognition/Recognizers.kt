@@ -3,6 +3,7 @@ package com.szdict.recognition
 import android.content.Context
 import android.graphics.Bitmap
 import com.szdict.recognition.ink.InkPipeline
+import com.szdict.recognition.ink.ScriptClasses
 import com.szdict.recognition.ocr.OcrOptions
 import com.szdict.recognition.ocr.OcrPipeline
 import kotlinx.coroutines.CoroutineScope
@@ -132,19 +133,21 @@ internal class AndroidHandwritingRecognizer(private val context: Context) : Hand
         load = {
             val assets = context.assets
             val net = LiteRtInkNet(assets, workerThreads().coerceAtMost(2))
-            Loaded(net, InkPipeline(net, assets.loadLabels("$MODEL_DIR/ink/labels.txt")))
+            val labels = assets.loadLabels("$MODEL_DIR/ink/labels.txt")
+            val scripts = assets.open("$MODEL_DIR/ink/script-classes.txt").use { it.readBytes() }.toString(Charsets.UTF_8)
+            Loaded(net, InkPipeline(net, labels, ScriptClasses(labels, scripts)))
         },
         release = { it.net.close() },
     )
 
-    // All three script models share the zh-Hani network; see InkModel.
+    // All three script models share the zh-Hani network and differ in ranking bias; see InkModel.
     override suspend fun recognize(
         strokes: List<InkStroke>,
         writingArea: Pair<Float, Float>,
         model: InkModel,
         limit: Int,
     ): List<InkCandidate> = withContext(Dispatchers.Default) {
-        guarded.use { it.pipeline.recognize(strokes, limit) }
+        guarded.use { it.pipeline.recognize(strokes, limit, model) }
     }
 
     override fun close() = guarded.close()
