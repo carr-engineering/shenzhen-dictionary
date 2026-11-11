@@ -71,7 +71,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     // Datasets and SQLite packs are opened from extracted files; models are memory-mapped.
-    androidResources { noCompress += listOf("tflite", "bin", "onnx", "opus", "m4a", "hzb") }
+    androidResources {
+        noCompress += listOf("tflite", "bin", "onnx", "opus", "m4a", "hzb")
+        // GLB-103: only the three UI languages ship; translations bundled by libraries are removed.
+        // The locale config (res/xml/locales_config.xml) is maintained by hand, so it is not generated.
+        localeFilters += listOf("en", "b+zh+Hans", "b+zh+Hant")
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     buildTypes {
         release {
