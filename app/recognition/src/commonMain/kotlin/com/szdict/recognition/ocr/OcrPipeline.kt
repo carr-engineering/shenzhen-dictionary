@@ -50,8 +50,11 @@ internal interface OcrNets {
 internal class OcrOptions(
     /** Number of candidates kept per character (including the top-1). */
     val alternatives: Int = 8,
-    /** The working image is capped to this many pixels on its longer side. */
-    val maxSide: Int = 1600,
+    /**
+     * The working image, from which lines are cut for the recogniser, is capped to this many pixels
+     * on its longer side. (Detection runs on a copy of at most 1280 pixels.)
+     */
+    val maxSide: Int = 2400,
     val maxLines: Int = 200,
     /** Height the ink is scaled to inside the 24-px recogniser input. */
     val inkHeight: Int = 20,
@@ -111,9 +114,8 @@ internal class OcrPipeline(
     fun recognize(image: OcrImage, checkpoint: () -> Unit = {}): OcrResult {
         var page = Gray.fromArgb(image)
         val longest = max(page.w, page.h)
-        var shrink = 1.0
         if (longest > options.maxSide) {
-            shrink = options.maxSide.toDouble() / longest
+            val shrink = options.maxSide.toDouble() / longest
             page = page.resize(max(1, (page.w * shrink).roundToInt()), max(1, (page.h * shrink).roundToInt()))
         }
         val backX = image.width.toDouble() / page.w
@@ -301,8 +303,11 @@ internal class OcrPipeline(
 
     private fun cropRegion(page: Gray, detected: Region): Crop? {
         var region = detected
+        // The detector's height is rough, more so for small text: cut the line with headroom and
+        // let the ink decide where the line really begins and ends (see InkAnalysis.lineBand).
+        val pad = if (region.vertical) 2 else max(2, ceil(region.h * .35).toInt())
         val w = max(1, ceil(region.w + 4).toInt())
-        val h = max(1, ceil(region.h + 4).toInt())
+        val h = max(1, ceil(region.h).toInt() + 2 * pad)
         var ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
         if (ink.box == null) return null
         if (!region.vertical && region.w > region.h * 3) {
@@ -313,7 +318,7 @@ internal class OcrPipeline(
                 ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
             }
         }
-        val box = ink.box ?: return null
+        val box = (if (region.vertical) ink.box else InkAnalysis.lineBand(ink.mask, w, h, pad, h - pad)) ?: return null
         val c = cos(region.angle)
         val s = sin(region.angle)
         val u = (box[0] + box[2]) / 2.0 - w / 2.0

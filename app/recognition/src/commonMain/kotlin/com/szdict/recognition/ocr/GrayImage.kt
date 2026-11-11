@@ -1,7 +1,6 @@
 package com.szdict.recognition.ocr
 
 import com.szdict.recognition.OcrImage
-import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
@@ -209,6 +208,46 @@ internal object InkAnalysis {
     }
 
     /**
+     * Ink box of the text line whose rows `[coreTop, coreBottom)` the detector reported, in a crop
+     * cut with headroom above and below. The band grows from the core over rows that carry ink and
+     * stops at the first blank band, so glyph tops and bottoms the detector cut off are recovered
+     * while the neighbouring lines stay out.
+     */
+    fun lineBand(mask: ByteArray, w: Int, h: Int, coreTop: Int, coreBottom: Int): IntArray? {
+        val rows = IntArray(h)
+        for (y in 0 until h) {
+            var count = 0
+            for (x in 0 until w) count += mask[y * w + x]
+            rows[y] = count
+        }
+        val inked = max(2, w / 200)
+        // A blank band this tall ends the line; thinner ones are gaps inside glyphs (二, i, ；).
+        val tolerance = max(1, ((coreBottom - coreTop) * .08).roundToInt())
+        var top = coreTop
+        var blank = 0
+        var y = coreTop - 1
+        while (y >= 0 && blank <= tolerance) {
+            if (rows[y] >= inked) { top = y; blank = 0 } else blank++
+            y--
+        }
+        var bottom = coreBottom
+        blank = 0
+        y = coreBottom
+        while (y < h && blank <= tolerance) {
+            if (rows[y] >= inked) { bottom = y + 1; blank = 0 } else blank++
+            y++
+        }
+        var x0 = w
+        var x1 = 0
+        var y0 = h
+        var y1 = 0
+        for (yy in top until bottom) for (x in 0 until w) if (mask[yy * w + x].toInt() != 0) {
+            x0 = min(x0, x); x1 = max(x1, x + 1); y0 = min(y0, yy); y1 = max(y1, yy + 1)
+        }
+        return if (x1 > x0) intArrayOf(x0, y0, x1, y1) else null
+    }
+
+    /**
      * Residual tilt of the text in an ink mask, in radians (positive = descending to the right),
      * found by maximising the sharpness of the row projection over small shears. Returns 0 when no
      * candidate is clearly better than leaving the crop as it is.
@@ -271,6 +310,3 @@ internal object InkAnalysis {
         return out
     }
 }
-
-@Suppress("unused")
-private fun ceilInt(v: Double) = ceil(v).toInt()
