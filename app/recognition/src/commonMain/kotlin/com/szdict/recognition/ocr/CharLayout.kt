@@ -40,18 +40,23 @@ internal object CharLayout {
         }
         for (i in 1 until n) right[i] = max(right[i], right[i - 1])
         val out = Array(n) { DoubleArray(2) }
+        // A space is emitted late, when the next glyph has already begun, so its frame says nothing
+        // about where that glyph starts: glyph spans are laid out from glyph boundaries only.
+        var previousRight = start
         for (i in 0 until n) {
-            var l = if (i == 0) start else right[i - 1]
-            var r = right[i]
+            var l = previousRight
+            var r = max(right[i], l)
             if (!isSpace[i]) {
+                val from = l
                 while (l < r && !ink[l]) l++
                 while (r > l && !ink[r - 1]) r--
-                if (r <= l) { l = if (i == 0) start else right[i - 1]; r = right[i] }
+                if (r <= l) { l = from; r = max(right[i], l) }
                 if (r - l > MAX_GLYPH) {
                     // A glyph cannot be this wide: an unrecognised mark sits to its left.
                     l = r - 22
                     while (l < r && !ink[l]) l++
                 }
+                previousRight = max(right[i], l)
             }
             out[i][0] = l.toDouble()
             out[i][1] = max(r, l + 1).toDouble()
