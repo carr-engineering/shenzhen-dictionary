@@ -1,0 +1,405 @@
+package com.szdict.core
+
+import com.szdict.core.api.DictError
+import com.szdict.core.api.DictException
+import com.szdict.core.api.DictMode
+import com.szdict.core.api.Dictionary
+import com.szdict.core.api.DictionaryFactory
+import com.szdict.core.api.EntryCard
+import com.szdict.core.api.QueryKind
+import com.szdict.core.api.RelatedKind
+import com.szdict.core.api.Script
+import com.szdict.core.api.SearchResult
+import com.szdict.core.api.SearchSide
+import com.szdict.core.api.SectionKind
+import com.szdict.core.api.SegmentationMode
+import com.szdict.core.api.SpanKind
+import com.szdict.core.api.UiLang
+import com.szdict.core.api.dictResult
+import com.szdict.core.api.DictResult
+import com.szdict.core.api.DailyPick
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+import java.io.File
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/** Engine contract tests against a fixture dataset written in the contract/SCHEMA.md format. */
+class FixtureDatasetTest {
+    private val s = Script.SIMPLIFIED
+
+    private fun with(dir: File = standardDir, block: suspend (Dictionary) -> Unit) = runBlocking {
+        val dict = DictionaryFactory.open(dir.absolutePath, DictMode.MANDARIN)
+        try {
+            block(dict)
+        } finally {
+            dict.close()
+        }
+    }
+
+    private fun SearchResult.zh(kind: SectionKind) = chinese.sections.firstOrNull { it.kind == kind }
+    private fun SearchResult.heads(kind: SectionKind): List<String> = zh(kind)?.cards.orEmpty().map { it.headword }
+    private fun SearchResult.groups() = zh(SectionKind.GROUPS)?.groups.orEmpty()
+    private fun SearchResult.combos(): List<List<String>> = zh(SectionKind.COMBINATIONS)?.combinations.orEmpty().map { c -> c.words.map { it.headword } }
+
+    @Test
+    fun openAndMetadata() = with { dict ->
+        val info = dict.info()
+        assertEquals("fixture+1", info.datasetVersion)
+        assertEquals(5, info.toneCount)
+        assertTrue(info.hasLanguageModel && info.hasBigramModel && !info.hasSentences && !info.hasDecomposition)
+        assertEquals("Fixture", info.sources.single().name)
+        assertEquals("Taiwan pronunciation", dict.label("taiwan_pr").text(UiLang.EN))
+        assertEquals("台湾读音", dict.label("taiwan_pr").text(UiLang.ZH_HANS))
+        assertEquals("nope", dict.label("nope").en)
+        assertEquals(QueryKind.EMPTY, dict.search("  ！", s).kind)
+    }
+
+    @Test
+    fun typedErrors() {
+        val missing = assertFailsWith<DictException> { runBlocking { DictionaryFactory.open("/nonexistent/dir", DictMode.MANDARIN) } }
+        assertTrue(missing.error is DictError.DatasetUnavailable)
+        val wrong = Fixture(schemaVersion = 2).apply { entry("你", "你", "ni3", "you") }.build()
+        val mismatch = assertFailsWith<DictException> { runBlocking { DictionaryFactory.open(wrong.absolutePath, DictMode.MANDARIN) } }
+        assertEquals(2, (mismatch.error as DictError.SchemaMismatch).found)
+        with { dict ->
+            assertNull(dict.idForKey("0000000000000000"))
+            val r = dictResult { dict.entryDetailByKey("0000000000000000", s) }
+            assertTrue((r as DictResult.Err).error is DictError.RecordMissing)
+            assertTrue((dictResult { dict.decompose(listOf("你"), s) } as DictResult.Err).error is DictError.AssetMissing)
+            assertEquals(0, dict.examples(1, s).total)
+            dict.close()
+            assertTrue((dictResult { dict.search("你", s) } as DictResult.Err).error is DictError.DatasetUnavailable)
+        }
+    }
+
+    @Test
+    fun hanziExactGroup() = with { dict ->
+        val r = dict.search("你好", s)
+        assertEquals(QueryKind.HANZI, r.kind)
+        assertEquals(SearchSide.CHINESE, r.forcedSide)
+        val g = r.groups().single()
+        val card = g.cards.single()
+        assertEquals("你好", card.headword)
+        assertEquals(listOf("hello", "hi"), card.definitions)
+        assertEquals(listOf(1), card.hskLevels)
+        assertEquals(listOf(3, 3), card.reading.tones)
+        assertTrue(card.toneColourable && !r.chinese.isSentence)
+        assertEquals(3, g.insideCount) // 你, 好 hǎo, 好 hào
+        assertEquals(listOf("你", "好", "好"), dict.insideWords(g.insideOf!!, s).map { it.card.headword })
+        assertEquals("ni3_hao3", card.audio.wordKey)
+        // Every reading of a headword, common reading before the proper noun (SRCH-075).
+        assertEquals(listOf(false, true), dict.search("王", s).groups().single().cards.map { it.isProperNoun })
+        // Traditional input matches too (SRCH-031).
+        assertEquals("我们", dict.search("我們", s).groups().single().cards.single().headword)
+        assertEquals(listOf("我們"), dict.search("我们", Script.TRADITIONAL).groups().single().cards.map { it.headword })
+    }
+
+    @Test
+    fun startsWithAndContains() = with { dict ->
+        val r = dict.search("研究", s)
+        assertEquals(listOf("研究生"), r.heads(SectionKind.STARTS_WITH))
+        assertEquals("研究", r.zh(SectionKind.STARTS_WITH)!!.labelArg)
+        val sheng = dict.search("生", s)
+        assertEquals(listOf("学生", "生命", "研究生", "好学生").sorted(), (sheng.heads(SectionKind.CONTAINS) + sheng.heads(SectionKind.STARTS_WITH)).sorted())
+        assertEquals(listOf("学生", "研究生", "好学生"), sheng.heads(SectionKind.CONTAINS)) // frequency order
+        assertEquals(sheng.chinese.sections.sumOf { it.count }, sheng.chinese.count)
+    }
+
+    @Test
+    fun pronunciationSearch() = with { dict ->
+        for (q in listOf("nihao", "ni hao", "ni3hao3", "nǐ hǎo", "NI3 HAO3!", "nh", "nhao", "nih")) {
+            assertEquals("你好", dict.search(q, s).heads(SectionKind.MATCHES).firstOrNull(), q)
+        }
+        assertEquals(SearchSide.CHINESE, dict.search("nh", s).forcedSide)      // no English match
+        assertEquals(SearchSide.CHINESE, dict.search("ni3hao3", s).forcedSide) // explicit tone
+        assertNull(dict.search("hi", s).forcedSide)                            // also reads as English
+        // Tone-only differences (SRCH-165).
+        assertEquals(listOf(3), dict.search("hao3", s).zh(SectionKind.MATCHES)!!.cards.map { it.reading.tones[0] })
+        assertEquals(setOf(3, 4), dict.search("hao", s).zh(SectionKind.MATCHES)!!.cards.map { it.reading.tones[0] }.toSet())
+        assertEquals(listOf("好学生"), dict.search("hao3", s).heads(SectionKind.MORE_MATCHES))
+        // Proper-noun tie (GLB-013).
+        assertEquals(listOf("wang2", "Wang2".lowercase()), dict.search("wang2", s).zh(SectionKind.MATCHES)!!.cards.map { it.reading.canonical })
+        assertEquals(listOf(false, true), dict.search("wang2", s).zh(SectionKind.MATCHES)!!.cards.map { it.isProperNoun })
+        // A single token is a partial syllable: prefix matches only, ranked before limiting (SRCH-176).
+        val x = dict.search("x", s)
+        assertNull(x.zh(SectionKind.MATCHES))
+        assertEquals(listOf("想", "喜欢", "学生", "想去"), x.heads(SectionKind.MORE_MATCHES))
+        assertNull(x.zh(SectionKind.COMBINATIONS))
+    }
+
+    @Test
+    fun literalInitialsAndLatinHeadwords() = with { dict ->
+        for (q in listOf("Txu", "T xu", "t xu4")) assertEquals(listOf("T恤", "体恤"), dict.search(q, s).heads(SectionKind.MATCHES).sorted(), q)
+        assertEquals("T恤", dict.search("t恤", s).groups().single().cards.single().headword)
+        assertEquals("T恤", dict.search("Ｔ恤", s).groups().single().cards.single().headword)
+        assertEquals(0, dict.search("T恤", s).groups().single().cards.single().insideCount) // one Hanzi: no inside-words button
+    }
+
+    @Test
+    fun alternativeReadings() = with { dict ->
+        val r = dict.search("lese", s)
+        val cards = r.zh(SectionKind.MATCHES)!!.cards
+        assertEquals(listOf("乐色", "垃圾"), cards.map { it.headword }) // main reading before alternative (SRCH-078)
+        assertNull(cards[0].matchedAlt)
+        val alt = assertNotNull(cards[1].matchedAlt)
+        assertEquals("Taiwan pronunciation", alt.label.en)
+        assertEquals("lè sè", alt.reading.display)
+        assertEquals(listOf(4, 4), alt.reading.tones)
+        assertEquals("lā jī", cards[1].reading.display)
+        // Abbreviated and toned input reach it as well; other paths never show the line.
+        assertNotNull(dict.search("ls", s).zh(SectionKind.MATCHES)!!.cards.first { it.headword == "垃圾" }.matchedAlt)
+        assertNotNull(dict.search("le4 se4", s).zh(SectionKind.MATCHES)!!.cards.first { it.headword == "垃圾" }.matchedAlt)
+        assertNull(dict.search("laji", s).zh(SectionKind.MATCHES)!!.cards.single().matchedAlt)
+        assertNull(dict.search("垃圾", s).groups().single().cards.single().matchedAlt)
+        // Re-hydrating from refs keeps the alternative-reading line.
+        val again = dict.cards(r.zh(SectionKind.MATCHES)!!.refs, s)
+        assertEquals("lè sè", again[1].matchedAlt?.reading?.display)
+        // Entry detail: header alternative reading, and the note is not repeated in the notes row.
+        val d = dict.entryDetail(cards[1].id, s)
+        assertEquals(listOf("taiwan_pr"), d.altReadings.map { it.kind })
+        assertEquals(listOf("classifier"), d.members.single().notes.map { it.kind })
+        assertEquals("个", d.members.single().notes.single().refs.single().form)
+    }
+
+    @Test
+    fun unicodeOnlyTier() = with { dict ->
+        val q = dict.search("q", s)
+        assertEquals(listOf("去", "㐀"), q.heads(SectionKind.MORE_MATCHES)) // after every dictionary entry
+        val card = dict.search("㐀", s).groups().single().cards.single()
+        assertTrue(card.isUnihanOnly)
+        assertEquals("Unicode (Unihan)", card.provenance?.en)
+        val en = dict.search("mound", s).english.sections.single().cards.single()
+        assertEquals("㐀", en.headword)
+        // Segmentation: a matched word with the lowest score (TXT-012).
+        val p = dict.analyse("我㐀", SegmentationMode.HANZI)
+        assertEquals(listOf(true, true), p.segments.map { it.matched })
+        assertEquals(listOf(0, 1), p.coveredOffsets)
+    }
+
+    @Test
+    fun combinationsUseTheBigramModel() = with { dict ->
+        for (q in listOf("wxhn", "woxihuanni", "wo xi huan ni", "wxihuann")) {
+            val r = dict.search(q, s)
+            assertEquals(listOf("我", "喜欢", "你"), r.combos().firstOrNull(), q)
+            assertTrue(r.combos().size <= 5)
+            assertEquals(0, r.chinese.count, "combinations are never counted") // SRCH-063
+        }
+        // 我 想去 (bigram) beats 我 想 去.
+        assertEquals(listOf("我", "想去"), dict.search("wxq", s).combos().first())
+        // A sequence equal to a whole-query match is dropped: nh does not repeat 你好 as 你 + 好.
+        val nh = dict.search("nh", s)
+        assertTrue(nh.combos().none { it.joinToString("") == "你好" }, nh.combos().toString())
+        // The Combinations section sits after whole-query matches and before longer ones (SRCH-064).
+        val kinds = dict.search("hx", s).chinese.sections.map { it.kind }
+        assertEquals(kinds.sortedBy { it.ordinal }, kinds)
+        // Progressive delivery (SRCH-066): single-word results first, then the same response plus combinations.
+        val emissions = dict.searchProgressive("wxhn", s).toList()
+        assertEquals(listOf(true, false), emissions.map { it.combinationsPending })
+        assertTrue(emissions[0].combos().isEmpty() && emissions[1].combos().isNotEmpty())
+        assertEquals(1, dict.searchProgressive("你好", s).toList().size)
+    }
+
+    @Test
+    fun withoutLanguageModelSingleWordResultsStillWork() = with(Fixture.standard().build(withLm = false)) { dict ->
+        assertEquals("你好", dict.search("nihao", s).heads(SectionKind.MATCHES).first())
+        assertTrue(dict.search("wxhn", s).combos().isEmpty())
+        assertTrue(dict.search("nh", s).heads(SectionKind.MATCHES).isEmpty()) // abbreviated paths yield no candidates (SRCH-054)
+        assertEquals(1, dict.searchProgressive("wxhn", s).toList().size)
+    }
+
+    @Test
+    fun unigramOnlyCombinations() = with(Fixture.standard(hasBigram = false).build()) { dict ->
+        assertTrue(dict.search("wxhn", s).combos().any { it == listOf("我", "喜欢", "你") })
+    }
+
+    @Test
+    fun englishSearch() = with { dict ->
+        val phrase = dict.search("graduate student", s)
+        assertEquals(QueryKind.ROMANISATION.let { phrase.kind }, phrase.kind)
+        // EN_PHRASE (研究生) before EN_SENSE (生: "student of graduate school") despite its lower frequency.
+        assertEquals(listOf("研究生", "生"), phrase.english.sections.single().cards.map { it.headword })
+        assertEquals(listOf("生", "研究生"), dict.search("student graduate", s).english.sections.single().cards.map { it.headword })
+        // Last token matches by prefix; plural stem (SRCH-013, SRCH-045).
+        assertTrue("研究生" in dict.search("graduate stud", s).english.sections.single().cards.map { it.headword })
+        assertEquals(dict.search("students", s).english.count, dict.search("student", s).english.count)
+        // Single token: exact hit (EN_PHRASE) before prefix-only hit (EN_SENSE).
+        val go = dict.search("go", s).english.sections.single().cards.map { it.headword }
+        assertEquals("去", go.first())
+        assertTrue(dict.search("good students graduate", s).english.count == 0) // a non-final token without postings
+        assertEquals(0, dict.search("你好", s).english.count)
+        // EN_ENTRY: tokens spread across senses.
+        assertEquals(listOf("生"), dict.search("born student", s).english.sections.single().cards.map { it.headword })
+    }
+
+    @Test
+    fun sentenceSegmentationWithFrequencies() = with { dict ->
+        val r = dict.search("我们研究生命科学", s)
+        assertTrue(r.chinese.isSentence)
+        assertEquals(listOf("我们", "研究", "生命", "科学"), r.groups().map { it.text })
+        val p = assertNotNull(r.chinese.passage)
+        assertEquals(listOf(0, 2, 4, 6), p.segments.map { it.start })
+        assertEquals("yán jiū", p.segments[1].reading.display)
+        assertTrue(p.segments.all { it.toneColourable })
+        // Punctuation and unknown text become inert groups; adjacent unmatched runs merge (TXT-073).
+        val mixed = dict.search("你好，世界！", s)
+        assertEquals(listOf("你好" to false, "，" to true, "世界" to false, "！" to true), mixed.groups().map { it.text to it.inert })
+        assertTrue(mixed.chinese.isSentence)
+        val onlyPunct = dict.search("龘龘", s)
+        assertEquals(listOf(true), onlyPunct.groups().map { it.inert })
+        assertTrue(onlyPunct.chinese.isSentence)
+        assertEquals(0, onlyPunct.chinese.count)
+    }
+
+    @Test
+    fun greedySegmentationWithoutFrequencies() = with(Fixture.standard(hasFrequency = false).build()) { dict ->
+        assertEquals(listOf("我们", "研究生", "命", "科学"), dict.search("我们研究生命科学", s).groups().map { it.text })
+    }
+
+    @Test
+    fun analysisAndSpanCandidates() = with { dict ->
+        val text = "我们研究生命科学。Hello 𠀀你好"
+        val p = dict.analyse(text, SegmentationMode.HANZI)
+        assertEquals(listOf("我们", "研究", "生命", "科学", "𠀀", "你好"), p.segments.map { text.substring(it.start, it.end) })
+        assertEquals(listOf(true, true, true, true, false, true), p.segments.map { it.matched })
+        assertEquals(dict.generation, p.generation)
+        assertEquals(p, dict.analyse(text, SegmentationMode.HANZI)) // equivalent on re-analysis (TXT-016)
+        // Tap 究 (offset 3): default segment first, then longer spans, then frequency (TXT-021).
+        val spans = dict.spansAt(p, 3, s)
+        assertEquals(SpanKind.WORDS_AT, spans.kind)
+        assertEquals("究", spans.character)
+        assertEquals(listOf("研究", "研究生"), spans.candidates.map { it.card.headword })
+        assertEquals(listOf(true, false), spans.candidates.map { it.isDefault })
+        assertEquals(2 to 2, spans.candidates[0].start to spans.candidates[0].length)
+        assertEquals(2, spans.previousCovered)
+        assertEquals(4, spans.nextCovered)
+        // 生 (offset 4) is covered by 研究生, 生命 and 生.
+        assertEquals(listOf("生命", "研究生", "生"), dict.spansAt(p, 4, s).candidates.map { it.card.headword })
+        // Punctuation is not part of a run (TXT-023); a supplementary-plane tap normalises to the code point start.
+        assertEquals(SpanKind.NONE, dict.spansAt(p, 8, s).kind)
+        val sup = text.indexOf("𠀀")
+        assertEquals(sup, dict.spansAt(p, sup + 1, s).offset)
+        assertEquals("𠀀", dict.spansAt(p, sup + 1, s).character)
+        assertTrue(!p.isCovered(sup) && p.isCovered(sup + 2))
+        assertEquals(7, p.previousCovered(sup + 2))
+        assertNull(p.previousCovered(0))
+        // "Appears in" fallback (TXT-022): 恤 has no entry of its own.
+        val xu = dict.spansAt(dict.analyse("恤", SegmentationMode.HANZI), 0, s)
+        assertEquals(SpanKind.APPEARS_IN, xu.kind)
+        assertEquals(setOf("T恤", "体恤"), xu.candidates.map { it.card.headword }.toSet())
+        // A passage from another data generation answers empty, never throws (TXT-075).
+        assertEquals(SpanKind.NONE, dict.spansAt(p.copy(generation = -5), 3, s).kind)
+        assertEquals(SpanKind.NONE, dict.spansAt(p, 999, s).kind)
+    }
+
+    @Test
+    fun variantMerging() = with { dict ->
+        // Simplified: 發/发 and 髮/发 share headword and reading → one card (SRCH-080).
+        val card = dict.search("发", s).groups().single().cards.single()
+        assertEquals(listOf("發", "髮"), card.alternateForms)
+        assertEquals(listOf("to send out", "to issue", "to develop", "hair"), card.definitions) // de-duplicated, "(variant of 發)" stripped
+        assertEquals(2, card.memberIds.size)
+        assertEquals(1, dict.search("fa", s).zh(SectionKind.MATCHES)!!.count)
+        // Traditional: two separate cards (SRCH-081).
+        assertEquals(listOf("發", "髮"), dict.search("发", Script.TRADITIONAL).groups().single().cards.map { it.headword })
+        assertEquals(2, dict.search("fa", Script.TRADITIONAL).zh(SectionKind.MATCHES)!!.count)
+        // Entry detail agrees on membership; sense numbering is continuous across members (ENT-042/043).
+        val d = dict.entryDetail(card.id, s)
+        assertTrue(d.merged)
+        assertEquals(listOf("發", "髮"), d.members.map { it.alternateForm })
+        assertEquals(listOf(1, 2, 3, 4), d.members.flatMap { m -> m.blocks.flatMap { b -> b.senses.map { it.number } } })
+        assertTrue(!dict.entryDetail(card.id, Script.TRADITIONAL).merged)
+    }
+
+    @Test
+    fun redirectsShowTheTargetSenses() = with { dict ->
+        val t = Script.TRADITIONAL
+        val card = dict.search("裏", t).groups().single().cards.single()
+        assertEquals(listOf("variant of 里"), card.redirectHeaders)
+        assertEquals(listOf("inside", "lining", "interior"), card.definitions)
+        val d = dict.entryDetail(card.id, t)
+        val m = d.members.single()
+        assertTrue(m.redirect!!.resolved)
+        assertEquals(listOf("inside", "lining", "interior"), m.blocks.single().senses.map { it.text })
+        assertEquals(listOf("里"), card.alternateForms)
+    }
+
+    @Test
+    fun mixedPatternSearch() = with { dict ->
+        val r = dict.search("想q", s)
+        assertEquals(QueryKind.MIXED, r.kind)
+        assertEquals(listOf("想去"), r.heads(SectionKind.PATTERN))
+        assertEquals(listOf("好学生"), dict.search("h学生", s).heads(SectionKind.PATTERN))
+        assertEquals(listOf("好学生"), dict.search("hao3学sheng", s).heads(SectionKind.PATTERN))
+        assertTrue(dict.search("hao4学sheng", s).heads(SectionKind.PATTERN).isEmpty())
+        // Unparseable Latin: pattern skipped, falls back to the Hanzi (SRCH-162).
+        val noise = dict.search("我uiu", s)
+        assertNull(noise.zh(SectionKind.PATTERN))
+        assertEquals("我", noise.groups().first().cards.first().headword)
+    }
+
+    @Test
+    fun entryDetailAndRelated() = with { dict ->
+        val id = dict.search("喜欢", s).groups().single().cards.single().id
+        val d = dict.entryDetail(id, s)
+        assertEquals(listOf(1, 4), d.card.hskLevels)
+        assertEquals(listOf(1 to "Verb", 4 to "Noun"), d.hskBadges.map { it.level to it.partOfSpeechText(UiLang.EN) }) // per level, never aggregated
+        assertEquals(listOf("喜", "欢"), d.characters)
+        assertEquals(d.id, dict.entryDetailByKey(d.naturalKey, Script.TRADITIONAL).id)
+        assertEquals(d.id, dict.idForKey(d.naturalKey))
+        assertEquals("Idiom", dict.entryDetail(dict.search("世界", s).groups()[0].cards[0].id, s).members[0].blocks[0].senses[0].tags.single().en)
+
+        val yj = dict.entryDetail(dict.search("研究", s).groups()[0].cards[0].id, s)
+        assertEquals(listOf(RelatedKind.STARTING_WITH), yj.related.map { it.kind })
+        val sh = dict.search("上海", s).groups()[0].cards[0].id
+        val rel = dict.entryDetail(sh, s).related.associate { it.kind to it.cards.map { c -> c.headword } }
+        assertEquals(listOf("海"), rel[RelatedKind.WITHIN])
+        assertEquals(listOf("海上"), rel[RelatedKind.CONTAINING_REVERSED])
+        val sheng = dict.search("生", s).groups()[0].cards[0].id
+        val page = dict.related(sheng, RelatedKind.CONTAINING, s, offset = 1, limit = 1)
+        assertEquals(3, page.total)
+        assertEquals(listOf("研究生"), page.cards.map { it.headword })
+        // Reference resolution (ENT-054): tiered matches, then the words inside the referenced text.
+        val ref = dict.resolveReference("研究生", "研究生", "yan2 jiu1 sheng1", s)
+        assertEquals("研究生", ref.matches.single().headword)
+        assertEquals(ref.matches.single().id, ref.defaultId)
+        assertEquals(listOf("研究", "生"), ref.inside.map { it.card.headword })
+        assertEquals(listOf("Wang2".lowercase(), "wang2"), dict.resolveReference("王", "王", "Wang2", s).matches.map { it.reading.canonical }.let { it })
+    }
+
+    @Test
+    fun hskPopularAndDailyWord() = with { dict ->
+        val levels = dict.hskLevels()
+        assertEquals(listOf(1, 4), levels.map { it.level })
+        assertEquals(5, levels[0].wordCount) // syllabus rows
+        val cards = dict.hsk(1..1, s)
+        assertEquals(4, cards.size)          // the two 喜欢 rows of level 1 merge into one card (HSK-027)
+        assertEquals(levels[0].cardCount, cards.size)
+        assertEquals(cards.size, cards.map { it.key }.toSet().size)
+        assertEquals(2, cards.first { it.card.headword == "喜欢" }.rowIds.size)
+        assertEquals(5, dict.hsk(1..7, s).size)
+        assertTrue(dict.hskChars(1..7, s).all { it.card.hskLevels.isEmpty() })
+        assertEquals(listOf("我们", "喜欢", "中国"), dict.popular(s).take(3).map { it.headword })
+        // SET-063: de-duplicated candidates sorted by entry id.
+        val candidates = dict.hsk(1..7, s).map { it.card.id }.distinct().sorted()
+        for (day in listOf(-3L, 0L, 20736L)) assertEquals(candidates[DailyPick.index(day, 0x7F, candidates.size)], dict.wordOfTheDay(day, s)!!.id)
+        assertEquals("研究生", dict.wordOfTheDay(5, s, levelMask = 1 shl 3)!!.headword)
+        assertNull(dict.wordOfTheDay(5, s, levelMask = 1 shl 6))
+    }
+
+    @Test
+    fun handwritingCandidates() = with { dict ->
+        assertEquals(listOf("你", "好学", "㐀"), dict.filterHandwritingCandidates(listOf("你", "abc", "好学", "龘", "㐀", "你x", "")))
+        val ranked = dict.rankHandwritingCandidates(listOf(com.szdict.core.api.ScoredText("㐀", 0.9), com.szdict.core.api.ScoredText("我", 0.8), com.szdict.core.api.ScoredText("龘", 0.7), com.szdict.core.api.ScoredText("命", 0.6)))
+        assertEquals(listOf("我", "命", "㐀"), ranked.map { it.text }) // common characters first; the top survivor stays in the first three
+        assertEquals(listOf("我"), dict.characterAlternatives(listOf(com.szdict.core.api.ScoredText("龘", 0.9), com.szdict.core.api.ScoredText("我", 0.2))).map { it.text })
+    }
+
+    companion object {
+        private val standardDir: File by lazy { Fixture.standard().build() }
+    }
+}

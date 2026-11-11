@@ -177,7 +177,7 @@ class RomanParserTest {
         assertTrue(parse("z".repeat(13))!!.paths.isEmpty())
         // Paths of full syllables are not length-limited.
         assertEquals(40, parse("nihao".repeat(20))!!.paths.first().tokens.size)
-        assertEquals("[FULL:lüe]", paths("lue").first())
+        assertEquals(listOf("lüe"), parse("lue")!!.paths.first().tokens.map { it.syllable })
         assertEquals("[FULL:lü]", paths("lv").first())
     }
 
