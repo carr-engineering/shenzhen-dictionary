@@ -166,6 +166,13 @@ class SearchStateHolder(
             while (!session.settingsLoaded) delay(16)
             onSettings(session.settings.value)
         }
+        // Incoming `/zh/search?q=` links and shortcuts (GLB-110): applied once, as a paste.
+        scope.launch {
+            com.szdict.app.integration.IncomingIntents.pendingRoute.collect {
+                val route = com.szdict.app.integration.IncomingIntents.consumeRouteIf { r -> r is com.szdict.core.api.Route.Search }
+                if (route is com.szdict.core.api.Route.Search && route.query.isNotBlank()) paste(route.query)
+            }
+        }
     }
 
     fun close() {
