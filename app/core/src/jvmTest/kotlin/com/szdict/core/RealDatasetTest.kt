@@ -24,10 +24,10 @@ import kotlin.test.assertTrue
 class RealDatasetTest {
     private val dir: String? = System.getProperty("szdict.datasetDir")?.takeIf { File(it, "mandarin.db").isFile }
 
-    private fun real(block: suspend (Dictionary) -> Unit) {
-        val d = dir ?: return println("SKIPPED: no mandarin.db under szdict.datasetDir")
+    private fun real(mode: DictMode = DictMode.MANDARIN, block: suspend (Dictionary) -> Unit) {
+        val d = dir?.takeIf { File(it, "${mode.datasetName}.db").isFile } ?: return println("SKIPPED: no ${mode.datasetName}.db under szdict.datasetDir")
         runBlocking {
-            val dict = DictionaryFactory.open(d, DictMode.MANDARIN)
+            val dict = DictionaryFactory.open(d, mode)
             try {
                 block(dict)
             } finally {
@@ -175,6 +175,95 @@ class RealDatasetTest {
         assertEquals(w1?.id, dict.wordOfTheDay(20736, Script.TRADITIONAL)?.id)
         assertNotNull(w1)
         assertEquals(50, dict.popular(s).size)
+    }
+
+    @Test
+    fun cantonese() = real(DictMode.CANTONESE) { dict ->
+        val t = Script.TRADITIONAL
+        assertEquals(6, dict.info().toneCount)
+        for (q in listOf("neihou", "nei5 hou2", "nei5hou2")) {
+            assertEquals("你好", dict.search(q, t).chinese.sections.first { it.kind == SectionKind.MATCHES }.cards.first().headword, q)
+        }
+        // Tone digits 1–6 are Jyutping tones; the reading is shown verbatim.
+        assertEquals("nei5 hou2", dict.search("你好", t).chinese.sections.first().groups[0].cards[0].reading.display)
+        val combos = dict.search("ngo5 zung1 ji3 nei5", t).chinese.sections.first { it.kind == SectionKind.COMBINATIONS }.combinations
+        assertEquals(listOf("我", "鍾意", "你"), combos.first().words.map { it.headword })
+        // Source groups on the English side (SRCH-076): CC-Canto, then CC-CEDICT rows, then Unihan.
+        val walk = dict.search("walk", t).english.sections
+        assertEquals(listOf(SectionKind.ENGLISH_CC_CANTO, SectionKind.ENGLISH_CC_CEDICT, SectionKind.ENGLISH_UNIHAN), walk.map { it.kind })
+        assertTrue(walk[0].cards.all { it.hasCantoBlock && it.mandarinRow == null })
+        assertTrue(walk[1].cards.all { it.mandarinRow != null })
+        assertTrue(walk[2].cards.all { it.isUnihanOnly })
+        val cantoIds = dict.cards(walk[0].refs, t).map { it.id }.toSet()
+        assertTrue(walk[1].refs.none { it.entryId in cantoIds })
+        // Chinese side: CC-Canto readings first inside a group (SRCH-075).
+        val hang = dict.search("行", t).chinese.sections.first().groups[0].cards
+        assertTrue(hang.size >= 5)
+        assertEquals(hang.map { it.hasCantoBlock }, hang.map { it.hasCantoBlock }.sortedDescending())
+        // Source blocks (ENT-110/111): Cantonese block(s) first, Mandarin block collapsed, its Pinyin groups attached.
+        val blocks = dict.entryDetail(hang[0].id, t).members.single().blocks
+        assertEquals(com.szdict.core.api.BlockKind.CANTONESE, blocks.first().kind)
+        val mandarin = blocks.last()
+        assertEquals(com.szdict.core.api.BlockKind.MANDARIN, mandarin.kind)
+        assertTrue(blocks.all { it.showLabel } && mandarin.collapsedByDefault && mandarin.collapsible)
+        assertTrue(mandarin.readingGroups.any { it.reading.display == "xíng" })
+        assertEquals(mandarin.senses.size, mandarin.readingGroups.sumOf { it.senses.size })
+        val numbers = blocks.flatMap { b -> b.senses.map { it.number } }
+        assertEquals((1..numbers.size).toList(), numbers)
+        // Segmentation with the Cantonese frequency table.
+        val p = dict.analyse("我哋今日去邊度食飯", SegmentationMode.HANZI)
+        assertEquals(listOf("我哋", "今日", "去", "邊度", "食飯"), p.segments.map { p.text.substring(it.start, it.end) })
+        assertEquals(300, dict.hskLevels().first { it.level == 1 }.wordCount)
+        assertNotNull(dict.wordOfTheDay(20736, t))
+        assertTrue(dict.examples(hang[0].id, t).items.isNotEmpty())
+    }
+
+    @Test
+    fun packs() = real { dict ->
+        val id = dict.search("银行", s).chinese.sections.first().groups[0].cards[0].id
+        val d = dict.entryDetail(id, s)
+        assertTrue(d.exampleCount in 1..20)
+        val ex = dict.examples(id, s, 0, 5)
+        assertEquals(5, ex.items.size)
+        assertTrue(ex.items.all { e -> e.highlights.isNotEmpty() && e.highlights.all { e.text.substring(it.start, it.end) == "银行" } })
+        assertTrue(dict.examples(id, Script.TRADITIONAL, 0, 5).items.all { "銀行" in it.text })
+        assertTrue(d.card.audio.verified && d.card.audio.hasRecording)
+        val trees = dict.decompose(d.characters, s, id)
+        assertEquals(listOf("银", "行"), trees.map { it.character })
+        val yin = assertNotNull(trees[0].root)
+        assertEquals("⿰", yin.operator)
+        assertEquals(listOf(com.szdict.core.api.PartPosition.LEFT, com.szdict.core.api.PartPosition.RIGHT), yin.children.map { it.position })
+        assertEquals(listOf("钅", "艮"), yin.children.map { it.glyph })
+        assertTrue(yin.children.all { it.isRoot && it.card != null })
+        // Exact strokes partition the glyph; regions follow the operator.
+        val strokes = yin.children.map { assertNotNull(it.highlight.strokes) }
+        assertEquals(yin.highlight.strokes, (strokes[0] + strokes[1]).sorted())
+        assertEquals(0.5f, yin.children[1].highlight.region.left)
+        // The top-level row of 行 follows the headword's reading (háng in 银行), ENT-122.
+        assertEquals("háng", trees[1].root?.card?.reading?.display)
+        val xiang = dict.decompose(listOf("想"), s).single().root!!
+        assertEquals(listOf("相", "心"), xiang.children.map { it.glyph })
+        assertEquals(listOf("木", "目"), xiang.children[0].children.map { it.glyph })
+        assertEquals(listOf(0, 0), xiang.children[0].children[0].path)
+    }
+
+    @Test
+    fun timingsCantonese() = real(DictMode.CANTONESE) { dict ->
+        val t = Script.TRADITIONAL
+        suspend fun time(label: String, reps: Int, block: suspend () -> Unit) {
+            repeat(3) { block() }
+            val start = System.nanoTime()
+            repeat(reps) { block() }
+            println("TIMING [yue] $label: %.2f ms (mean of $reps, warm)".format((System.nanoTime() - start) / reps / 1e6))
+        }
+        time("search neihou", 20) { dict.search("neihou", t) }
+        time("search nh", 20) { dict.search("nh", t) }
+        time("search ngo5 zung1 ji3 nei5", 20) { dict.search("ngo5 zung1 ji3 nei5", t) }
+        time("search walk", 20) { dict.search("walk", t) }
+        time("search 行", 20) { dict.search("行", t) }
+        val passage = "我哋今日去邊度食飯呀佢話唔知你鍾唔鍾意食點心我聽日想去睇戲".repeat(4).take(100)
+        var n = 0
+        time("analyse 100 characters (uncached)", 30) { dict.analyse(passage + " ".repeat(++n), SegmentationMode.HANZI) }
     }
 
     @Test
