@@ -24,7 +24,9 @@ internal class Emission(
  * The recogniser emits one distribution per 4-pixel column of the normalised line. Output classes
  * `0 until labelCount` are symbols; every class at or above [labelCount] is a blank/no-symbol class.
  * The first of those (`labelCount`) is the network's repeat separator: it fires between two identical
- * consecutive symbols ("ll", "00") in place of a blank.
+ * consecutive symbols ("ll", "00") in place of a blank. Only narrow symbols ([decode]'s `repeatable`)
+ * are split on it: two copies of a full-width glyph are always several frames apart with a real
+ * blank between them, and a separator flickering inside one wide glyph must not double it.
  * A character is a maximal run of frames with the same best symbol, split where the repeat separator
  * is strong inside the run; a blank frame where the space symbol nearly wins counts as a space. Its alternatives are computed
  * from those run frames only: each frame's symbol distribution (softmax over symbol classes, blanks
@@ -39,6 +41,7 @@ internal object CtcDecoder {
         scale: Float,
         topK: Int,
         spaceLabel: Int = -1,
+        repeatable: (Int) -> Boolean = { true },
     ): List<Emission> {
         require(logits.size >= frames * classes)
         val out = ArrayList<Emission>()
@@ -70,7 +73,7 @@ internal object CtcDecoder {
             while (end + 1 < frames && best[end + 1] == label) {
                 // A strong repeat separator on an interior frame starts a second copy of the symbol.
                 val f = end + 1
-                if (f + 1 < frames && best[f + 1] == label && separates(logits, f * classes, label, labelCount, classes, scale)) {
+                if (f + 1 < frames && best[f + 1] == label && repeatable(label) && separates(logits, f * classes, label, labelCount, classes, scale)) {
                     next = f + 1
                     break
                 }
@@ -130,6 +133,22 @@ internal object CtcDecoder {
             }
             out.add(Emission(idx[0], t, end, peak, idx.copyOf(filled), sc.copyOf(filled)))
             t = next
+        }
+        return out
+    }
+
+    /**
+     * Drops the weaker of two consecutive emissions of the same wide symbol whose peaks are closer
+     * than a glyph of that kind can be ([minFrames]): the recogniser occasionally emits one glyph
+     * twice with a blank flicker in between, while real repeats (谢谢) are a full glyph apart.
+     */
+    fun mergeDoubled(emissions: List<Emission>, minFrames: Int, wide: (Int) -> Boolean): List<Emission> {
+        val out = ArrayList<Emission>(emissions.size)
+        for (e in emissions) {
+            val last = out.lastOrNull()
+            if (last != null && last.label == e.label && wide(e.label) && e.peakFrame - last.peakFrame < minFrames) {
+                if (e.scores[0] > last.scores[0]) out[out.size - 1] = e
+            } else out.add(e)
         }
         return out
     }

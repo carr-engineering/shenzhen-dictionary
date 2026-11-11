@@ -52,7 +52,7 @@ internal class Gray(val w: Int, val h: Int, val px: ByteArray = ByteArray(w * h)
         return out
     }
 
-    fun resize(dw: Int, dh: Int): Gray = resample(0.0, 0.0, w.toDouble(), h.toDouble(), dw, dh)
+    fun resize(dw: Int, dh: Int): Gray = if (dw == w && dh == h) Gray(w, h, px.copyOf()) else resample(0.0, 0.0, w.toDouble(), h.toDouble(), dw, dh)
 
     /** 1-D resampling taps: for destination i, source indices and weights (clamped to the raster edge). */
     private class Taps(size: Int, s0: Double, s1: Double, n: Int) {
@@ -64,10 +64,13 @@ internal class Gray(val w: Int, val h: Int, val px: ByteArray = ByteArray(w * h)
 
         init {
             val step = (s1 - s0) / n
-            val idx = ArrayList<Int>()
-            val wts = ArrayList<Float>()
+            // At most ceil(step) + 1 taps per destination when shrinking, two when growing.
+            val capacity = n * (if (step > 1.0) step.toInt() + 2 else 2)
+            val idx = IntArray(capacity)
+            val wts = FloatArray(capacity)
+            var count = 0
             for (i in 0 until n) {
-                start[i] = idx.size
+                start[i] = count
                 if (step > 1.0) {
                     val a = s0 + i * step
                     val b = a + step
@@ -75,8 +78,8 @@ internal class Gray(val w: Int, val h: Int, val px: ByteArray = ByteArray(w * h)
                     while (k < b) {
                         val cover = min(b, k + 1.0) - max(a, k.toDouble())
                         if (cover > 1e-9) {
-                            idx.add(k.coerceIn(0, size - 1))
-                            wts.add((cover / step).toFloat())
+                            idx[count] = k.coerceIn(0, size - 1)
+                            wts[count++] = (cover / step).toFloat()
                         }
                         k++
                     }
@@ -84,15 +87,15 @@ internal class Gray(val w: Int, val h: Int, val px: ByteArray = ByteArray(w * h)
                     val c = s0 + (i + .5) * step - .5
                     val k = floor(c).toInt()
                     val f = (c - k).toFloat()
-                    idx.add(k.coerceIn(0, size - 1)); wts.add(1f - f)
-                    idx.add((k + 1).coerceIn(0, size - 1)); wts.add(f)
+                    idx[count] = k.coerceIn(0, size - 1); wts[count++] = 1f - f
+                    idx[count] = (k + 1).coerceIn(0, size - 1); wts[count++] = f
                 }
             }
-            start[n] = idx.size
-            index = idx.toIntArray()
-            weight = wts.toFloatArray()
+            start[n] = count
+            index = idx.copyOf(count)
+            weight = wts.copyOf(count)
             for (v in index) { lo = min(lo, v); hi = max(hi, v + 1) }
-            if (index.isEmpty()) { lo = 0; hi = 0 }
+            if (count == 0) { lo = 0; hi = 0 }
         }
     }
 
@@ -122,11 +125,26 @@ internal class Gray(val w: Int, val h: Int, val px: ByteArray = ByteArray(w * h)
         val y0 = floor(y).toInt()
         val fx = x - x0
         val fy = y - y0
-        fun at(xx: Int, yy: Int): Int = if (xx < 0 || yy < 0 || xx >= w || yy >= h) 255 else px[yy * w + xx].toInt() and 0xFF
-        val top = at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx
-        val bottom = at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx
-        return (top * (1 - fy) + bottom * fy).roundToInt().coerceIn(0, 255)
+        val p00: Int
+        val p10: Int
+        val p01: Int
+        val p11: Int
+        if (x0 >= 0 && y0 >= 0 && x0 + 1 < w && y0 + 1 < h) {
+            val k = y0 * w + x0
+            p00 = px[k].toInt() and 0xFF
+            p10 = px[k + 1].toInt() and 0xFF
+            p01 = px[k + w].toInt() and 0xFF
+            p11 = px[k + w + 1].toInt() and 0xFF
+        } else {
+            p00 = at(x0, y0); p10 = at(x0 + 1, y0); p01 = at(x0, y0 + 1); p11 = at(x0 + 1, y0 + 1)
+        }
+        val top = p00 * (1 - fx) + p10 * fx
+        val bottom = p01 * (1 - fx) + p11 * fx
+        return (top * (1 - fy) + bottom * fy + .5).toInt().coerceIn(0, 255)
     }
+
+    /** Pixel value, white outside the raster. */
+    private fun at(xx: Int, yy: Int): Int = if (xx < 0 || yy < 0 || xx >= w || yy >= h) 255 else px[yy * w + xx].toInt() and 0xFF
 
     /** Quarter turn clockwise: result pixel (x', y') is this raster's (y', h - 1 - x'). */
     fun rotate90(): Gray {
@@ -172,6 +190,7 @@ internal object InkAnalysis {
     fun inkBounds(src: Gray, threshold: Int = 18): Ink {
         val w = src.w
         val h = src.h
+        val px = src.px
         val iw = w + 1
         val integral = IntArray(iw * (h + 1))
         for (y in 0 until h) {
@@ -185,26 +204,36 @@ internal object InkAnalysis {
         // A second, stroke-sized neighbourhood: a stroke stands out from it as well, whereas the
         // inside of a shadow, a dark panel or a wall beside a sign, and any soft lighting edge, do not.
         val near = max(3, (h * .15).roundToInt())
-        fun mean(x: Int, y: Int, r: Int): Double {
-            val a = max(0, x - r)
-            val b = min(w, x + r + 1)
-            val c = max(0, y - r)
-            val d = min(h, y + r + 1)
-            return (integral[d * iw + b] - integral[c * iw + b] - integral[d * iw + a] + integral[c * iw + a]).toDouble() / ((b - a) * (d - c))
-        }
         // Signed deviation from the local mean, clamped to a byte; zero where the pixel does not
-        // also stand out from its stroke-sized neighbourhood.
+        // also stand out from its stroke-sized neighbourhood. Integer arithmetic on window sums:
+        // this loop runs over every pixel of every crop.
         val deviation = ByteArray(w * h)
         var skew = 0.0
         val half = threshold / 2
-        for (y in 0 until h) for (x in 0 until w) {
-            val g = src[x, y]
-            val dev = (g - mean(x, y, radius)).roundToInt().coerceIn(-127, 127)
-            if (dev >= -threshold && dev <= threshold) continue
-            val local = g - mean(x, y, near)
-            if ((dev < 0 && local > -half) || (dev > 0 && local < half)) continue
-            deviation[y * w + x] = dev.toByte()
-            skew += dev.toDouble() * dev * dev
+        for (y in 0 until h) {
+            val c = max(0, y - radius)
+            val d = min(h, y + radius + 1)
+            val nc = max(0, y - near)
+            val nd = min(h, y + near + 1)
+            for (x in 0 until w) {
+                val a = max(0, x - radius)
+                val b = min(w, x + radius + 1)
+                val area = (b - a) * (d - c)
+                val g = px[y * w + x].toInt() and 0xFF
+                // (g - mean) * area
+                val scaled = g * area - (integral[d * iw + b] - integral[c * iw + b] - integral[d * iw + a] + integral[c * iw + a])
+                // |g - mean| must round to more than the threshold.
+                val limit = (2 * threshold + 1) * area
+                if (2 * scaled > -limit && 2 * scaled < limit) continue
+                val na = max(0, x - near)
+                val nb = min(w, x + near + 1)
+                val nearArea = (nb - na) * (nd - nc)
+                val local = g * nearArea - (integral[nd * iw + nb] - integral[nc * iw + nb] - integral[nd * iw + na] + integral[nc * iw + na])
+                if ((scaled < 0 && local > -half * nearArea) || (scaled > 0 && local < half * nearArea)) continue
+                val dev = ((scaled + (if (scaled < 0) -area else area) / 2) / area).coerceIn(-127, 127)
+                deviation[y * w + x] = dev.toByte()
+                skew += dev.toDouble() * dev * dev
+            }
         }
         val dark = skew > 0
         val gray = Gray(w, h, src.px.copyOf())

@@ -118,9 +118,15 @@ internal class AndroidTextRecognizer(private val context: Context, private val a
         release = { it.nets.close() },
     )
 
+    /** Milliseconds per pipeline stage of the last call (diagnostics for the instrumented tests). */
+    @Volatile
+    internal var lastTimings: Map<String, Double> = emptyMap()
+
     override suspend fun recognize(image: OcrImage): OcrResult = withContext(Dispatchers.Default) {
         val context = coroutineContext
-        guarded.use { it.pipeline.recognize(image) { context.ensureActive() } }
+        guarded.use { loaded ->
+            loaded.pipeline.recognize(image) { context.ensureActive() }.also { lastTimings = loaded.pipeline.timings.toMap() }
+        }
     }
 
     override fun close() = guarded.close()

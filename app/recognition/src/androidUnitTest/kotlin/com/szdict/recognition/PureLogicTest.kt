@@ -50,6 +50,20 @@ class PureLogicTest {
     }
 
     @Test
+    fun aGlyphEmittedTwiceCloseTogetherIsOneCharacter() {
+        // Symbol 0 at frames 1 and 3 (a blank flicker between): one glyph. At frames 1 and 7: two.
+        val flicker = logits(5, mapOf(4 to 200), mapOf(0 to 200), mapOf(4 to 190, 0 to 180), mapOf(0 to 210), mapOf(4 to 200))
+        val twice = CtcDecoder.decode(flicker, 5, 5, 3, 0.1f, 2)
+        assertEquals(listOf(0, 0), twice.map { it.label })
+        val merged = CtcDecoder.mergeDoubled(twice, 4) { true }
+        assertEquals(1, merged.size)
+        assertEquals(0, merged[0].label)
+        assertEquals(2, CtcDecoder.mergeDoubled(twice, 4) { false }.size)
+        val apart = logits(5, mapOf(4 to 200), mapOf(0 to 200), mapOf(4 to 200), mapOf(4 to 200), mapOf(4 to 200), mapOf(4 to 200), mapOf(4 to 200), mapOf(0 to 200))
+        assertEquals(2, CtcDecoder.mergeDoubled(CtcDecoder.decode(apart, 8, 5, 3, 0.1f, 2), 4) { true }.size)
+    }
+
+    @Test
     fun quadContainmentWorksForRotatedAndFlippedQuads() {
         val q = Quad(Point(10f, 0f), Point(20f, 10f), Point(10f, 20f), Point(0f, 10f))
         assertTrue(q.contains(10f, 10f))

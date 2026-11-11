@@ -166,6 +166,10 @@ internal object Geometry {
             val a = list[i]
             val b = list[j]
             if (abs(a.angle - b.angle) > .22) continue
+            // Far apart in either axis: cannot satisfy the along/normal limits below (cheap test
+            // first; this loop is quadratic in the number of proposals).
+            val reach = (a.w + b.w) / 2 + min(a.h, b.h) * 1.08
+            if (abs(b.cx - a.cx) > reach || abs(b.cy - a.cy) > reach) continue
             val angle = (a.angle + b.angle) / 2
             val c = cos(angle)
             val s = sin(angle)

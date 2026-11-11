@@ -69,6 +69,7 @@ class RecognizersInstrumentedTest {
             val result = text.recognize(img)
             val ms = SystemClock.elapsedRealtime() - start
             Log.i(TAG, "OCR ${case.file} ${img.width}x${img.height}: $ms ms, ${result.lines.size} lines\n${describe(result)}")
+            Log.i(TAG, "OCR stages ${case.file}: " + (text as AndroidTextRecognizer).lastTimings.entries.joinToString(" ") { "${it.key}=${"%.0f".format(it.value)}" })
             if (!case.matches(result.text)) failures.add("${case.file}: expected <${case.expected}> got <${result.text}>")
             assertEquals(img.width, result.width)
             assertEquals(img.height, result.height)

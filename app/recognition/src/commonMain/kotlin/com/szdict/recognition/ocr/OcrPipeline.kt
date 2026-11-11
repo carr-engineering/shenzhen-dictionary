@@ -77,6 +77,18 @@ internal class OcrPipeline(
     /** Optional diagnostics sink (one message per detected region). */
     private val trace: ((String) -> Unit)? = null,
 ) {
+    /** Milliseconds spent per stage in the last [recognize] call (diagnostics). */
+    val timings = LinkedHashMap<String, Double>()
+
+    private inline fun <T> timed(stage: String, block: () -> T): T {
+        val mark = kotlin.time.TimeSource.Monotonic.markNow()
+        try {
+            return block()
+        } finally {
+            timings[stage] = (timings[stage] ?: 0.0) + mark.elapsedNow().inWholeMicroseconds / 1000.0
+        }
+    }
+
     /** A prepared line crop, upright and contrast-normalised. */
     private class Crop(
         val gray: Gray,
@@ -115,7 +127,8 @@ internal class OcrPipeline(
 
     /** @param checkpoint called between lines; throw from it to cancel. */
     fun recognize(image: OcrImage, checkpoint: () -> Unit = {}): OcrResult {
-        var page = Gray.fromArgb(image)
+        timings.clear()
+        var page = timed("gray") { Gray.fromArgb(image) }
         val longest = max(page.w, page.h)
         if (longest > options.maxSide) {
             val shrink = options.maxSide.toDouble() / longest
@@ -190,11 +203,11 @@ internal class OcrPipeline(
      * that form natively, so a column needs no glyph segmentation.
      */
     private fun readRegion(page: Gray, region: Region): Line? {
-        var crop = (if (region.vertical) verticalCrop(page, region) else cropRegion(page, region)) ?: return null
+        var crop = timed("crop") { if (region.vertical) verticalCrop(page, region) else cropRegion(page, region) } ?: return null
         var script = SequenceModel.HANI
         var column = false
         if (!region.vertical) {
-            val scores = classify(crop)
+            val scores = timed("classify") { classify(crop) }
             trace?.invoke("  classes " + scores.indices.filter { scores[it] > .03f }.joinToString(" ") { "$it:${(scores[it] * 100).toInt()}" })
             if (scores[0] + scores[1] > scores[2] + scores[3] + scores[31]) script = SequenceModel.LATN
             // One or two glyphs are too little to judge orientation from.
@@ -215,7 +228,7 @@ internal class OcrPipeline(
      */
     private fun detectLayout(page: Gray): Layout {
         val (merged, fine) = detectRegions(page)
-        val upright = merged.flatMap { splitStacked(page, it) }
+        val upright = timed("split") { merged.flatMap { splitStacked(page, it) } }
         val turnedPage = page.rotate90()
         // Turned (x', y') is page (y', pageHeight - x'); a turned line runs up the page.
         val turned = detectRegions(turnedPage, fine).first.map { it.copy(cx = it.cy, cy = page.h - it.cx, angle = it.angle - PI / 2) }
@@ -229,10 +242,12 @@ internal class OcrPipeline(
         // Stray glyph-sized upright detections inside a column belong to the column.
         val rows = upright.filter { r -> r.w >= r.h * MULTI_GLYPH || columnBoxes.none { r.cx > it.x0 && r.cx < it.x1 && r.cy > it.y0 && r.cy < it.y1 } }
         trace?.invoke("layout: ${rows.size} upright regions, ${columns.size} columns of ${turned.size} turned regions")
-        return Layout(
-            Geometry.joinCollinear(rows.map { extendAlongInk(page, it, columnBoxes) }),
-            Geometry.joinCollinear(columns.map { extendAlongInk(page, it, rowBoxes) }),
-        )
+        return timed("extend") {
+            Layout(
+                Geometry.joinCollinear(rows.map { extendAlongInk(page, it, columnBoxes) }),
+                Geometry.joinCollinear(columns.map { extendAlongInk(page, it, rowBoxes) }),
+            )
+        }
     }
 
     /**
@@ -311,28 +326,27 @@ internal class OcrPipeline(
 
     /**
      * Detector proposals merged into line regions, in the given raster's pixels. The first pass sees
-     * the page at 640 to 1280 pixels; when it finds small text (or nothing), a second pass at twice
-     * that size or at the page's full resolution reads the lines too small for the first.
+     * the page at 1280 pixels at most; when it finds small text there (or only faint traces) on a
+     * larger page, a second pass at the page's full resolution reads the lines too small for the first.
      */
     private fun detectRegions(page: Gray, fine: Boolean? = null): Pair<List<Region>, Boolean> {
         val longest = max(page.w, page.h)
         val coarseSide = min(1280, max(640, longest))
-        var proposals = propose(page, coarseSide)
-        var usedFine = false
-        // Small pages are magnified for the second pass, large ones seen at full resolution.
-        val fineSide = min(options.maxSide, max(longest, coarseSide * 2))
-        if (options.fineDetection && fineSide > coarseSide * 1.25) {
-            val toDetector = coarseSide.toDouble() / longest
-            val small = proposals.count { it.score >= STRONG_PROPOSAL && it.h * toDetector < SMALL_TEXT }
-            if (fine ?: (small >= 3 || proposals.none { it.score >= STRONG_PROPOSAL })) {
-                // At that size the coarse pass places lines only roughly (its cells are 16 pixels):
-                // small text comes from the fine pass alone, large text from the coarse one.
-                proposals = proposals.filter { it.h * toDetector >= SMALL_TEXT * 1.25 } + propose(page, fineSide)
-                usedFine = true
-            }
+        fun merge(proposals: List<Region>) = timed("merge") {
+            Geometry.absorbFragments(Geometry.mergeProposals(proposals, STRONG_PROPOSAL).filter { it.w > 4 && it.h > 5 && it.h < longest * 1.3 })
         }
-        val regions = Geometry.absorbFragments(Geometry.mergeProposals(proposals, STRONG_PROPOSAL).filter { it.w > 4 && it.h > 5 && it.h < longest * 1.3 })
-        return regions to usedFine
+        val coarse = propose(page, coarseSide)
+        val regions = merge(coarse)
+        if (!options.fineDetection || longest <= coarseSide * 1.25) return regions to false
+        val toDetector = coarseSide.toDouble() / longest
+        val small = regions.count { it.w >= it.h * 2 && it.h * toDetector < SMALL_TEXT }
+        // Nothing found but faint traces: possibly text too small for this pass altogether.
+        val faint = regions.isEmpty() && coarse.size >= 3
+        if (!(fine ?: (small >= 2 || faint))) return regions to false
+        // At that size the coarse pass places lines only roughly (its cells are 16 pixels): small
+        // text comes from the fine pass alone, large text from the coarse one.
+        val large = coarse.filter { it.h * toDetector >= SMALL_TEXT * 1.25 }
+        return merge(large + propose(page, min(longest, options.maxSide))) to true
     }
 
     /** One detector pass with the page scaled to [side] pixels on its longer side. */
@@ -342,9 +356,9 @@ internal class OcrPipeline(
         val scale = side.toDouble() / max(w, h)
         val dw = max(32, ceil(w * scale / 32).toInt() * 32)
         val dh = max(32, ceil(h * scale / 32).toInt() * 32)
-        val small = page.resize(dw, dh)
+        val small = timed("resize") { page.resize(dw, dh) }
         if (small.cornerLevel() < 110) small.invert()
-        val out = nets.detect(small.px, dw, dh)
+        val out = timed("detector") { nets.detect(small.px, dw, dh) }
         check(out.rows == dh / 16 && out.cols == dw / 16) { "Detector output dimensions do not match input" }
         // Weak proposals bridge the glyphs the detector is unsure about (thin strokes, dense characters).
         return Geometry.decodeDetector(out.data, out.rows, out.cols, out.scale.toDouble(), out.zeroPoint, w.toDouble() / dw, h.toDouble() / dh, WEAK_PROPOSAL)
@@ -513,9 +527,11 @@ internal class OcrPipeline(
     private fun read(model: SequenceModel, crop: Crop, page: Gray, column: Boolean = false): Line? {
         val labels = if (model == SequenceModel.HANI) haniLabels else latnLabels
         val strip = normalized(crop, 2048)
-        val out = nets.sequence(model, strip.columns, strip.width)
+        val out = timed("recognise") { nets.sequence(model, strip.columns, strip.width) }
         // More candidates than are returned, so that the list is still full after re-ranking by script.
-        var emissions = trimSpaces(CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives + EXTRA_CANDIDATES, labels.indexOf(" ")), labels)
+        var emissions = trimSpaces(timed("decode") { CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives + EXTRA_CANDIDATES, labels.indexOf(" ")) { ScriptPrior.kind(labels[it]) != ScriptPrior.Kind.HAN } }, labels)
+        // A Han glyph is about five frames wide on the strip.
+        emissions = CtcDecoder.mergeDoubled(emissions, 4) { ScriptPrior.kind(labels[it]) == ScriptPrior.Kind.HAN }
         // Glyph spacing in a column is leading, not word spacing.
         if (column) emissions = emissions.filter { !labels[it.label].isBlank() }
         if (emissions.isEmpty()) return null
