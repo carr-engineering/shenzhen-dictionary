@@ -100,6 +100,8 @@ internal class DictionaryStore private constructor(
     private val io: CoroutineDispatcher,
     /** Optional tables present in this file (a dataset built before they existed lacks them). */
     private val tables: Set<String>,
+    /** Preset DEFLATE dictionary of the entry bodies (`body_dict`), or null. */
+    private val bodyDict: ByteArray?,
 ) {
     private val cacheLock = Mutex()
     private val entryCache = LinkedHashMap<Int, EntryRow>()
@@ -108,6 +110,16 @@ internal class DictionaryStore private constructor(
     private var decompDb: Db? = null
     private val packLock = Mutex()
 
+    /** Schema version 2 (SCHEMA.md "Schema version 2"): blob natural keys, `entry.ulp`, no `gloss` / `word_freq`. */
+    private val v2: Boolean = (meta["schema_version"]?.toIntOrNull() ?: 1) >= 2
+    private val PROJ_COLS = "e.id, e.flags, e.freq_rank, e.char_count, e.merge_simp, e.merge_trad, " + if (v2) "e.ulp" else "NULL"
+    private val ENTRY_COLS = "e.id, e.trad, e.simp, e.reading_display, e.reading_canonical, e.reading_source, e.syllables, e.tones, " +
+        "e.flags, e.freq_rank, e.char_count, e.natural_key, e.merge_simp, e.merge_trad, e.hsk, e.hsk_via, e.audio_key, e.body, " + if (v2) "e.ulp" else "NULL"
+
+    /** Precomputed inside-words rows (`within`, schema version 1); otherwise they are computed on demand. */
+    val hasWithinTable: Boolean = "within" in tables
+    /** Entries carry their word's unigram (`entry.ulp`); otherwise the `word_freq` table is read. */
+    val hasEntryUnigram: Boolean get() = v2
     val hasLm: Boolean get() = lm != null
     val maxWordLen: Int = meta["max_word_len"]?.toIntOrNull() ?: 12
     val maxHeadwordLen: Int = meta["max_headword_len"]?.toIntOrNull() ?: 64
@@ -142,19 +154,32 @@ internal class DictionaryStore private constructor(
     // ---- entries ----
 
     private fun entryOf(st: SQLiteStatement): EntryRow {
-        val syl = st.getText(6)
-        val toneBlob = st.getBlob(7)
+        val canonical = st.getText(4)
+        // Schema version 2: a NULL display is the canonical reading rendered for the mode (tone marks for
+        // Pinyin, verbatim Jyutping); NULL syllables / tones are the canonical reading split at spaces,
+        // a trailing digit being the tone.
+        val syllables: List<String>
+        val tones: IntArray
+        if (st.isNull(6) || st.isNull(7)) {
+            val parsed = com.szdict.core.api.Romanisation.parseCanonical(canonical)
+            syllables = parsed.first
+            tones = IntArray(parsed.second.size) { parsed.second[it] }
+        } else {
+            val syl = st.getText(6)
+            val toneBlob = st.getBlob(7)
+            syllables = if (syl.isEmpty()) emptyList() else syl.split(' ')
+            tones = IntArray(toneBlob.size) { toneBlob[it].toInt() and 0xFF }
+        }
         return EntryRow(
-            id = st.getLong(0).toInt(), trad = st.getText(1), simp = st.getText(2), readingDisplay = st.getText(3),
-            readingCanonical = st.getText(4), readingSource = st.getLong(5).toInt(),
-            syllables = if (syl.isEmpty()) emptyList() else syl.split(' '),
-            tones = IntArray(toneBlob.size) { toneBlob[it].toInt() and 0xFF },
+            id = st.getLong(0).toInt(), trad = st.getText(1), simp = st.getText(2), readingDisplay = if (st.isNull(3)) com.szdict.core.api.Romanisation.display(mode, canonical) else st.getText(3),
+            readingCanonical = canonical, readingSource = st.getLong(5).toInt(), syllables = syllables, tones = tones,
             flags = st.getLong(8).toInt(), freqRank = st.getLong(9).toInt(), charCount = st.getLong(10).toInt(),
-            naturalKey = st.getText(11),
+            naturalKey = if (v2) Codec.hex(st.getBlob(11)) else st.getText(11),
             mergeSimp = if (st.isNull(12)) -1 else st.getLong(12).toInt(),
             mergeTrad = if (st.isNull(13)) -1 else st.getLong(13).toInt(),
             hskJson = st.getText(14), hskViaJson = st.getText(15),
-            audioKey = if (st.isNull(16)) null else st.getText(16), gloss = st.getText(17), bodyBlob = st.getBlob(18),
+            audioKey = if (st.isNull(16)) null else st.getText(16), bodyBlob = st.getBlob(17), bodyDict = bodyDict,
+            ulp = if (st.isNull(18)) NO_ULP else st.getLong(18).toInt(),
         )
     }
 
@@ -199,13 +224,19 @@ internal class DictionaryStore private constructor(
 
     suspend fun idForNaturalKey(key: String): Int? = read { c ->
         var id: Int? = null
-        c.query("SELECT id FROM entry WHERE natural_key = ?", { it.bindText(1, key) }) { id = it.getLong(0).toInt() }
+        if (v2) {
+            val blob = Codec.unhex(key) ?: return@read null
+            c.query("SELECT id FROM entry WHERE natural_key = ?", { it.bindBlob(1, blob) }) { id = it.getLong(0).toInt() }
+        } else {
+            c.query("SELECT id FROM entry WHERE natural_key = ?", { it.bindText(1, key) }) { id = it.getLong(0).toInt() }
+        }
         id
     }
 
     private fun projOf(st: SQLiteStatement, o: Int): Proj = Proj(
         st.getLong(o).toInt(), st.getLong(o + 1).toInt(), st.getLong(o + 2).toInt(), st.getLong(o + 3).toInt(),
         if (st.isNull(o + 4)) -1 else st.getLong(o + 4).toInt(), if (st.isNull(o + 5)) -1 else st.getLong(o + 5).toInt(),
+        if (st.isNull(o + 6)) NO_ULP else st.getLong(o + 6).toInt(),
     )
 
     /** Ranking projections without definitions (DATA-078). */
@@ -229,11 +260,14 @@ internal class DictionaryStore private constructor(
         val out = HashMap<Int, Form>(ids.size * 2)
         read { c ->
             c.query(
-                "SELECT $PROJ_COLS, e.trad, e.simp, e.syllables, e.tones FROM entry e WHERE e.id IN (SELECT value FROM json_each(?))",
+                "SELECT $PROJ_COLS, e.trad, e.simp, e.syllables, e.tones, e.reading_canonical FROM entry e WHERE e.id IN (SELECT value FROM json_each(?))",
                 { it.bindText(1, Codec.jsonIntArray(ids)) },
             ) {
                 val p = projOf(it, 0)
-                out[p.id] = Form(p, it.getText(6), it.getText(7), it.getText(8), it.getBlob(9))
+                if (it.isNull(9) || it.isNull(10)) {
+                    val parsed = com.szdict.core.api.Romanisation.parseCanonical(it.getText(11))
+                    out[p.id] = Form(p, it.getText(7), it.getText(8), parsed.first.joinToString(" "), ByteArray(parsed.second.size) { i -> parsed.second[i].toByte() })
+                } else out[p.id] = Form(p, it.getText(7), it.getText(8), it.getText(9), it.getBlob(10))
             }
         }
         return out
@@ -255,6 +289,20 @@ internal class DictionaryStore private constructor(
             }
         }
         return out
+    }
+
+    /** Entry ids per exact headword key, without projections: an index-only read for bulk counting. */
+    suspend fun headwordIds(keys: Collection<String>): Map<String, IntArray> {
+        if (keys.isEmpty()) return emptyMap()
+        val acc = HashMap<String, ArrayList<Int>>()
+        read { c ->
+            c.query("SELECT h.key, h.entry_id FROM headword h WHERE h.key IN (SELECT value FROM json_each(?))", { it.bindText(1, Codec.jsonArray(keys)) }) {
+                val list = acc.getOrPut(it.getText(0)) { ArrayList(2) }
+                val id = it.getLong(1).toInt()
+                if (id !in list) list.add(id)
+            }
+        }
+        return acc.mapValues { it.value.toIntArray() }
     }
 
     /** Headwords strictly longer than [prefix] that begin with it (all rows; rank before limiting, SRCH-071). */
@@ -686,9 +734,7 @@ internal class DictionaryStore private constructor(
 
     companion object {
         private const val ENTRY_CACHE_SIZE = 2000
-        private const val PROJ_COLS = "e.id, e.flags, e.freq_rank, e.char_count, e.merge_simp, e.merge_trad"
-        private const val ENTRY_COLS = "e.id, e.trad, e.simp, e.reading_display, e.reading_canonical, e.reading_source, e.syllables, e.tones, " +
-            "e.flags, e.freq_rank, e.char_count, e.natural_key, e.merge_simp, e.merge_trad, e.hsk, e.hsk_via, e.audio_key, e.gloss, e.body"
+        private const val MIN_SCHEMA_VERSION = 1
 
         /** Smallest string greater than every string starting with [prefix] (binary collation). */
         fun upperBound(prefix: String): String {
@@ -715,8 +761,10 @@ internal class DictionaryStore private constructor(
                     c.query("SELECT key, value FROM meta", {}) { if (!it.isNull(1)) meta[it.getText(0)] = it.getText(1) }
                     c.query("SELECT name FROM sqlite_master WHERE type = 'table'", {}) { tables.add(it.getText(0)) }
                 }
+                var bodyDict: ByteArray? = null
+                if ("body_dict" in tables) main.use { c -> c.query("SELECT dict FROM body_dict ORDER BY id LIMIT 1", {}) { bodyDict = it.getBlob(0) } }
                 val version = meta["schema_version"]?.toIntOrNull() ?: userVersion
-                if (version != DictionaryFactory.SUPPORTED_SCHEMA_VERSION) {
+                if (version !in MIN_SCHEMA_VERSION..DictionaryFactory.SUPPORTED_SCHEMA_VERSION) {
                     throw DictException(DictError.SchemaMismatch(version, DictionaryFactory.SUPPORTED_SCHEMA_VERSION))
                 }
                 val lmPath = "$dir/${mode.datasetName}-lm.db"
@@ -731,7 +779,7 @@ internal class DictionaryStore private constructor(
                         lm = null
                     }
                 }
-                DictionaryStore(mode, dir, main, lm, meta, io, tables)
+                DictionaryStore(mode, dir, main, lm, meta, io, tables, bodyDict)
             } catch (e: DictException) {
                 main.close()
                 throw e

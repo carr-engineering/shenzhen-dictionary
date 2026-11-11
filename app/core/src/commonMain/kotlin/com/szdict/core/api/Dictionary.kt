@@ -167,8 +167,8 @@ interface Dictionary {
 
 /** Opens datasets. No "load the dictionary" phase: a file open plus a metadata read (ARCH-131). */
 object DictionaryFactory {
-    /** Schema version this build reads (DATA-003). */
-    const val SUPPORTED_SCHEMA_VERSION: Int = 1
+    /** Schema version this build reads (DATA-003); the previous version 1 is still read. */
+    const val SUPPORTED_SCHEMA_VERSION: Int = 2
 
     /**
      * Opens `<datasetDir>/<mode>.db` read-only, plus `<mode>-lm.db` and `packs/…` when present.

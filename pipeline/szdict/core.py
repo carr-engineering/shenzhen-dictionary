@@ -10,12 +10,12 @@ import struct
 from collections import defaultdict
 from pathlib import Path
 
-from .enc import cjson, delta_list, plain_list, varint, zjson
+from .enc import cjson, delta_list, derive_reading_tokens, plain_list, varint, zjson
 from .norm import en_tokens, fold, is_hanzi, matching_key
 from .roman import key_syllables, key_tones, reading_key
 from .senses import VARIANT_KINDS, labels, plain_text, summarise
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 UNRANKED = 1_000_000
 RSRC = {"cedict": 0, "cccanto": 1, "cccedict_canto": 2, "hsk_patch": 3, "unihan": 4, "none": 5}
 BLOCK_LABEL = {"mandarin": "block_mandarin", "cantonese": "block_cantonese",
@@ -56,6 +56,7 @@ class Dataset:
         self.en_primary: dict | None = None        # cantonese: custom English postings
         self.english_words: dict[str, int] = {}    # common English word forms -> corpus count (SRCH-024)
         self.english_total = 0
+        self.body_dict: bytes | None = None        # preset DEFLATE dictionary of the bodies
         self.lm = None
 
     def add(self, **e) -> dict:
@@ -383,7 +384,8 @@ def assign_frequency(ds: Dataset, form_field: str, lm_logp: dict[str, float] | N
             lp, observed = math.log(cnt / total), True
         else:
             lp, observed = lm_floor - (2.0 if len(e[form_field]) > 1 else 5.0), False
-        lp = round(lp, 3) if observed else float(round(lp))     # integral REALs are stored compactly by SQLite
+        lp = round(lp, 3) if observed else float(round(lp))
+        e["lp"] = lp
         for form in (e["simp"], e["trad"]):
             if len(form) > MAX_WORD_LEN:
                 continue
@@ -411,6 +413,8 @@ def assign_frequency(ds: Dataset, form_field: str, lm_logp: dict[str, float] | N
 # within (DATA-101)
 
 def compute_within(ds: Dataset) -> dict[int, bytes]:
+    """Reference of the inside-words rows the app computes on demand (DATA-101 / DATA-102; schema
+    version 2 stores no `within` table): used by the golden queries."""
     by_form: dict[str, list[int]] = defaultdict(list)
     for e in ds.entries:
         by_form[e["simp"]].append(e["id"])
@@ -432,7 +436,9 @@ def compute_within(ds: Dataset) -> dict[int, bytes]:
                             rows.add((start, length, tid))
         if not rows:
             continue
-        ordered = sorted(rows, key=lambda r: (-r[1], r[0], ds.entries[r[2]]["freq_rank"], r[2]))
+        E = ds.entries
+        ordered = sorted(rows, key=lambda r: (-r[1], r[0], E[r[2]]["unihan"], E[r[2]]["freq_rank"], E[r[2]]["proper"],
+                                              min(E[r[2]].get("rrank", 0), 15), r[2]))
         buf = bytearray()
         for s, l, t in ordered:
             buf += varint(s) + varint(l) + varint(t)
@@ -523,6 +529,24 @@ def expand_body(body: dict, display: str, canonical: str) -> dict:
         body["blocks"] = default_blocks({"senses": body["senses"], "display": display, "canonical": canonical})
     body.setdefault("notes", [])
     return body
+
+
+def derived_display(ds: "Dataset", e: dict) -> str | None:
+    """What the app shows for a NULL `reading_display` (schema version 2): Jyutping verbatim; Pinyin
+    re-marked from the canonical reading when every token is a toned inventory syllable (or a comma /
+    middle dot) — otherwise None, and the display string is stored."""
+    if ds.id != "mandarin":
+        return e["canonical"]
+    from .roman import parse_pinyin
+    p = parse_pinyin(e["canonical"])
+    return p[0] if p[5] else None
+
+
+def entry_ulp(ds: "Dataset", e: dict) -> int:
+    """`entry.ulp`: the unigram log-probability of the entry's word × 100 (SCHEMA.md, schema version 2) —
+    the value `word_freq.log_prob` held for its forms. Non-segmentable entries carry the lowest value."""
+    lp = e.get("lp")
+    return -6000 if lp is None or not e["segmentable"] else round(lp * 100)
 
 
 def flags_of(e: dict) -> int:
@@ -670,12 +694,12 @@ MAIN_DDL = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID;
 CREATE TABLE entry(
   id INTEGER PRIMARY KEY, trad TEXT NOT NULL, simp TEXT NOT NULL,
-  reading_display TEXT NOT NULL, reading_canonical TEXT NOT NULL, reading_source INTEGER NOT NULL,
-  syllables TEXT NOT NULL, tones BLOB NOT NULL, flags INTEGER NOT NULL, freq_rank INTEGER NOT NULL,
-  char_count INTEGER NOT NULL, natural_key TEXT NOT NULL, merge_simp INTEGER, merge_trad INTEGER,
-  hsk TEXT NOT NULL, hsk_via TEXT NOT NULL, audio_key TEXT, gloss TEXT NOT NULL, body BLOB NOT NULL);
-CREATE INDEX entry_freq ON entry(freq_rank, id);
+  reading_display TEXT, reading_canonical TEXT NOT NULL, reading_source INTEGER NOT NULL,
+  syllables TEXT, tones BLOB, flags INTEGER NOT NULL, freq_rank INTEGER NOT NULL,
+  char_count INTEGER NOT NULL, natural_key BLOB NOT NULL, merge_simp INTEGER, merge_trad INTEGER,
+  hsk TEXT NOT NULL, hsk_via TEXT NOT NULL, audio_key TEXT, ulp INTEGER NOT NULL, body BLOB NOT NULL);
 CREATE UNIQUE INDEX entry_natural ON entry(natural_key);
+CREATE TABLE body_dict(id INTEGER PRIMARY KEY, dict BLOB NOT NULL);
 CREATE TABLE headword(key TEXT, entry_id INTEGER, kind INTEGER, PRIMARY KEY(key, entry_id, kind)) WITHOUT ROWID;
 CREATE TABLE reading(key TEXT, entry_id INTEGER, alt INTEGER, alt_note INTEGER, tones BLOB,
   PRIMARY KEY(key, entry_id, alt, alt_note)) WITHOUT ROWID;
@@ -683,8 +707,6 @@ CREATE TABLE substr_idx(key TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID;
 CREATE TABLE char_idx(ch TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID;
 CREATE TABLE en_token(token TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID;
 CREATE TABLE merge_group(id INTEGER PRIMARY KEY, script INTEGER, members BLOB, variants TEXT);
-CREATE TABLE within(entry_id INTEGER PRIMARY KEY, rows BLOB);
-CREATE TABLE word_freq(key TEXT PRIMARY KEY, freq INTEGER, log_prob REAL) WITHOUT ROWID;
 CREATE TABLE hsk_row(row_id INTEGER PRIMARY KEY, ord INTEGER, level INTEGER, simp TEXT, trad TEXT,
   homograph INTEGER, pos TEXT, extra_levels TEXT, entry_id INTEGER NOT NULL, also_entry_ids TEXT, sort_key TEXT);
 CREATE INDEX hsk_row_level ON hsk_row(level, ord);
@@ -768,12 +790,22 @@ def write_main(ds: Dataset, path: Path) -> dict:
     con = open_new(path, MAIN_DDL)
     counts: dict[str, int] = {}
     ents = ds.entries
-    con.executemany(
-        "INSERT INTO entry VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        ((e["id"], e["trad"], e["simp"], e["display"], e["canonical"], e["rsrc"],
-          " ".join(e["syllables"]), bytes(e["tones"]), flags_of(e), e["freq_rank"], len(e["simp"]),
-          e["nkey"], e["merge_simp"], e["merge_trad"], cjson(e["hsk"]), cjson(e["hsk_via"]),
-          e["audio_key"], entry_gloss(ds, e), zjson(entry_body(e))) for e in ents))
+    zdict = ds.body_dict or None
+    if zdict:
+        con.execute("INSERT INTO body_dict VALUES(1, ?)", (zdict,))
+
+    def row(e: dict) -> tuple:
+        syl, tones = " ".join(e["syllables"]), bytes(e["tones"])
+        derived = derive_reading_tokens(e["canonical"])
+        if (" ".join(derived[0]), bytes(derived[1])) == (syl, tones):
+            syl = tones = None                                  # the app derives them (schema version 2)
+        display = None if derived_display(ds, e) == e["display"] else e["display"]
+        return (e["id"], e["trad"], e["simp"], display, e["canonical"], e["rsrc"], syl, tones, flags_of(e),
+                e["freq_rank"], len(e["simp"]), bytes.fromhex(e["nkey"]), e["merge_simp"], e["merge_trad"],
+                cjson(e["hsk"]) if e["hsk"] else "", cjson(e["hsk_via"]) if e["hsk_via"] else "",
+                e["audio_key"], entry_ulp(ds, e), zjson(entry_body(e), zdict))
+
+    con.executemany("INSERT INTO entry VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (row(e) for e in ents))
     counts["entry"] = len(ents)
 
     hw = headword_rows(ds)
@@ -810,13 +842,6 @@ def write_main(ds: Dataset, path: Path) -> dict:
                     ((g["id"], g["script"], plain_list(g["members"]), cjson(g["variants"])) for g in ds.merge_groups))
     counts["merge_group"] = len(ds.merge_groups)
 
-    within = compute_within(ds)
-    con.executemany("INSERT INTO within VALUES(?,?)", sorted(within.items()))
-    counts["within"] = len(within)
-
-    con.executemany("INSERT INTO word_freq VALUES(?,?,?)",
-                    ((k, c, lp) for k, (c, lp) in sorted(ds.word_freq.items())))
-    counts["word_freq"] = len(ds.word_freq)
 
     con.executemany(
         "INSERT INTO hsk_row VALUES(?,?,?,?,?,?,?,?,?,?,?)",

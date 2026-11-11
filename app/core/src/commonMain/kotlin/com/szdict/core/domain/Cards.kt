@@ -196,12 +196,75 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
         return out.toIntArray()
     }
 
-    /** `within` triples for entries: precomputed rows, or computed on demand for long headwords. */
-    suspend fun withinRows(entries: Collection<EntryRow>): Map<Int, IntArray> {
+    /**
+     * `within` triples (start, length, entry id; DATA-101 order) of each entry: every dictionary word
+     * inside its headword, in either script. Read from the precomputed table when the dataset has one
+     * (schema version 1); otherwise computed with one batched headword lookup for all entries (DATA-102).
+     */
+    suspend fun withinRows(entries: Collection<EntryRow>, ranked: Boolean = true): Map<Int, IntArray> {
         val wanted = entries.filter { it.charCount >= 2 && it.simp.hanziCount() >= 2 }
         if (wanted.isEmpty()) return emptyMap()
-        val out = HashMap(store.within(wanted.map { it.id }))
-        for (e in wanted) if (e.id !in out && e.charCount > 8) out[e.id] = withinOnDemand(e.simp)
+        if (store.hasWithinTable) {
+            val out = HashMap(store.within(wanted.map { it.id }))
+            for (e in wanted) if (e.id !in out && e.charCount > 8) out[e.id] = withinOnDemand(e.simp)
+            return out
+        }
+        class Span(val start: Int, val len: Int, val keys: List<String>)
+        val plans = HashMap<Int, List<Span>>(wanted.size * 2)
+        val keys = HashSet<String>()
+        for (e in wanted) {
+            if (e.isUnihan) continue
+            val forms = ArrayList<IntArray>(2)
+            val simp = e.simp.cps()
+            forms.add(simp)
+            if (e.trad != e.simp) e.trad.cps().takeIf { it.size == simp.size }?.let { forms.add(it) }
+            val n = simp.size
+            val spans = ArrayList<Span>()
+            for (len in minOf(store.maxWordLen, n - 1) downTo 1) for (start in 0..n - len) {
+                val ks = forms.map { com.szdict.core.engine.Segmenter.lookupKey(it.cpString(start, start + len)) }.distinct()
+                spans.add(Span(start, len, ks))
+                keys.addAll(ks)
+            }
+            plans[e.id] = spans
+        }
+        if (keys.isEmpty()) return emptyMap()
+        val out = HashMap<Int, IntArray>(plans.size * 2)
+        if (!ranked) {
+            // Counting only (bulk card lists): the rows of a span are unordered, read from the index alone.
+            val ids = store.headwordIds(keys)
+            for ((id, spans) in plans) {
+                var rows: ArrayList<Int>? = null
+                for (sp in spans) {
+                    val first = ids[sp.keys[0]]
+                    val second = if (sp.keys.size > 1) ids[sp.keys[1]] else null
+                    if (first == null && second == null) continue
+                    val r = rows ?: ArrayList<Int>().also { rows = it }
+                    if (first != null) for (t in first) if (t != id) { r.add(sp.start); r.add(sp.len); r.add(t) }
+                    if (second != null) for (t in second) if (t != id && (first == null || t !in first)) { r.add(sp.start); r.add(sp.len); r.add(t) }
+                }
+                rows?.takeIf { it.isNotEmpty() }?.let { out[id] = it.toIntArray() }
+            }
+            return out
+        }
+        val hits = store.headwordExact(keys)
+        val order = Ranking.projComparator(false)
+        for ((id, spans) in plans) {
+            var rows: ArrayList<Int>? = null
+            for (sp in spans) {
+                val first = hits[sp.keys[0]]
+                val second = if (sp.keys.size > 1) hits[sp.keys[1]] else null
+                if (first == null && second == null) continue
+                val projs = ArrayList<Proj>(4)
+                for (h in first.orEmpty()) if (h.proj.id != id && projs.none { it.id == h.proj.id }) projs.add(h.proj)
+                for (h in second.orEmpty()) if (h.proj.id != id && projs.none { it.id == h.proj.id }) projs.add(h.proj)
+                if (projs.size > 1) projs.sortWith(order)
+                for (p in projs) {
+                    val r = rows ?: ArrayList<Int>().also { rows = it }
+                    r.add(sp.start); r.add(sp.len); r.add(p.id)
+                }
+            }
+            rows?.let { out[id] = it.toIntArray() }
+        }
         return out
     }
 
@@ -219,7 +282,7 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
         val labels = store.labels()
 
         val cardEntries = refs.mapNotNull { entries[it.entryId] }.distinctBy { it.id }
-        val within = withinRows(cardEntries)
+        val within = withinRows(cardEntries, ranked = exactInside)
         val insideCount = HashMap<Int, Int>()
         if (within.isNotEmpty()) {
             val projs: Map<Int, Proj> = if (exactInside) {

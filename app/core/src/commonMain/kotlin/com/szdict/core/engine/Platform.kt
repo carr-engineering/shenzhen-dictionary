@@ -1,7 +1,10 @@
 package com.szdict.core.engine
 
-/** Raw DEFLATE (no zlib header) decompression — `zjson` blobs of the dataset contract. */
-internal expect fun inflateRaw(bytes: ByteArray): ByteArray
+/**
+ * Raw DEFLATE (no zlib header) decompression — `zjson` blobs of the dataset contract — with the
+ * dataset's preset dictionary when it has one (`body_dict`, schema version 2).
+ */
+internal expect fun inflateRaw(bytes: ByteArray, dictionary: ByteArray? = null): ByteArray
 
 internal expect fun normalizeNfkc(text: String): String
 

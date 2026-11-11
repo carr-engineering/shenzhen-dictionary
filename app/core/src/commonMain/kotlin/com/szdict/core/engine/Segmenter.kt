@@ -7,6 +7,7 @@ import com.szdict.core.api.SegmentationMode
 import com.szdict.core.store.DictionaryStore
 import com.szdict.core.store.EntryRow
 import com.szdict.core.store.HeadHit
+import com.szdict.core.store.NO_ULP
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlin.math.ln
@@ -56,7 +57,14 @@ internal class Segmenter(private val store: DictionaryStore) {
             pending.clear()
             if (hits.isEmpty()) return
             allHits.putAll(hits)
-            if (dag) {
+            if (dag && store.hasEntryUnigram) {
+                // The unigram travels with the entry (schema version 2): the best word of each key.
+                for ((key, hs) in hits) {
+                    var best = NO_ULP
+                    for (h in hs) if (!h.proj.isUnihan && h.proj.ulp > best) best = h.proj.ulp
+                    if (best != NO_ULP) logp[key] = best / 100.0
+                }
+            } else if (dag) {
                 val found = store.wordLogProbs(hits.keys)
                 logp.putAll(found)
                 // A form absent from the frequency table may be present under its other script form.

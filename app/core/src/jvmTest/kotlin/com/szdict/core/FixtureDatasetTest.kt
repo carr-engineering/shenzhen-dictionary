@@ -63,9 +63,9 @@ class FixtureDatasetTest {
     fun typedErrors() {
         val missing = assertFailsWith<DictException> { runBlocking { DictionaryFactory.open("/nonexistent/dir", DictMode.MANDARIN) } }
         assertTrue(missing.error is DictError.DatasetUnavailable)
-        val wrong = Fixture(schemaVersion = 2).apply { entry("你", "你", "ni3", "you") }.build()
+        val wrong = Fixture(schemaVersion = 3).apply { entry("你", "你", "ni3", "you") }.build()
         val mismatch = assertFailsWith<DictException> { runBlocking { DictionaryFactory.open(wrong.absolutePath, DictMode.MANDARIN) } }
-        assertEquals(2, (mismatch.error as DictError.SchemaMismatch).found)
+        assertEquals(3, (mismatch.error as DictError.SchemaMismatch).found)
         with { dict ->
             assertNull(dict.idForKey("0000000000000000"))
             val r = dictResult { dict.entryDetailByKey("0000000000000000", s) }

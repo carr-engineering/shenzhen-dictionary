@@ -5,9 +5,11 @@ import java.io.File
 import java.text.Normalizer
 import java.util.zip.Inflater
 
-internal actual fun inflateRaw(bytes: ByteArray): ByteArray {
+internal actual fun inflateRaw(bytes: ByteArray, dictionary: ByteArray?): ByteArray {
     val inflater = Inflater(true)
     try {
+        // A raw stream takes its preset dictionary up front (zlib inflateSetDictionary).
+        if (dictionary != null && dictionary.isNotEmpty()) inflater.setDictionary(dictionary)
         inflater.setInput(bytes)
         val out = ByteArrayOutputStream(maxOf(64, bytes.size * 4))
         val buf = ByteArray(4096)

@@ -51,10 +51,31 @@ internal object Codec {
         return out.copyOf(n)
     }
 
-    fun body(blob: ByteArray): Body = try {
-        if (blob.isEmpty()) Body() else json.decodeFromString(Body.serializer(), inflateRaw(blob).decodeToString())
+    fun body(blob: ByteArray, dictionary: ByteArray? = null): Body = try {
+        if (blob.isEmpty()) Body() else json.decodeFromString(Body.serializer(), inflateRaw(blob, dictionary).decodeToString())
     } catch (e: Exception) {
         Body()
+    }
+
+    private const val HEX = "0123456789abcdef"
+
+    fun hex(bytes: ByteArray): String {
+        val sb = StringBuilder(bytes.size * 2)
+        for (b in bytes) sb.append(HEX[(b.toInt() shr 4) and 15]).append(HEX[b.toInt() and 15])
+        return sb.toString()
+    }
+
+    /** Bytes of a lowercase / uppercase hex string, or null when it is not one. */
+    fun unhex(s: String): ByteArray? {
+        if (s.length % 2 != 0) return null
+        val out = ByteArray(s.length / 2)
+        for (i in out.indices) {
+            val hi = s[2 * i].digitToIntOrNull(16) ?: -1
+            val lo = s[2 * i + 1].digitToIntOrNull(16) ?: -1
+            if (hi < 0 || lo < 0) return null
+            out[i] = ((hi shl 4) or lo).toByte()
+        }
+        return out
     }
 
     fun jsonArray(values: Collection<String>): String {
@@ -156,6 +177,7 @@ internal const val FLAG_SEGMENTABLE = 2
 internal const val FLAG_UNIHAN = 4
 internal const val FLAG_CANTO = 8
 internal const val UNRANKED = 1_000_000
+internal const val NO_ULP = Int.MIN_VALUE
 
 /** Ranking projection (DATA-078, ARCH-031): no definitions, no body. */
 internal class Proj(
@@ -165,6 +187,8 @@ internal class Proj(
     val charCount: Int,
     val mergeSimp: Int,
     val mergeTrad: Int,
+    /** Unigram log-probability × 100 of the entry's word (`entry.ulp`, schema version 2), or [NO_ULP]. */
+    val ulp: Int = NO_ULP,
 ) {
     val isProper get() = flags and FLAG_PROPER != 0
     val isUnihan get() = flags and FLAG_UNIHAN != 0
@@ -194,11 +218,12 @@ internal class EntryRow(
     val hskJson: String,
     val hskViaJson: String,
     val audioKey: String?,
-    val gloss: String,
     private val bodyBlob: ByteArray,
+    private val bodyDict: ByteArray? = null,
+    val ulp: Int = NO_ULP,
 ) {
-    val body: Body by lazy { Codec.body(bodyBlob) }
-    val proj: Proj get() = Proj(id, flags, freqRank, charCount, mergeSimp, mergeTrad)
+    val body: Body by lazy { Codec.body(bodyBlob, bodyDict) }
+    val proj: Proj get() = Proj(id, flags, freqRank, charCount, mergeSimp, mergeTrad, ulp)
     val isProper get() = flags and FLAG_PROPER != 0
     val isUnihan get() = flags and FLAG_UNIHAN != 0
     val hasCanto get() = flags and FLAG_CANTO != 0

@@ -1,4 +1,4 @@
-# Dataset physical contract (schema_version 1)
+# Dataset physical contract (schema_version 2)
 
 Binding boundary between `pipeline/` (writer) and `app/core` (reader). The logical model is
 `docs/07-data.md` §2–§8, §12, §15; this file fixes the physical encoding (`DATA-140`… is `[REC]`,
@@ -27,8 +27,9 @@ All tables with a natural primary key are `WITHOUT ROWID`.
 - **id list (delta)**: ascending ids, first as varint, then each delta as varint.
 - **id list (plain)**: varints in the stored order (used where order is meaningful, not ascending).
 - **JSON**: UTF-8, compact, keys exactly as below; absent optional key == null/empty.
-- **zjson**: raw DEFLATE (zlib *without* header, wbits −15) of JSON. (Kotlin: `Inflater(true)` on
-  JVM/Android.)
+- **zjson**: raw DEFLATE (zlib *without* header, wbits −15) of JSON, compressed against the dataset's
+  **preset dictionary** when the file has a `body_dict` row (Kotlin: `Inflater(true)` +
+  `setDictionary` on JVM/Android; Python: `zlib.decompressobj(-15, zdict)`).
 - Matching keys use `SRCH-010` normalisation (NFKC + apostrophe/middle-dot folding), `DATA-071`.
 
 ## Main dataset tables
@@ -41,30 +42,37 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID;
 CREATE TABLE entry(
   id INTEGER PRIMARY KEY,
   trad TEXT NOT NULL, simp TEXT NOT NULL,
-  reading_display TEXT NOT NULL,      -- '' when reading_source = none
+  reading_display TEXT,               -- NULL = reading_canonical rendered for the dataset: Jyutping
+                                      -- verbatim; Pinyin with tone marks per syllable (GLB-015), a
+                                      -- comma attached (note 21). Stored where that differs: capitalised
+                                      -- readings, tokens outside the inventory.
   reading_canonical TEXT NOT NULL,    -- 'ni3 hao3'
   reading_source INTEGER NOT NULL,    -- 0 cedict 1 cccanto 2 cccedict_canto 3 hsk_patch 4 unihan 5 none
-  syllables TEXT NOT NULL,            -- toneless, space-joined: 'ni hao'
-  tones BLOB NOT NULL,                -- one byte per syllable, 0 = unspecified
+  syllables TEXT,                     -- toneless, space-joined: 'ni hao'. NULL (with tones) = derived from
+  tones BLOB,                         -- reading_canonical: split at spaces, a token's trailing digit is its
+                                      -- tone (0 without one), the rest lowercased ('u:' -> 'ü') its syllable.
+                                      -- Stored only where that differs (tokens outside the inventory).
   flags INTEGER NOT NULL,             -- bit0 proper noun, bit1 segmentable, bit2 unihan-only,
                                       -- bit3 has CC-Canto (cantonese/cantonese_adapted) block,
                                       -- bits 4-7 primary-reading rank (note 18)
   freq_rank INTEGER NOT NULL,         -- 1 = most common, 1000000 = unranked
   char_count INTEGER NOT NULL,        -- code points of simp
-  natural_key TEXT NOT NULL,          -- 16 lowercase hex chars: first 8 bytes of
+  natural_key BLOB NOT NULL,          -- 8 bytes: the first 8 bytes of
                                       -- sha256(trad + ' ' + simp + ' ' + R), R = reading_canonical with the
-                                      -- source capitalisation kept ('Wang2' vs 'wang2'; see Clarifications)
+                                      -- source capitalisation kept ('Wang2' vs 'wang2'; see Clarifications).
+                                      -- The app's key string is its 16 lowercase hex characters.
   merge_simp INTEGER, merge_trad INTEGER,
   hsk TEXT NOT NULL,                  -- JSON [{"l":1,"pos":["动"],"x":0|1}] main levels (x=0) then
-                                      -- extra bracketed levels (x=1), ascending; '[]' when none
-  hsk_via TEXT NOT NULL,              -- same shape, levels via variant (DATA-193); '[]'
+                                      -- extra bracketed levels (x=1), ascending; '' when none
+  hsk_via TEXT NOT NULL,              -- same shape, levels via variant (DATA-193); '' when none
   audio_key TEXT,                     -- canonical word audio key or NULL (MED-005)
-  gloss TEXT NOT NULL,                -- card summary: the entry's display senses joined with '; '
-                                      -- (redirects: header text + target senses), max ~240 chars
+  ulp INTEGER NOT NULL,               -- unigram log-probability of the entry's word x 100 (natural log,
+                                      -- note 5); -6000 for a non-segmentable entry
   body BLOB NOT NULL                  -- zjson, see below
 );
-CREATE INDEX entry_freq ON entry(freq_rank, id);
 CREATE UNIQUE INDEX entry_natural ON entry(natural_key);
+CREATE TABLE body_dict(id INTEGER PRIMARY KEY, dict BLOB NOT NULL);  -- one row (id 1): the preset DEFLATE
+                                      -- dictionary of every entry.body; no row = plain DEFLATE
 
 CREATE TABLE headword(key TEXT, entry_id INTEGER, kind INTEGER,   -- kind: 0 exact (simp/trad),
   PRIMARY KEY(key, entry_id, kind)) WITHOUT ROWID;                -- 1 folded, 2 lowercased, 3 radical_form
@@ -84,8 +92,6 @@ CREATE TABLE en_token(token TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID;
 CREATE TABLE merge_group(id INTEGER PRIMARY KEY, script INTEGER,  -- 0 simplified, 1 traditional
   members BLOB,                                                   -- id list (plain), primary first
   variants TEXT);                                                 -- JSON array of alternate-script forms
-CREATE TABLE within(entry_id INTEGER PRIMARY KEY, rows BLOB);     -- repeated varint (start, length, entry_id), DATA-101 order
-CREATE TABLE word_freq(key TEXT PRIMARY KEY, freq INTEGER, log_prob REAL) WITHOUT ROWID;
 
 CREATE TABLE hsk_row(row_id INTEGER PRIMARY KEY, ord INTEGER, level INTEGER, simp TEXT, trad TEXT,
   homograph INTEGER, pos TEXT,        -- JSON ["动","名"]
@@ -217,18 +223,17 @@ change it. The app reads what is described here.
    Strokes code point whose equivalent unified ideograph is the headword). A normalised query is
    looked up with `key = ?` over all kinds. Kind-3 keys are *not* `SRCH-010`-normal (step 6 would
    delete them): look a single radical code point up before normalising.
-5. **`word_freq`** holds every segmentable headword form of at most `max_word_len` code points, in
-   both scripts — not only the forms of the source frequency list — so one batched lookup answers
-   "is a word" and "log-probability" (`DATA-112`). `freq` is the count in the frequency list
-   (0 = not listed). `log_prob` is the **language model's unigram of the entry's word** (natural
-   log, the unquantised value behind `lm_entry.lm_unigram`): for Mandarin the blend of the libime
-   unigram and the frequency list, for Cantonese the frequency table. A word no corpus observed gets
-   the smoothed value — a flat one below every observed word for multi-character words, a lower one
-   for a single character, the lowest for a Unihan-only character (integer-valued). The app's
-   unigram DAG (`TXT-012`, used when the language-model file is absent) and its bigram lattice
-   therefore score on one scale. The Mandarin frequency list repeats a word's count under its
-   traditional forms; such a copy is not evidence for another entry whose *simplified* form it is
-   (龢 / 龢, 妳 / 妳) and is dropped before ranking.
+5. **Word probability** (`DATA-110`…`DATA-113`): there is no `word_freq` table. A headword form is a
+   word when the headword index has a segmentable entry for it, and its log-probability is
+   `max(entry.ulp) / 100` over those entries — returned by the same batched headword lookup. `ulp` is
+   the **language model's unigram of the entry's word** (natural log × 100, the unquantised value
+   behind `lm_entry.lm_unigram`): for Mandarin the blend of the libime unigram and the frequency
+   list, for Cantonese the frequency table. A word no corpus observed gets the smoothed value — a
+   flat one below every observed word for multi-character words, a lower one for a single
+   character, the lowest for a Unihan-only character. The app's unigram DAG (`TXT-012`, used when the
+   language-model file is absent) and its bigram lattice therefore score on one scale. The Mandarin
+   frequency list repeats a word's count under its traditional forms; such a copy is not evidence
+   for another entry whose *simplified* form it is (龢 / 龢, 妳 / 妳) and is dropped before ranking.
 6. **`entry.freq_rank`**: position of the form in the frequency list (1-based, ties broken by form);
    entries the list lacks are ranked after it by their observed LM unigram (meta `freq_rank_lm_fill`
    = 1); everything else, and every Unihan-only entry, has 1000000.
@@ -236,8 +241,9 @@ change it. The app reads what is described here.
    `sort_key` / `hsk_char.sort_key` = toneless reading + TAB + numbered reading (`ü` → `v`), compared
    bytewise. In the Cantonese dataset rows without Jyutping sort after the others of their level
    (already reflected in `ord`).
-8. **`gloss`**: for an entry without senses and without a redirect (notes only, e.g. `see X`) it is the
-   source text of the notes joined with `; `.
+8. **Card summary**: there is no `gloss` column; a card's definitions come from the body (the entry's
+   display senses; for a redirect its header text and the target's senses; for a notes-only entry the
+   text of its notes). The widget projection keeps its own `gloss` string.
 9. **LM file**: `lm_entry` has a row for every entry; Unihan-only entries carry `lm_word = -1`,
    `lm_unigram = 0`. Codebooks are ascending: code 0 is the lowest (most negative) value.
    `abbr_idx` postings carry no note ordinal; `alt` is 0 main, 1 `also_pr`, 2 `taiwan_pr`.
@@ -301,3 +307,23 @@ change it. The app reads what is described here.
 22. **Combinations** (`SRCH-063`): besides the top-5 rule, a sequence is offered only when its score is
     within 2.5 nats of the best sequence and of the best single word spelling the whole query, and
     is at least −6.5 nats per syllable.
+
+## Schema version 2 (2026-11) — what changed from version 1
+
+Size pass (`PERF-070`): `mandarin.db` 61.1 → 34.6 MB, `cantonese.db` 87.5 → 43.0 MB, same query shapes.
+
+- `entry.body` is compressed against a 32 KiB **preset dictionary** stored in `body_dict` (trained by
+  `pipeline/make_body_dict.py`, committed as `pipeline/data/body-dict-<id>.bin`). The app sets it on
+  its raw inflater; the pipeline's `enc.unzjson(blob, zdict)` is the reference.
+- `entry.gloss` is gone (cards are built from the bodies they hydrate anyway).
+- `word_freq` is gone; `entry.ulp` carries the value (note 5). `entry_freq` (an index no query used) is gone.
+- `entry.natural_key` is an 8-byte BLOB instead of 16 hex characters; `hsk` / `hsk_via` are `''` when empty.
+- `entry.reading_display`, `syllables`, `tones` are NULL where the app derives them from `reading_canonical`
+  (`Romanisation.display` / `parseCanonical`; the pipeline stores the value whenever its own rendering of
+  the canonical reading differs).
+- `within` is gone: inside-words rows are computed on demand (`DATA-102`) — for all cards of a page
+  with one batched headword lookup of their sub-spans (both scripts), ordered longest span first,
+  then start, then the canonical projection order (Unihan-only last, frequency rank, common before
+  proper, reading rank, id).
+- `meta.schema_version` / `PRAGMA user_version` = 2. The app (`DictionaryFactory.SUPPORTED_SCHEMA_VERSION`
+  = 2) still opens a version-1 file; `com.szdict.core.api` is unchanged.

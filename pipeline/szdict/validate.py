@@ -8,7 +8,7 @@ from collections import Counter
 
 from .config import Config
 from .core import RSRC, UNRANKED, content_hash, expand_body
-from .enc import read_delta_list, read_varints, unzjson
+from .enc import body_dict, derive_reading_tokens, read_delta_list, read_varints, unzjson
 from .hsk import CHAR_COUNTS, LEVEL_COUNTS, WRITING_COUNTS
 from .norm import matching_key
 from .roman import parse_pinyin
@@ -67,15 +67,23 @@ def validate_dataset(cfg: Config, ds_id: str, fixture: bool) -> Gates:
     unihan_forms, dict_forms = set(), set()
     bodies: dict[int, dict] = {}
     hsk_of: dict[int, tuple] = {}
-    for (eid, trad, simp, disp, canon, rsrc, syl, tones, flags, rank, cc, nk, hsk, via, gloss, body) in con.execute(
+    zdict = body_dict(con)
+    for (eid, trad, simp, disp, canon, rsrc, syl, tones, flags, rank, cc, nk, hsk, via, body) in con.execute(
             "SELECT id,trad,simp,reading_display,reading_canonical,reading_source,syllables,tones,flags,"
-            "freq_rank,char_count,natural_key,hsk,hsk_via,gloss,body FROM entry"):
+            "freq_rank,char_count,natural_key,hsk,hsk_via,body FROM entry"):
+        if disp is None:                                   # schema version 2 defaults
+            disp = canon if ds_id != "mandarin" else parse_pinyin(canon)[0]
+            g.check("10_reading_round_trip", ds_id != "mandarin" or parse_pinyin(canon)[5], f"{eid}: NULL display of {canon!r}")
+        if syl is None or tones is None:
+            d_syl, d_tones = derive_reading_tokens(canon)
+            syl, tones = " ".join(d_syl), bytes(d_tones)
+        g.check("03_entries", isinstance(nk, bytes) and len(nk) == 8, f"{eid}: natural key is not 8 bytes")
         g.check("03_entries", bool(trad) and bool(simp), f"{eid}: empty form")
         syls = syl.split(" ") if syl else []
         g.check("03_entries", len(syls) == len(tones), f"{eid}: syllables/tones length")
         g.check("03_entries", cc == len(simp), f"{eid}: char_count")
         max_len = max(max_len, len(simp))
-        b = expand_body(unzjson(body), disp, canon)
+        b = expand_body(unzjson(body, zdict), disp, canon)
         bodies[eid] = b
         pos = 0
         for blk in b["blocks"]:
@@ -119,7 +127,7 @@ def validate_dataset(cfg: Config, ds_id: str, fixture: bool) -> Gates:
         else:
             dict_forms.update((trad, simp))
             g.check("19_unihan", all(blk["kind"] != "unihan" for blk in b["blocks"]), f"{eid}: unihan block on dictionary entry")
-        h, v = json.loads(hsk), json.loads(via)
+        h, v = json.loads(hsk or "[]"), json.loads(via or "[]")
         hsk_of[eid] = (h, v)
         g.check("08_hsk", not (h and v), f"{eid}: both hsk and hsk_via")
     g.check("19_unihan", not (unihan_forms & dict_forms), f"shared headwords: {sorted(unihan_forms & dict_forms)[:5]}")
@@ -147,14 +155,11 @@ def validate_dataset(cfg: Config, ds_id: str, fixture: bool) -> Gates:
             g.check("04_postings", b is not None and sense < len(b["senses"]), f"en_token {tok}: ({eid},{sense})")
         g.check("15_normalisation", tok == matching_key(tok), f"en token {tok!r}")
 
-    # 5/6 merge groups, within
+    # 5/6 merge groups (inside-words rows are computed by the app: no `within` table in schema version 2)
     for gid, script, members, variants in con.execute("SELECT id, script, members, variants FROM merge_group"):
         m = read_varints(members)
         g.check("05_references", all(i in ids for i in m), f"merge group {gid}")
         g.check("06_merge_groups", len(m) >= 2 and len(set(json.loads(variants))) >= 1, f"merge group {gid}")
-    for eid, rows in con.execute("SELECT entry_id, rows FROM within"):
-        vals = read_varints(rows)
-        g.check("05_references", eid in ids and all(vals[i + 2] in ids for i in range(0, len(vals), 3)), f"within {eid}")
 
     # 7 lengths
     g.check("07_lengths", int(meta["max_headword_len"]) == max_len, f"max_headword_len {meta['max_headword_len']} != {max_len}")
@@ -256,7 +261,7 @@ def validate_dataset(cfg: Config, ds_id: str, fixture: bool) -> Gates:
 
     # 18 Cantonese
     if ds_id == "cantonese":
-        g.check("18_cantonese", con.execute("SELECT count(*) FROM word_freq WHERE freq > 0").fetchone()[0] > 0, "empty frequency table")
+        g.check("18_cantonese", con.execute("SELECT count(*) FROM entry WHERE freq_rank < 1000000").fetchone()[0] > 0, "no ranked entry")
         bad = con.execute("SELECT count(*) FROM entry WHERE (flags & 2) AND trad IN ('佢嘅','我嘅','你嘅','我哋嘅','你哋嘅','佢哋嘅')").fetchone()[0]
         g.check("18_cantonese", bad == 0, "segmentable pronoun+嘅 headword")
     con.close()

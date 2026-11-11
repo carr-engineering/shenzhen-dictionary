@@ -91,6 +91,8 @@ def finish_dataset(ds: Dataset, lm, cfg: Config, report: dict) -> None:
     out = cfg.out
     out.mkdir(parents=True, exist_ok=True)
     attach_packs(ds, cfg)
+    zdict = cfg.data / f"body-dict-{ds.id}.bin"
+    ds.body_dict = zdict.read_bytes() if zdict.exists() else None
     lm_path = out / f"{ds.id}-lm.db"
     lmmod.write_lm(ds, lm, lm_path)
     ds.meta.update({
