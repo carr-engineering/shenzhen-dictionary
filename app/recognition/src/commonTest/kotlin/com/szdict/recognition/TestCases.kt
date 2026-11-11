@@ -17,6 +17,13 @@ object OcrCases {
         OcrCase("pipeline-vertical.png", "你好世界\n中国文化"),
         OcrCase("pipeline-inverted.png", "你好世界"),
         OcrCase("pipeline-blank.png", ""),
+        // A sideways photograph: found by the turned detector pass and read as an ordinary line.
+        OcrCase("pipeline-rotated-90.png", "你好世界"),
+        OcrCase("vertical-tight.png", "春眠不覺曉處處聞啼鳥\n夜來風雨聲花落知多少\n白日依山盡黃河入海流\n欲窮千里目更上一層樓") { text ->
+            // Dense traditional characters at 36 px: allow a few look-alike confusions (雨/兩, 千/于).
+            val expected = "春眠不覺曉處處聞啼鳥\n夜來風雨聲花落知多少\n白日依山盡黃河入海流\n欲窮千里目更上一層樓"
+            text.length == expected.length && text.indices.count { text[it] != expected[it] } <= 4
+        },
         OcrCase("similar.png", "我已经吃过了\n未来的土地很大") { text ->
             // 已/己 and 未/末 are genuinely ambiguous to the recogniser; the right reading must be the
             // top-1 or among the alternatives, which the alternatives tests check per character.

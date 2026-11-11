@@ -31,7 +31,7 @@ class HostPipelineTest {
         try {
             val pipeline = OcrPipeline(nets, HostNets.labels("ocr/hani-labels.txt"), HostNets.labels("ocr/latn-labels.txt"), trace = if (System.getProperty("recognition.hostOut") != null) ::println else null)
             var confSum = 0.0; var confN = 0
-            val dir = File(System.getProperty("recognition.testImages") ?: File(HostNets.modelDir, "../../../androidInstrumentedTest/assets/testdata").path)
+            val dir = TestData.testdata
             val outDir = System.getProperty("recognition.hostOut")?.let { File(it).apply { mkdirs() } }
             val failures = ArrayList<String>()
             for (case in OcrCases.all) {
@@ -56,6 +56,33 @@ class HostPipelineTest {
             }
             println("MEANCONF ${confSum / confN} chars=$confN failures=${failures.size}")
             assertEquals(emptyList(), failures)
+        } finally {
+            nets.close()
+        }
+    }
+
+    /** Exploration aid: recognises every image in `RECOGNITION_TEST_IMAGES` and prints the result. */
+    @Test
+    fun ocrOnExtraImages() {
+        val dir = System.getProperty("recognition.testImages")?.let { File(it) }
+        assumeTrue("no extra image directory configured", dir != null && dir.isDirectory)
+        val nets = HostNets.startOrNull()
+        assumeTrue("no host Python configured", nets != null)
+        nets!!
+        try {
+            val pipeline = OcrPipeline(nets, HostNets.labels("ocr/hani-labels.txt"), HostNets.labels("ocr/latn-labels.txt"), trace = if (System.getenv("RECOGNITION_TRACE") != null) ::println else null)
+            val outDir = System.getProperty("recognition.hostOut")?.let { File(it).apply { mkdirs() } }
+            for (file in dir!!.listFiles { f -> f.extension in setOf("png", "jpg", "jpeg") }!!.sortedBy { it.name }) {
+                val img = image(file)
+                val start = System.nanoTime()
+                val result = pipeline.recognize(img)
+                println("== ${file.name} (${img.width}x${img.height}) ${"%.0f".format((System.nanoTime() - start) / 1e6)} ms")
+                for (line in result.lines) {
+                    val weak = line.chars.filter { it.confidence < .5f }.joinToString(" ") { c -> c.alternatives.take(4).joinToString("/") { it.text } }
+                    println("   ${line.text}${if (line.vertical) "  [vertical]" else ""}    ${if (weak.isEmpty()) "" else "weak: $weak"}")
+                }
+                if (outDir != null) overlay(file, result, File(outDir, file.nameWithoutExtension + "-overlay.png"))
+            }
         } finally {
             nets.close()
         }

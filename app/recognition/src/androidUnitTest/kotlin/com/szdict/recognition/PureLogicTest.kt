@@ -88,6 +88,34 @@ class PureLogicTest {
     }
 
     @Test
+    fun quarterTurnMapsPixelsClockwise() {
+        val src = Gray(3, 2)
+        for (i in src.px.indices) src.px[i] = i.toByte()
+        val turned = src.rotate90()
+        assertEquals(2, turned.w)
+        assertEquals(3, turned.h)
+        // Turned (x', y') is the source's (y', h - 1 - x').
+        for (y in 0 until 3) for (x in 0 until 2) assertEquals(src[y, 1 - x], turned[x, y])
+    }
+
+    @Test
+    fun columnSlicerKeepsSplitGlyphsWholeAndDividesTouchingOnes() {
+        // A 10-px-wide column: a full glyph, a glyph of two bars (二), a flat glyph (一), and two
+        // glyphs touching each other.
+        val w = 10
+        val h = 80
+        val mask = ByteArray(w * h)
+        fun fill(from: Int, to: Int) { for (y in from until to) for (x in 0 until w) mask[y * w + x] = 1 }
+        fill(0, 9)      // glyph 1
+        fill(14, 16)    // 二 upper bar
+        fill(20, 22)    // 二 lower bar
+        fill(31, 33)    // 一
+        fill(42, 62)    // two touching glyphs
+        val cells = com.szdict.recognition.ocr.ColumnSlicer.slice(mask, w, 0, 0, w, h).map { it[0] to it[1] }
+        assertEquals(listOf(0 to 9, 14 to 22, 31 to 33, 42 to 52, 52 to 62), cells)
+    }
+
+    @Test
     fun rotatedCropOfAnUprightRegionIsTheIdentity() {
         val src = Gray(10, 6)
         for (i in src.px.indices) src.px[i] = (i * 3).toByte()

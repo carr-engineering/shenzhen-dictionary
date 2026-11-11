@@ -89,8 +89,12 @@ internal object Geometry {
         return result
     }
 
-    /** Joins proposals lying on one baseline into line rectangles and drops contained duplicates. */
-    fun mergeProposals(proposals: List<Region>): List<Region> {
+    /**
+     * Joins proposals lying on one baseline into line rectangles and drops contained duplicates.
+     * Proposals scoring below [strong] only extend or bridge lines (hysteresis): a group is kept
+     * when at least one of its members is a strong detection.
+     */
+    fun mergeProposals(proposals: List<Region>, strong: Double = 0.0): List<Region> {
         val list = proposals.filter { it.w > 2 && it.h > 3 && it.angle.isFinite() }
         val parent = IntArray(list.size) { it }
         fun find(start: Int): Int {
@@ -116,7 +120,7 @@ internal object Geometry {
         }
         val groups = LinkedHashMap<Int, MutableList<Region>>()
         for (i in list.indices) groups.getOrPut(find(i)) { ArrayList() }.add(list[i])
-        val merged = groups.values.map { items ->
+        val merged = groups.values.filter { items -> items.any { it.score >= strong } }.map { items ->
             val mass = items.sumOf { it.score }
             val cx = items.sumOf { it.cx * it.score } / mass
             val cy = items.sumOf { it.cy * it.score } / mass
@@ -149,17 +153,19 @@ internal object Geometry {
             val v = (top + bottom) / 2
             Region(cx + u * c - v * s, cy + u * s + v * c, hi - lo, bottom - top, angle, mass / items.size, items.size)
         }.sortedByDescending { it.score }
+        // Of two regions covering the same place the smaller one goes. (The reference lets the
+        // higher-scored one win, which deletes a whole line when a full stop inside it scores higher.)
         val kept = ArrayList<Region>()
-        val keptBounds = ArrayList<Box>()
         merged.forEachIndexed { i, r ->
             val rb = bounds(r)
-            // The reference compares against every higher-scored region, kept or not.
             var dominated = false
-            for (j in 0 until i) {
+            for (j in merged.indices) {
+                if (j == i) continue
                 val p = merged[j]
-                if (abs(p.angle - r.angle) < .2 && overlap(bounds(p), rb) > .75) { dominated = true; break }
+                val larger = p.w * p.h > r.w * r.h || (p.w * p.h == r.w * r.h && j < i)
+                if (larger && abs(p.angle - r.angle) < .2 && overlap(bounds(p), rb) > .75) { dominated = true; break }
             }
-            if (!dominated) { kept.add(r); keptBounds.add(rb) }
+            if (!dominated) kept.add(r)
         }
         return kept
     }
@@ -187,6 +193,43 @@ internal object Geometry {
                     val shift = (lo + hi) / 2
                     out[out.indexOf(p)] = p.copy(cx = p.cx + shift * c, cy = p.cy + shift * s, w = hi - lo)
                     out.remove(r)
+                    changed = true
+                    break@search
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * Joins regions that continue each other on one baseline (overlapping or nearly touching along
+     * it), as happens once regions have been stretched over ink the detector missed.
+     */
+    fun joinCollinear(regions: List<Region>): List<Region> {
+        val out = regions.toMutableList()
+        var changed = true
+        while (changed) {
+            changed = false
+            search@ for (i in out.indices) {
+                val p = out[i]
+                if (p.vertical) continue
+                for (j in out.indices) {
+                    val r = out[j]
+                    if (j == i || r.vertical || abs(p.angle - r.angle) > .12 || r.w * r.h > p.w * p.h) continue
+                    val c = cos(p.angle)
+                    val s = sin(p.angle)
+                    val du = (r.cx - p.cx) * c + (r.cy - p.cy) * s
+                    val dv = -(r.cx - p.cx) * s + (r.cy - p.cy) * c
+                    val gap = abs(du) - (p.w + r.w) / 2
+                    if (abs(dv) > min(p.h, r.h) * .3 || gap > min(p.h, r.h) * .3 || max(p.h, r.h) > min(p.h, r.h) * 1.8) continue
+                    val lo = min(-p.w / 2, du - r.w / 2)
+                    val hi = max(p.w / 2, du + r.w / 2)
+                    val top = min(-p.h / 2, dv - r.h / 2)
+                    val bottom = max(p.h / 2, dv + r.h / 2)
+                    val u = (lo + hi) / 2
+                    val v = (top + bottom) / 2
+                    out[i] = p.copy(cx = p.cx + u * c - v * s, cy = p.cy + u * s + v * c, w = hi - lo, h = bottom - top, score = max(p.score, r.score), proposals = p.proposals + r.proposals)
+                    out.removeAt(j)
                     changed = true
                     break@search
                 }

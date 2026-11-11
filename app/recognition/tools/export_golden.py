@@ -40,6 +40,20 @@ draw.text((30, 25), "我已经吃过了", font=font, fill="#202523")
 draw.text((30, 100), "未来的土地很大", font=font, fill="#202523")
 similar.save(data / "similar.png", optimize=True)
 
+# The reference's sideways test image (it needed a manual rotation there).
+Image.open(src / "web-ocr/tests/pipeline-rotated-90.png").save(data / "pipeline-rotated-90.png", optimize=True)
+
+# Tightly set vertical columns, as in a traditionally typeset book: read right to left.
+light = ImageFont.truetype("/System/Library/Fonts/STHeiti Light.ttc", 36)
+columns = ["春眠不覺曉處處聞啼鳥", "夜來風雨聲花落知多少", "白日依山盡黃河入海流", "欲窮千里目更上一層樓"]
+tight = Image.new("RGB", (64 * len(columns) + 60, 10 * 38 + 60), "white")
+draw = ImageDraw.Draw(tight)
+for ci, column in enumerate(columns):
+    x = tight.width - 30 - (ci + 1) * 64 + 14
+    for ri, ch in enumerate(column):
+        draw.text((x, 30 + ri * 38), ch, font=light, fill="black")
+tight.save(data / "vertical-tight.png", optimize=True)
+
 # ---- ink: reference drawings, reference features and reference candidates --------------------
 sys.path.insert(0, str(src / "native-ink"))
 from features import encode  # noqa: E402

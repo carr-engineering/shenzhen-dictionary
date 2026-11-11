@@ -129,6 +129,13 @@ internal class Gray(val w: Int, val h: Int, val px: ByteArray = ByteArray(w * h)
         return (top * (1 - fy) + bottom * fy).roundToInt().coerceIn(0, 255)
     }
 
+    /** Quarter turn clockwise: result pixel (x', y') is this raster's (y', h - 1 - x'). */
+    fun rotate90(): Gray {
+        val out = Gray(h, w)
+        for (y in 0 until h) for (x in 0 until w) out.px[x * h + (h - 1 - y)] = px[y * w + x]
+        return out
+    }
+
     fun rotate180(): Gray {
         val out = Gray(w, h)
         val n = px.size

@@ -7,6 +7,7 @@ import com.szdict.recognition.OcrLine
 import com.szdict.recognition.OcrResult
 import com.szdict.recognition.Point
 import com.szdict.recognition.Quad
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -54,6 +55,8 @@ internal class OcrOptions(
     val maxLines: Int = 200,
     /** Height the ink is scaled to inside the 24-px recogniser input. */
     val inkHeight: Int = 20,
+    /** Longest side of the quick detector pass that checks for text along the other axis. */
+    val turnedProbeSide: Int = 640,
 )
 
 /**
@@ -88,8 +91,8 @@ internal class OcrPipeline(
         val source: Crop? = null,
     )
 
-    /** One glyph of a vertical column: rows `[a, b)` of the column crop, at strip x `[offset, offset + width)`. */
-    private class Cell(val a: Int, val b: Int, val offset: Int, val width: Int)
+    /** One glyph of a vertical column: rows `[a, b)` of the column crop, drawn `width x height` at strip x `offset`. */
+    private class Cell(val a: Int, val b: Int, val offset: Int, val width: Int, val height: Int)
 
     private class Line(
         var quad: Array<DoubleArray>,
@@ -99,7 +102,10 @@ internal class OcrPipeline(
         val angle: Double,
     ) {
         val text: String get() = chars.joinToString("") { it.text }
+        val confidence: Double get() = chars.sumOf { it.confidence.toDouble() } / max(1, chars.size)
     }
+
+    private class Detection(val regions: List<Region>, /** Proposals above the detection threshold. */ val strong: Int, /** Detector input pixels. */ val area: Int)
 
     /** @param checkpoint called between lines; throw from it to cancel. */
     fun recognize(image: OcrImage, checkpoint: () -> Unit = {}): OcrResult {
@@ -115,24 +121,10 @@ internal class OcrPipeline(
         if (page.cornerLevel() < 110) page.invert()
         checkpoint()
 
-        val regions = Geometry.verticalColumns(detect(page)).take(options.maxLines)
-        val lines = ArrayList<Line>()
-        for (region in regions) {
-            checkpoint()
-            var crop = (if (region.vertical) verticalCrop(page, region) else cropRegion(page, region)) ?: continue
-            val scores = classify(crop)
-            var script = if (scores[0] + scores[1] > scores[2] + scores[3] + scores[31]) SequenceModel.LATN else SequenceModel.HANI
-            if (region.vertical) script = SequenceModel.HANI
-            val upsideDown = !region.vertical && scores[38] + scores[39] > max(.5f, scores[36] + scores[37])
-            if (upsideDown) crop = flip(crop)
-            val line = read(script, crop, page)
-            trace?.invoke(
-                "region cx=${region.cx.toInt()} cy=${region.cy.toInt()} w=${region.w.toInt()} h=${region.h.toInt()} angle=${(region.angle * 100).toInt() / 100.0} " +
-                    "score=${(region.score * 100).toInt() / 100.0} n=${region.proposals} vertical=${region.vertical} script=$script flipped=$upsideDown -> ${line?.text}",
-            )
-            lines.add(line ?: continue)
-        }
-        val assembled = assembleRows(deduplicate(lines))
+        val upright = detect(page, 1280)
+        var lines = readRegions(page, Geometry.verticalColumns(upright.regions).take(options.maxLines), checkpoint)
+        lines = withTurnedText(page, upright, lines, checkpoint)
+        val assembled = assembleRows(select(lines))
         val ordered = Geometry.readingOrder(assembled, assembled.isNotEmpty() && assembled.all { it.vertical }) { it.box }
         fun scaled(q: Quad): Quad = if (backX == 1.0 && backY == 1.0) q else Quad(
             Point((q.topLeft.x * backX).toFloat(), (q.topLeft.y * backY).toFloat()),
@@ -154,10 +146,106 @@ internal class OcrPipeline(
         )
     }
 
-    private fun detect(page: Gray): List<Region> {
+    private companion object {
+        const val STRONG_PROPOSAL = 0.65
+        const val WEAK_PROPOSAL = 0.35
+    }
+
+    private fun readRegions(page: Gray, regions: List<Region>, checkpoint: () -> Unit): List<Line> {
+        val lines = ArrayList<Line>()
+        for (region in regions) {
+            checkpoint()
+            val line = readRegion(page, region)
+            trace?.invoke(
+                "region cx=${region.cx.toInt()} cy=${region.cy.toInt()} w=${region.w.toInt()} h=${region.h.toInt()} angle=${(region.angle * 100).toInt() / 100.0} " +
+                    "score=${(region.score * 100).toInt() / 100.0} n=${region.proposals} vertical=${region.vertical} -> ${line?.text}",
+            )
+            lines.add(line ?: continue)
+        }
+        return lines
+    }
+
+    /**
+     * Crops, classifies and reads one detected region. The classifier reports the script and one of
+     * four orientations of the line: upright, upside down, or vertical writing laid on its side
+     * (glyphs turned a quarter turn, either way round). The recogniser reads vertical writing in
+     * that form natively, so a column needs no glyph segmentation.
+     */
+    private fun readRegion(page: Gray, region: Region): Line? {
+        var crop = (if (region.vertical) verticalCrop(page, region) else cropRegion(page, region)) ?: return null
+        var script = SequenceModel.HANI
+        var column = false
+        if (!region.vertical) {
+            val scores = classify(crop)
+            trace?.invoke("  classes " + scores.indices.filter { scores[it] > .03f }.joinToString(" ") { "$it:${(scores[it] * 100).toInt()}" })
+            if (scores[0] + scores[1] > scores[2] + scores[3] + scores[31]) script = SequenceModel.LATN
+            // One or two glyphs are too little to judge orientation from.
+            if (crop.box[2] - crop.box[0] >= (crop.box[3] - crop.box[1]) * 1.8) {
+                if (scores[38] + scores[39] > max(.5f, scores[36] + scores[37])) crop = flip(crop)
+                column = scores[37] + scores[39] > scores[36] + scores[38]
+            }
+        }
+        return read(script, crop, page, column)
+    }
+
+    /**
+     * The detector only finds horizontal text lines. Text running along the other axis - tightly set
+     * vertical columns, or a page photographed sideways - shows up when the page is turned by 90
+     * degrees: if the turned page has clearly more detections than the upright one, its lines are
+     * read too, and where both passes claim the same area the more confident reading is kept.
+     */
+    private fun withTurnedText(page: Gray, upright: Detection, lines: List<Line>, checkpoint: () -> Unit): List<Line> {
+        val turned = page.rotate90()
+        val probe = detect(turned, options.turnedProbeSide)
+        val comparable = upright.strong * (probe.area.toDouble() / upright.area)
+        trace?.invoke("turned probe: ${probe.strong} strong proposals against $comparable upright")
+        if (probe.strong < 6 || probe.strong <= comparable * 1.1) return lines
+        checkpoint()
+        val full = if (max(page.w, page.h) <= options.turnedProbeSide) probe else detect(turned, 1280)
+        val turnedLines = ArrayList<Line>()
+        for (r in full.regions.take(options.maxLines)) {
+            if (r.w < r.h * 1.5) continue
+            checkpoint()
+            // Turned (x', y') is page (y', pageHeight - x').
+            val cx = r.cy
+            val cy = page.h - r.cx
+            var best = readRegion(page, Region(cx, cy, r.w, r.h, r.angle - PI / 2, r.score, r.proposals))
+            if (best == null || best.confidence < .5) {
+                // Fall back to cutting the column into glyph cells and reading them upright.
+                val sliced = readRegion(page, Region(cx, cy, r.h, r.w, r.angle, r.score, r.proposals, vertical = true, charHeight = r.h))
+                if (sliced != null && (best == null || sliced.confidence > best.confidence)) best = sliced
+            }
+            trace?.invoke("turned region cx=${cx.toInt()} cy=${cy.toInt()} w=${r.h.toInt()} h=${r.w.toInt()} -> ${best?.text} (${best?.vertical}, ${best?.confidence})")
+            if (best != null && best.confidence > .25) turnedLines.add(best)
+        }
+        return lines + turnedLines
+    }
+
+    /**
+     * Resolves competing readings of the same area: duplicates within one orientation first, then,
+     * between lines of different orientation or detector pass, the reading with more confident
+     * characters wins and lines mostly covered by winners are dropped.
+     */
+    private fun select(lines: List<Line>): List<Line> {
+        val ranked = deduplicate(lines).sortedByDescending { it.chars.size * it.confidence }
+        val kept = ArrayList<Line>()
+        for (candidate in ranked) {
+            val area = max(1.0, candidate.box.width * candidate.box.height)
+            var covered = 0.0
+            for (other in kept) {
+                if (other.vertical == candidate.vertical && abs(other.angle - candidate.angle) < .5) continue
+                covered += max(0.0, min(other.box.x1, candidate.box.x1) - max(other.box.x0, candidate.box.x0)) *
+                    max(0.0, min(other.box.y1, candidate.box.y1) - max(other.box.y0, candidate.box.y0))
+            }
+            if (covered / area < .3) kept.add(candidate)
+        }
+        return kept
+    }
+
+    private fun detect(page: Gray, maxSide: Int): Detection {
         val w = page.w
         val h = page.h
-        val side = min(1280, max(640, max(w, h)))
+        val side = min(maxSide, max(640, max(w, h)))
         val scale = side.toDouble() / max(w, h)
         val dw = max(32, ceil(w * scale / 32).toInt() * 32)
         val dh = max(32, ceil(h * scale / 32).toInt() * 32)
@@ -165,8 +253,50 @@ internal class OcrPipeline(
         if (small.cornerLevel() < 110) small.invert()
         val out = nets.detect(small.px, dw, dh)
         check(out.rows == dh / 16 && out.cols == dw / 16) { "Detector output dimensions do not match input" }
-        val proposals = Geometry.decodeDetector(out.data, out.rows, out.cols, out.scale.toDouble(), out.zeroPoint, w.toDouble() / dw, h.toDouble() / dh)
-        return Geometry.absorbFragments(Geometry.mergeProposals(proposals).filter { it.w > 4 && it.h > 5 && it.h < max(w, h) * 1.3 })
+        // Weak proposals bridge the glyphs the detector is unsure about (thin strokes, dense characters).
+        val proposals = Geometry.decodeDetector(out.data, out.rows, out.cols, out.scale.toDouble(), out.zeroPoint, w.toDouble() / dw, h.toDouble() / dh, WEAK_PROPOSAL)
+        val merged = Geometry.absorbFragments(Geometry.mergeProposals(proposals, STRONG_PROPOSAL).filter { it.w > 4 && it.h > 5 && it.h < max(w, h) * 1.3 })
+        val regions = Geometry.joinCollinear(merged.map { extendAlongInk(page, it) })
+        return Detection(regions, proposals.count { it.score >= STRONG_PROPOSAL }, dw * dh)
+    }
+
+    /**
+     * Stretches a line region over ink that continues it. The detector misses some glyphs outright
+     * (dense traditional characters in thin type, trailing punctuation); a text line nevertheless
+     * runs on for as long as there is ink on its baseline without a gap wider than a glyph.
+     */
+    private fun extendAlongInk(page: Gray, region: Region): Region {
+        if (region.w < region.h * 1.2) return region // single glyphs may be parts of a vertical column
+        val reach = (region.h * 8).roundToInt()
+        val w = ceil(region.w).toInt() + 2 * reach
+        val h = max(4, ceil(region.h * .8).toInt())
+        val ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
+        if (ink.box == null) return region
+        val column = BooleanArray(w) { x ->
+            var any = false
+            for (y in 0 until h) if (ink.mask[y * w + x].toInt() != 0) { any = true; break }
+            any
+        }
+        val limit = max(3, (region.h * .9).roundToInt())
+        var right = w - reach
+        var blank = 0
+        var x = right
+        while (x < w && blank <= limit) {
+            if (column[x]) { right = x + 1; blank = 0 } else blank++
+            x++
+        }
+        var left = reach
+        blank = 0
+        x = left - 1
+        while (x >= 0 && blank <= limit) {
+            if (column[x]) { left = x; blank = 0 } else blank++
+            x--
+        }
+        val growRight = (right - (w - reach)).toDouble()
+        val growLeft = (reach - left).toDouble()
+        if (growRight <= 0 && growLeft <= 0) return region
+        val shift = (growRight - growLeft) / 2
+        return region.copy(cx = region.cx + shift * cos(region.angle), cy = region.cy + shift * sin(region.angle), w = region.w + growLeft + growRight)
     }
 
     private fun cropRegion(page: Gray, detected: Region): Crop? {
@@ -202,32 +332,23 @@ internal class OcrPipeline(
         val crop = cropRegion(page, region) ?: return null
         val (x0, y0, x1, y1) = crop.box
         val ink = InkAnalysis.inkBounds(crop.gray)
-        val bands = ArrayList<IntArray>()
-        var first = -1
-        var last = -1
-        val gap = max(4.0, region.charHeight * .3)
-        for (y in y0 until y1) {
-            var count = 0
-            for (x in x0 until x1) count += ink.mask[y * crop.gray.w + x]
-            if (count >= 2) { if (first < 0) first = y; last = y }
-            if (first >= 0 && (y - last > gap || y == y1 - 1)) {
-                if (last - first > 3) bands.add(intArrayOf(first, last + 1))
-                first = -1
-            }
-        }
-        if (bands.isEmpty()) return null
         val cells = ArrayList<Cell>()
         var offset = 0
-        for ((a, b) in bands) {
-            val width = max(10, ((x1 - x0) * 20.0 / (b - a)).roundToInt())
-            cells.add(Cell(a, b, offset, width))
+        val columnWidth = x1 - x0
+        for ((a, b) in ColumnSlicer.slice(ink.mask, crop.gray.w, x0, y0, x1, y1)) {
+            // A flat glyph (一) keeps its shape: the cell is at least most of a glyph square tall.
+            val extent = max((b - a).toDouble(), columnWidth * .85)
+            val width = max(10, (columnWidth * 20.0 / extent).roundToInt())
+            cells.add(Cell(a, b, offset, width, max(1, ((b - a) * 20.0 / extent).roundToInt())))
             offset += width + 2
         }
+        if (cells.isEmpty()) return null
         val strip = Gray(offset, 24)
         strip.px.fill(255.toByte())
         for (cell in cells) {
-            val glyph = crop.gray.resample(x0.toDouble(), cell.a.toDouble(), x1.toDouble(), cell.b.toDouble(), cell.width, 20)
-            for (y in 0 until 20) glyph.px.copyInto(strip.px, (y + 2) * strip.w + cell.offset, y * cell.width, (y + 1) * cell.width)
+            val glyph = crop.gray.resample(x0.toDouble(), cell.a.toDouble(), x1.toDouble(), cell.b.toDouble(), cell.width, cell.height)
+            val top = 2 + (20 - cell.height) / 2
+            for (y in 0 until cell.height) glyph.px.copyInto(strip.px, (y + top) * strip.w + cell.offset, y * cell.width, (y + 1) * cell.width)
         }
         return Crop(strip, intArrayOf(0, 2, offset, 22), crop.region, crop.cx, crop.cy, crop.angle, cells = cells, source = crop)
     }
@@ -271,7 +392,7 @@ internal class OcrPipeline(
         return scores
     }
 
-    private fun read(model: SequenceModel, crop: Crop, page: Gray): Line? {
+    private fun read(model: SequenceModel, crop: Crop, page: Gray, column: Boolean = false): Line? {
         val labels = if (model == SequenceModel.HANI) haniLabels else latnLabels
         val strip = normalized(crop, 2048)
         val out = nets.sequence(model, strip.columns, strip.width)
@@ -292,14 +413,21 @@ internal class OcrPipeline(
                 val ub = (x0 + (spans[i][1] - 6) * (x1 - x0) / strip.inkWidth).coerceIn(x0.toDouble(), x1.toDouble())
                 cropQuad(crop, ua, y0.toDouble(), ub, y1.toDouble())
             }
-            chars.add(OcrChar(alternatives[0].text, quadOf(quad), alternatives[0].score, alternatives))
+            chars.add(OcrChar(alternatives[0].text, quadOf(if (column) upright(quad) else quad), alternatives[0].score, alternatives))
         }
         var quad = Geometry.corners(crop.region)
         if (crop.flipped) quad = arrayOf(quad[2], quad[3], quad[0], quad[1])
+        if (column) quad = upright(quad)
         val b = Geometry.bounds(crop.region)
         val box = Box(b.x0.coerceIn(0.0, page.w.toDouble()), b.y0.coerceIn(0.0, page.h.toDouble()), b.x1.coerceIn(0.0, page.w.toDouble()), b.y1.coerceIn(0.0, page.h.toDouble()))
-        return Line(quad, box, chars, crop.cells != null, crop.region.angle)
+        return Line(quad, box, chars, crop.cells != null || column, crop.region.angle)
     }
+
+    /**
+     * A column read on its side has its top at the line's left and the page's right-hand side up:
+     * the line-relative corners (TL, TR, BR, BL) are the glyphs' (TR, BR, BL, TL).
+     */
+    private fun upright(q: Array<DoubleArray>): Array<DoubleArray> = arrayOf(q[3], q[0], q[1], q[2])
 
     /** Drops leading and trailing space symbols (the reference trims the decoded text). */
     private fun trimSpaces(emissions: List<Emission>, labels: List<String>): List<Emission> {
@@ -337,13 +465,13 @@ internal class OcrPipeline(
      * of the same row, which reads as garbage).
      */
     private fun deduplicate(lines: List<Line>): List<Line> {
-        val ranked = lines.sortedByDescending { it.text.codePointCount() }
+        val ranked = lines.sortedWith(compareByDescending<Line> { it.text.codePointCount() }.thenByDescending { it.confidence })
         return ranked.filterIndexed { i, line ->
             (0 until i).none {
                 val other = ranked[it]
                 val shared = Geometry.overlap(other.box, line.box)
                 (other.text.contains(line.text) && shared > .8) ||
-                    (shared > .5 && other.vertical == line.vertical && other.text.codePointCount() > line.text.codePointCount())
+                    (shared > .5 && other.vertical == line.vertical)
             }
         }
     }
