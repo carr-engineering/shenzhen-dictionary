@@ -42,11 +42,13 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -148,6 +150,16 @@ fun App(session: AppSession) {
                             val sheetInset = maxOf(wordSheetHeight, handwritingHeight)
                             CompositionLocalProvider(LocalSheetInset provides sheetInset) {
                                 val stateHolder = rememberSaveableStateHolder()
+                                // Saved state of the detail routes, keyed per visit (GLB-051).
+                                val routeStates = rememberSaveableStateHolder()
+                                // Popping a route releases its saved state (GLB-052).
+                                val liveRoutes = session.routes.map { it.key }
+                                val knownRoutes = remember { HashSet<Long>() }
+                                SideEffect {
+                                    knownRoutes.filter { it !in liveRoutes }.forEach { routeStates.removeState("route-$it") }
+                                    knownRoutes.clear()
+                                    knownRoutes.addAll(liveRoutes)
+                                }
                                 // A covered destination is neither focusable nor read by a screen reader.
                                 val covered = if (fullScreenRoute) {
                                     Modifier.focusProperties { canFocus = false }.clearAndSetSemantics { }
@@ -166,12 +178,24 @@ fun App(session: AppSession) {
                                     }
                                     if (twoPane) {
                                         Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
-                                        Box(Modifier.weight(1f).fillMaxHeight()) {
-                                            DetailHost(session, twoPane = true, entriesOnly = true)
+                                        // ENT-019: the side pane with nothing selected.
+                                        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                strings.text("Select an entry to see its detail"),
+                                                color = palette.muted,
+                                                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                                            )
                                         }
                                     }
                                 }
-                                DetailHost(session, twoPane = twoPane, entriesOnly = false)
+                                // One host at one place in the composition, laid out over the side pane
+                                // or the whole screen: a route keeps its tab and scroll when a rotation
+                                // moves it between the two (GLB-050).
+                                val sidePane = twoPane && topRoute is DetailRoute.Entry
+                                DetailHost(
+                                    session, routeStates, twoPane,
+                                    Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(if (sidePane) 0.5f else 1f),
+                                )
                             }
                             StatusBarScrim(Modifier.align(Alignment.TopCenter))
                             session.wordSheet?.let { request ->
@@ -203,21 +227,14 @@ fun App(session: AppSession) {
 }
 
 /**
- * Hosts the detail stack. In single-pane it covers the screen with the top route; in two-pane the
- * entry routes live in the side pane ([entriesOnly]) and Settings-family routes stay full screen.
+ * Hosts the detail stack: the top route, over the whole screen in single-pane and for the
+ * Settings-family routes, over the side pane for entries in two-pane (the caller sizes it).
  */
 @Composable
-private fun DetailHost(session: AppSession, twoPane: Boolean, entriesOnly: Boolean) {
+private fun DetailHost(session: AppSession, stateHolder: SaveableStateHolder, twoPane: Boolean, modifier: Modifier = Modifier) {
     val palette = LocalDictionaryPalette.current
-    val strings = appStrings()
-    val top = session.routes.lastOrNull()
-    val shown: DetailRoute? = when {
-        entriesOnly -> top as? DetailRoute.Entry
-        twoPane -> top?.takeIf { it !is DetailRoute.Entry }
-        else -> top
-    }
+    val shown: DetailRoute? = session.routes.lastOrNull()
     val depth = session.routes.size
-    val stateHolder = rememberSaveableStateHolder()
     var lastDepth by remember { mutableStateOf(depth) }
     val forward = depth >= lastDepth
     lastDepth = depth
@@ -234,15 +251,10 @@ private fun DetailHost(session: AppSession, twoPane: Boolean, entriesOnly: Boole
                     (slideOutHorizontally(tween(220)) { it } + fadeOut(tween(220), targetAlpha = 0.72f))
             }
         },
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier,
     ) { route ->
         when (route) {
-            null -> if (entriesOnly) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(strings.text("Select an entry to see its detail"), color = palette.muted,
-                        style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                }
-            }
+            null -> Unit
             else -> stateHolder.SaveableStateProvider("route-${route.key}") {
                 // The route is opaque to touches too: nothing reaches the screen it covers.
                 Box(Modifier.fillMaxSize().background(palette.bg).pointerInput(Unit) { }) {
