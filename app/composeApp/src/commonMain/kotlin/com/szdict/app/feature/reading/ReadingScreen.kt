@@ -75,9 +75,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.PlatformTextInputInterceptor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -86,11 +84,11 @@ import com.szdict.app.AppSession
 import com.szdict.app.Destination
 import com.szdict.app.feature.conversion.ScriptConversionButton
 import com.szdict.app.i18n.appStrings
+import com.szdict.app.ui.kit.InputMethodGate
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.PassageText
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.InputMethod
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 
 /** The Reading destination (TXT-050). The signature is the contract with the app shell. */
@@ -279,15 +277,8 @@ private fun ReadingField(
 ) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    // While handwriting is the current method the field keeps focus, caret and selection, but no
-    // platform text-input session starts, so the soft keyboard never shows (HW-004, HW-021). The
-    // wrapper is always present so switching methods never recreates (and unfocuses) the field.
-    val interceptor = remember(handwriting) {
-        PlatformTextInputInterceptor { request, next ->
-            if (handwriting) awaitCancellation() else next.startInputMethod(request)
-        }
-    }
-    InterceptPlatformTextInput(interceptor) {
+    // No soft keyboard while handwriting is the current method (HW-004, HW-021).
+    InputMethodGate {
             OutlinedTextField(
                 value = holder.draft,
                 onValueChange = holder::onDraftChange,

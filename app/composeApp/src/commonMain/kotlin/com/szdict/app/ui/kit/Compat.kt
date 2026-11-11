@@ -4,9 +4,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.platform.InterceptPlatformTextInput
+import androidx.compose.ui.platform.PlatformTextInputInterceptor
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
+import com.szdict.core.api.InputMethod
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.StateFlow
 
 @Composable
@@ -23,3 +30,24 @@ val LocalSheetInset = compositionLocalOf { 0.dp }
 
 @Composable
 fun sheetInset(): Dp = LocalSheetInset.current
+
+/**
+ * Wraps a text field so no platform IME session starts — and so no soft keyboard shows — while
+ * handwriting is the current input method (HW-004, HW-021). The field keeps focus, caret and
+ * selection. The method is read from the live setting when a session is requested, not from the
+ * last composition: the input-method button switches the method and focuses the field in the same
+ * frame, and a session started in between would bring the keyboard up next to the handwriting
+ * sheet. A new interceptor per method restarts a running session when the method changes.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun InputMethodGate(content: @Composable () -> Unit) {
+    val session = LocalSession.current
+    val settings by session.settings.collectAsState()
+    val interceptor = remember(session, settings.inputMethod) {
+        PlatformTextInputInterceptor { request, next ->
+            if (session.settings.value.inputMethod == InputMethod.HANDWRITING) awaitCancellation() else next.startInputMethod(request)
+        }
+    }
+    InterceptPlatformTextInput(interceptor, content)
+}

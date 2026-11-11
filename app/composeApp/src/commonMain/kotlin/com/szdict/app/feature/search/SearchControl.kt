@@ -66,8 +66,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.InterceptPlatformTextInput
-import androidx.compose.ui.platform.PlatformTextInputInterceptor
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -78,18 +76,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.szdict.app.i18n.appStrings
+import com.szdict.app.ui.kit.InputMethodGate
 import com.szdict.app.ui.theme.LocalDictionaryPalette
-import kotlinx.coroutines.awaitCancellation
 
 /** One category chip of the visible page (SRCH-090): label, count, and the list item it scrolls to. */
 internal data class CategoryChip(val label: String, val count: Int, val itemIndex: Int)
 
-/** Blocks the platform IME session, so no soft keyboard shows while handwriting is current (HW-004). */
-@OptIn(ExperimentalComposeUiApi::class)
-private val BlockSoftKeyboard = PlatformTextInputInterceptor { _, _ -> awaitCancellation() }
-
-@OptIn(ExperimentalComposeUiApi::class)
-private val PassThroughKeyboard = PlatformTextInputInterceptor { request, next -> next.startInputMethod(request) }
 
 /**
  * The floating search control (SRCH-090…093): field with paste/clear and the input-method button,
@@ -140,7 +132,7 @@ internal fun SearchControl(
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                InterceptPlatformTextInput(if (handwriting) BlockSoftKeyboard else PassThroughKeyboard) {
+                InputMethodGate {
                     TextField(
                         value = field,
                         onValueChange = onFieldChange,
