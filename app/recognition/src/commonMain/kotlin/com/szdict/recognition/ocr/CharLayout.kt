@@ -7,13 +7,12 @@ import kotlin.math.min
  * Turns recogniser emission frames into per-character x spans on the normalised line strip.
  *
  * The recogniser is a left-to-right LSTM over 4-px columns, so it emits a symbol when it has just
- * seen the glyph's right edge: measured on rendered text, the glyph ends about 3.5 px after the
- * start of its peak frame. Boundaries are placed there, snapped to a nearby ink-free column, and
- * each span is then tightened to the ink it contains.
+ * seen the glyph's right edge: measured on rendered text, the glyph's ink ends about 3.9 px (Chinese
+ * recogniser) or 2 px (Latin recogniser) after the start of its peak frame. Boundaries are placed
+ * there, snapped to a nearby ink-free column, and each span is then tightened to the ink it contains.
  */
 internal object CharLayout {
     private const val FRAME = 4
-    private const val EMISSION_OFFSET = 3.5
     private const val INK_LEVEL = 150
     private const val MAX_GLYPH = 30
 
@@ -21,9 +20,10 @@ internal object CharLayout {
      * @param columns the strip, column-major, 24 rows per column.
      * @param peakFrames peak frame of each emitted symbol, ascending.
      * @param isSpace whether each symbol is whitespace (takes the gap between its neighbours).
+     * @param emissionOffset pixels from the start of a symbol's peak frame to the end of its ink.
      * @return for each symbol `[left, right)` in strip pixels.
      */
-    fun spans(columns: ByteArray, width: Int, peakFrames: List<Int>, isSpace: List<Boolean>): Array<DoubleArray> {
+    fun spans(columns: ByteArray, width: Int, peakFrames: List<Int>, isSpace: List<Boolean>, emissionOffset: Double): Array<DoubleArray> {
         val n = peakFrames.size
         val ink = BooleanArray(width) { x ->
             var any = false
@@ -35,7 +35,7 @@ internal object CharLayout {
         if (start < 0) { start = 0; end = width }
         val right = IntArray(n)
         for (i in 0 until n) {
-            val guess = (peakFrames[i] * FRAME + EMISSION_OFFSET).toInt().coerceIn(start, end)
+            val guess = (peakFrames[i] * FRAME + emissionOffset + .5).toInt().coerceIn(start, end)
             right[i] = if (i == n - 1) end else snapToGap(ink, guess, start, end)
         }
         for (i in 1 until n) right[i] = max(right[i], right[i - 1])
@@ -66,7 +66,7 @@ internal object CharLayout {
     }
 
     private fun snapToGap(ink: BooleanArray, guess: Int, start: Int, end: Int): Int {
-        for (d in 0..5) {
+        for (d in 0..3) {
             val a = guess + d
             if (a in start until end && !ink[a]) return a
             val b = guess - d

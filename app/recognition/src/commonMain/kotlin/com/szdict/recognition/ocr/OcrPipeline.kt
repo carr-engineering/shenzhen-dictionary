@@ -21,7 +21,12 @@ internal class DetectorOutput(val data: ByteArray, val rows: Int, val cols: Int,
 /** Per-frame output of a sequence model: `frames x classes` unsigned bytes with their quantisation. */
 internal class SequenceOutput(val data: ByteArray, val frames: Int, val classes: Int, val scale: Float, val zeroPoint: Int)
 
-internal enum class SequenceModel(val assetPrefix: String) { SCRIPT("script"), HANI("hani"), LATN("latn") }
+/** @property emissionOffset see [CharLayout]. */
+internal enum class SequenceModel(val assetPrefix: String, val emissionOffset: Double) {
+    SCRIPT("script", 0.0),
+    HANI("hani", 3.9),
+    LATN("latn", 2.0),
+}
 
 /**
  * The neural graphs the pipeline needs. Implemented with LiteRT on Android; everything else in the
@@ -47,6 +52,8 @@ internal class OcrOptions(
     /** The working image is capped to this many pixels on its longer side. */
     val maxSide: Int = 1600,
     val maxLines: Int = 200,
+    /** Height the ink is scaled to inside the 24-px recogniser input. */
+    val inkHeight: Int = 20,
 )
 
 /**
@@ -59,6 +66,8 @@ internal class OcrPipeline(
     private val haniLabels: List<String>,
     private val latnLabels: List<String>,
     private val options: OcrOptions = OcrOptions(),
+    /** Optional diagnostics sink (one message per detected region). */
+    private val trace: ((String) -> Unit)? = null,
 ) {
     /** A prepared line crop, upright and contrast-normalised. */
     private class Crop(
@@ -116,8 +125,12 @@ internal class OcrPipeline(
             if (region.vertical) script = SequenceModel.HANI
             val upsideDown = !region.vertical && scores[38] + scores[39] > max(.5f, scores[36] + scores[37])
             if (upsideDown) crop = flip(crop)
-            val line = read(script, crop, page) ?: continue
-            lines.add(line)
+            val line = read(script, crop, page)
+            trace?.invoke(
+                "region cx=${region.cx.toInt()} cy=${region.cy.toInt()} w=${region.w.toInt()} h=${region.h.toInt()} angle=${(region.angle * 100).toInt() / 100.0} " +
+                    "score=${(region.score * 100).toInt() / 100.0} n=${region.proposals} vertical=${region.vertical} script=$script flipped=$upsideDown -> ${line?.text}",
+            )
+            lines.add(line ?: continue)
         }
         val assembled = assembleRows(deduplicate(lines))
         val ordered = Geometry.readingOrder(assembled, assembled.isNotEmpty() && assembled.all { it.vertical }) { it.box }
@@ -153,14 +166,23 @@ internal class OcrPipeline(
         val out = nets.detect(small.px, dw, dh)
         check(out.rows == dh / 16 && out.cols == dw / 16) { "Detector output dimensions do not match input" }
         val proposals = Geometry.decodeDetector(out.data, out.rows, out.cols, out.scale.toDouble(), out.zeroPoint, w.toDouble() / dw, h.toDouble() / dh)
-        return Geometry.mergeProposals(proposals).filter { it.w > 4 && it.h > 5 && it.h < max(w, h) * 1.3 }
+        return Geometry.absorbFragments(Geometry.mergeProposals(proposals).filter { it.w > 4 && it.h > 5 && it.h < max(w, h) * 1.3 })
     }
 
-    private fun cropRegion(page: Gray, region: Region): Crop? {
+    private fun cropRegion(page: Gray, detected: Region): Crop? {
+        var region = detected
         val w = max(1, ceil(region.w + 4).toInt())
         val h = max(1, ceil(region.h + 4).toInt())
-        val raw = page.rotatedCrop(region.cx, region.cy, region.angle, w, h)
-        val ink = InkAnalysis.inkBounds(raw)
+        var ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
+        if (ink.box == null) return null
+        if (!region.vertical && region.w > region.h * 3) {
+            // The detector's angle is coarse; a residual tilt over a long line shrinks and skews the glyphs.
+            val skew = InkAnalysis.residualSkew(ink.mask, w, h)
+            if (skew != 0.0) {
+                region = region.copy(angle = region.angle + skew)
+                ink = InkAnalysis.inkBounds(page.rotatedCrop(region.cx, region.cy, region.angle, w, h))
+            }
+        }
         val box = ink.box ?: return null
         val c = cos(region.angle)
         val s = sin(region.angle)
@@ -223,11 +245,13 @@ internal class OcrPipeline(
     private fun normalized(crop: Crop, maxWidth: Int): Strip {
         val (x0, y0, x1, y1) = crop.box
         val ih = y1 - y0
-        val inkWidth = min(maxWidth - 16, max(4, ((x1 - x0) * 20.0 / ih).roundToInt()))
+        val target = if (crop.cells != null) 20 else options.inkHeight
+        val top = (24 - target) / 2
+        val inkWidth = min(maxWidth - 16, max(4, ((x1 - x0) * target.toDouble() / ih).roundToInt()))
         val width = ceil((inkWidth + 16) / 4.0).toInt() * 4
-        val scaled = crop.gray.resample(x0.toDouble(), y0.toDouble(), x1.toDouble(), y1.toDouble(), inkWidth, 20)
+        val scaled = crop.gray.resample(x0.toDouble(), y0.toDouble(), x1.toDouble(), y1.toDouble(), inkWidth, target)
         val columns = ByteArray(width * 24) { 255.toByte() }
-        for (x in 0 until inkWidth) for (y in 0 until 20) columns[(x + 6) * 24 + y + 2] = scaled.px[y * inkWidth + x]
+        for (x in 0 until inkWidth) for (y in 0 until target) columns[(x + 6) * 24 + y + top] = scaled.px[y * inkWidth + x]
         return Strip(columns, width, inkWidth)
     }
 
@@ -251,9 +275,9 @@ internal class OcrPipeline(
         val labels = if (model == SequenceModel.HANI) haniLabels else latnLabels
         val strip = normalized(crop, 2048)
         val out = nets.sequence(model, strip.columns, strip.width)
-        val emissions = trimSpaces(CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives), labels)
+        val emissions = trimSpaces(CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives, labels.indexOf(" ")), labels)
         if (emissions.isEmpty()) return null
-        val spans = CharLayout.spans(strip.columns, strip.width, emissions.map { it.peakFrame }, emissions.map { labels[it.label].isBlank() })
+        val spans = CharLayout.spans(strip.columns, strip.width, emissions.map { it.peakFrame }, emissions.map { labels[it.label].isBlank() }, model.emissionOffset)
         val (x0, y0, x1, y1) = crop.box
         val chars = ArrayList<OcrChar>(emissions.size)
         emissions.forEachIndexed { i, e ->
@@ -307,11 +331,20 @@ internal class OcrPipeline(
         Point(q[3][0].toFloat(), q[3][1].toFloat()),
     )
 
-    /** Drops a line whose text is contained in a longer line covering the same area. */
+    /**
+     * Drops a line that duplicates a longer one: either its text is contained in a longer line
+     * covering the same area, or most of it lies inside a longer line (a partial second detection
+     * of the same row, which reads as garbage).
+     */
     private fun deduplicate(lines: List<Line>): List<Line> {
         val ranked = lines.sortedByDescending { it.text.codePointCount() }
         return ranked.filterIndexed { i, line ->
-            (0 until i).none { ranked[it].text.contains(line.text) && Geometry.overlap(ranked[it].box, line.box) > .8 }
+            (0 until i).none {
+                val other = ranked[it]
+                val shared = Geometry.overlap(other.box, line.box)
+                (other.text.contains(line.text) && shared > .8) ||
+                    (shared > .5 && other.vertical == line.vertical && other.text.codePointCount() > line.text.codePointCount())
+            }
         }
     }
 

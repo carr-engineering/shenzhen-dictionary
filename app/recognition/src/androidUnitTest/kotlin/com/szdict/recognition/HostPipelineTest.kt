@@ -29,7 +29,8 @@ class HostPipelineTest {
         assumeTrue("no host Python configured", nets != null)
         nets!!
         try {
-            val pipeline = OcrPipeline(nets, HostNets.labels("ocr/hani-labels.txt"), HostNets.labels("ocr/latn-labels.txt"))
+            val pipeline = OcrPipeline(nets, HostNets.labels("ocr/hani-labels.txt"), HostNets.labels("ocr/latn-labels.txt"), trace = if (System.getProperty("recognition.hostOut") != null) ::println else null)
+            var confSum = 0.0; var confN = 0
             val dir = File(System.getProperty("recognition.testImages") ?: File(HostNets.modelDir, "../../../androidInstrumentedTest/assets/testdata").path)
             val outDir = System.getProperty("recognition.hostOut")?.let { File(it).apply { mkdirs() } }
             val failures = ArrayList<String>()
@@ -45,6 +46,7 @@ class HostPipelineTest {
                     println("   ${line.text}${if (line.vertical) "  [vertical]" else ""}")
                     for (c in line.chars) println("      ${c.text}  " + c.alternatives.joinToString(" ") { "${it.text}:${"%.2f".format(it.score)}" })
                 }
+                for (l in result.lines) for (c in l.chars) { confSum += c.confidence; confN++ }
                 if (!case.matches(result.text)) failures.add("${case.file}: expected <${case.expected}> got <${result.text}>")
                 for (line in result.lines) {
                     assertEquals(line.text, line.chars.joinToString("") { it.text })
@@ -52,6 +54,7 @@ class HostPipelineTest {
                 }
                 if (outDir != null) overlay(file, result, File(outDir, file.nameWithoutExtension + "-overlay.png"))
             }
+            println("MEANCONF ${confSum / confN} chars=$confN failures=${failures.size}")
             assertEquals(emptyList(), failures)
         } finally {
             nets.close()

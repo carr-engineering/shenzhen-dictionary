@@ -201,6 +201,43 @@ internal object InkAnalysis {
         return Ink(if (x1 > x0) intArrayOf(x0, y0, x1, y1) else null, gray, mask, dark)
     }
 
+    /**
+     * Residual tilt of the text in an ink mask, in radians (positive = descending to the right),
+     * found by maximising the sharpness of the row projection over small shears. Returns 0 when no
+     * candidate is clearly better than leaving the crop as it is.
+     */
+    fun residualSkew(mask: ByteArray, w: Int, h: Int): Double {
+        val xs = ArrayList<Int>()
+        val ys = ArrayList<Int>()
+        // Every other ink pixel is plenty for a projection profile.
+        for (y in 0 until h) for (x in (y and 1) until w step 2) if (mask[y * w + x].toInt() != 0) { xs.add(x); ys.add(y) }
+        if (xs.size < 50) return 0.0
+        val bins = IntArray(h + 2 * SKEW_MARGIN)
+        fun sharpness(angle: Double): Double {
+            bins.fill(0)
+            val slope = kotlin.math.tan(angle)
+            for (i in xs.indices) {
+                val row = (ys[i] - (xs[i] - w / 2.0) * slope).roundToInt() + SKEW_MARGIN
+                if (row >= 0 && row < bins.size) bins[row]++
+            }
+            var sum = 0.0
+            for (b in bins) sum += b.toDouble() * b
+            return sum
+        }
+        val base = sharpness(0.0)
+        var best = 0.0
+        var bestScore = base
+        for (step in -8..8) {
+            if (step == 0) continue
+            val angle = step * .0075
+            val score = sharpness(angle)
+            if (score > bestScore) { bestScore = score; best = angle }
+        }
+        return if (bestScore > base * 1.03) best else 0.0
+    }
+
+    private const val SKEW_MARGIN = 16
+
     /** Value at quantile [q] (index `floor(n * q)` of the sorted values). */
     fun percentile(hist: IntArray, count: Int, q: Double): Int {
         val target = floor(count * q).toInt()

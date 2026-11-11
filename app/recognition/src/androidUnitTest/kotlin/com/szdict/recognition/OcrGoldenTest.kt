@@ -25,15 +25,18 @@ class OcrGoldenTest {
         LineGolden(frames, classes, f[3].toFloat(), width, f[6], f[7], bytes.copyOfRange(0, frames * classes), bytes.copyOfRange(frames * classes, bytes.size))
     }
 
-    private fun decode(line: LineGolden) = CtcDecoder.decode(line.logits, line.frames, line.classes, labels.size, line.scale, 8)
+    private fun decode(line: LineGolden) = CtcDecoder.decode(line.logits, line.frames, line.classes, labels.size, line.scale, 8, labels.indexOf(" "))
 
     @Test
     fun decoderReproducesReferenceGreedyText() {
         val golden = lines()
-        // Lines without doubled letters: identical to the reference browser decoder.
-        for (line in golden.take(2)) {
-            assertEquals(line.greedy, decode(line).joinToString("") { labels[it.label] }.trim())
-        }
+        // A line without ties or doubled letters: identical to the reference browser decoder.
+        assertEquals(golden[1].greedy, decode(golden[1]).joinToString("") { labels[it.label] }.trim())
+        assertEquals(golden[1].rendered, golden[1].greedy)
+        // 已 and 己 tie exactly at the emission frame. The reference takes the lower class index (己);
+        // the neighbouring frames break the tie towards what was printed.
+        assertEquals("我己经吃过了。", golden[0].greedy)
+        assertEquals(golden[0].rendered, decode(golden[0]).joinToString("") { labels[it.label] }.trim())
         // The reference collapses "ll" to "l"; splitting on the repeat separator recovers it.
         assertEquals("未来的土地Helo 123", golden[2].greedy)
         assertEquals("未来的土地Hello 123", decode(golden[2]).joinToString("") { labels[it.label] }.trim())
@@ -44,20 +47,21 @@ class OcrGoldenTest {
         val line = lines()[0] // rendered 我已经吃过了。
         val emissions = decode(line)
         val text = emissions.map { labels[it.label] }
-        assertEquals(listOf("我", "己", "经", "吃", "过", "了", "。"), text)
+        assertEquals(listOf("我", "已", "经", "吃", "过", "了", "。"), text)
         for (e in emissions) {
             assertEquals(e.label, e.labels[0], "top-1 is the decoded symbol")
+            assertEquals(e.scores.max(), e.scores[0], "top-1 has the best score")
             assertEquals(e.labels.size, e.labels.toSet().size, "no duplicate candidates")
             for (i in 1 until e.scores.size) assertTrue(e.scores[i] <= e.scores[i - 1], "scores are descending")
             assertTrue(e.scores.all { it in 0f..1f } && e.scores.sum() <= 1.0001f, "scores are a probability prefix")
             assertTrue(e.firstFrame <= e.peakFrame && e.peakFrame <= e.lastFrame)
             println(e.labels.indices.joinToString(" ") { "${labels[e.labels[it]]}:${"%.3f".format(e.scores[it])}" })
         }
-        // The printed character was 已; the recogniser preferred 己 but must offer 已 next.
-        val second = emissions[1]
-        val alternatives = second.labels.map { labels[it] }
-        assertTrue("已" in alternatives.take(3), "已 offered for 己: $alternatives")
-        assertTrue("巳" in alternatives, "巳 offered for 己: $alternatives")
+        // The printed character was 已: its look-alikes must follow it.
+        val alternatives = emissions[1].labels.map { labels[it] }
+        assertEquals("己", alternatives[1], "己 offered right after 已: $alternatives")
+        assertTrue("巳" in alternatives.take(4), "巳 offered for 已: $alternatives")
+        assertEquals(emissions[1].scores[0], emissions[1].scores[1], "已 and 己 tie")
         // 未 / 末 on the third line.
         val third = decode(lines()[2])
         assertTrue("末" in third[0].labels.map { labels[it] }.take(4), "末 offered for 未")
@@ -67,8 +71,9 @@ class OcrGoldenTest {
     @Test
     fun characterSpansTileTheLineInOrder() {
         for (line in lines()) {
-            val emissions = decode(line)
-            val spans = CharLayout.spans(line.columns, line.width, emissions.map { it.peakFrame }, emissions.map { labels[it.label].isBlank() })
+            // The pipeline trims the spaces the recogniser reports in the line's margins.
+            val emissions = decode(line).dropWhile { labels[it.label].isBlank() }.dropLastWhile { labels[it.label].isBlank() }
+            val spans = CharLayout.spans(line.columns, line.width, emissions.map { it.peakFrame }, emissions.map { labels[it.label].isBlank() }, 3.9)
             assertEquals(emissions.size, spans.size)
             for (i in spans.indices) {
                 assertTrue(spans[i][1] > spans[i][0], "span $i is not empty")

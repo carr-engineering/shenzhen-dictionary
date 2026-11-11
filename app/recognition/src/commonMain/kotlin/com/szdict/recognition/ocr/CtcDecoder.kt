@@ -4,7 +4,7 @@ import kotlin.math.exp
 
 /** One decoded symbol with the frames that produced it. */
 internal class Emission(
-    /** Label index of the best reading. */
+    /** Label index of the best reading (the frame-wise best symbol, except on exact score ties). */
     val label: Int,
     /** First and last frame (inclusive) of the run that emitted the symbol. */
     val firstFrame: Int,
@@ -26,7 +26,7 @@ internal class Emission(
  * The first of those (`labelCount`) is the network's repeat separator: it fires between two identical
  * consecutive symbols ("ll", "00") in place of a blank.
  * A character is a maximal run of frames with the same best symbol, split where the repeat separator
- * is strong inside the run. Its alternatives are computed
+ * is strong inside the run; a blank frame where the space symbol nearly wins counts as a space. Its alternatives are computed
  * from those run frames only: each frame's symbol distribution (softmax over symbol classes, blanks
  * excluded) is averaged with a weight equal to the frame's non-blank probability mass.
  */
@@ -38,10 +38,12 @@ internal object CtcDecoder {
         labelCount: Int,
         scale: Float,
         topK: Int,
+        spaceLabel: Int = -1,
     ): List<Emission> {
         require(logits.size >= frames * classes)
         val out = ArrayList<Emission>()
         val best = IntArray(frames)
+        val frameMax = IntArray(frames)
         for (t in 0 until frames) {
             val base = t * classes
             var b = 0
@@ -51,6 +53,10 @@ internal object CtcDecoder {
                 if (v > bv) { bv = v; b = k }
             }
             best[t] = b
+            frameMax[t] = bv
+            // Word spaces are emitted weakly and often lose narrowly to the blank. A space that has
+            // at least half the blank's probability on a blank frame is taken as a space.
+            if (b >= labelCount && spaceLabel >= 0 && (bv - (logits[base + spaceLabel].toInt() and 0xFF)) * scale < SPACE_MARGIN) best[t] = spaceLabel
         }
         // exp() of a quantised logit relative to the frame maximum only takes 256 values.
         val table = FloatArray(256) { exp(-it * scale) }
@@ -77,13 +83,13 @@ internal object CtcDecoder {
             var peakP = -1f
             for (f in t..end) {
                 val base = f * classes
-                val top = logits[base + label].toInt() and 0xFF
+                val top = frameMax[f]
                 var symbolMass = 0f
                 var blankMass = 0f
                 for (k in 0 until labelCount) symbolMass += table[top - (logits[base + k].toInt() and 0xFF)]
                 for (k in labelCount until classes) blankMass += table[top - (logits[base + k].toInt() and 0xFF)]
                 val weight = symbolMass / (symbolMass + blankMass)
-                val p = 1f / (symbolMass + blankMass)
+                val p = table[top - (logits[base + label].toInt() and 0xFF)] / (symbolMass + blankMass)
                 if (p > peakP) { peakP = p; peak = f }
                 val norm = weight / symbolMass
                 for (k in 0 until labelCount) acc[k] += table[top - (logits[base + k].toInt() and 0xFF)] * norm
@@ -107,7 +113,22 @@ internal object CtcDecoder {
                 }
             }
             for (i in 0 until filled) sc[i] = sc[i] / weightSum
-            out.add(Emission(label, t, end, peak, idx.copyOf(filled), sc.copyOf(filled)))
+            // Exact ties are common with 8-bit logits. Break them with the frames just outside the
+            // run, where the symbol is already (or still) faintly visible to the network.
+            var tied = 1
+            while (tied < filled && sc[tied] >= sc[0] * (1f - 1e-5f)) tied++
+            if (tied > 1) {
+                fun support(c: Int): Int {
+                    var v = 0
+                    if (t > 0) v += logits[(t - 1) * classes + c].toInt() and 0xFF
+                    if (end + 1 < frames) v += logits[(end + 1) * classes + c].toInt() and 0xFF
+                    return v
+                }
+                val order = (0 until tied).sortedByDescending { support(idx[it]) }
+                val tiedIdx = IntArray(tied) { idx[order[it]] }
+                for (i in 0 until tied) idx[i] = tiedIdx[i]
+            }
+            out.add(Emission(idx[0], t, end, peak, idx.copyOf(filled), sc.copyOf(filled)))
             t = next
         }
         return out
@@ -122,4 +143,5 @@ internal object CtcDecoder {
     }
 
     private const val SEPARATOR_MARGIN = 1.1f // ln 3
+    private const val SPACE_MARGIN = 0.7f // ln 2
 }

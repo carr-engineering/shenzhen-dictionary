@@ -165,6 +165,37 @@ internal object Geometry {
     }
 
     /**
+     * Folds a glyph-sized fragment into the line it continues. The detector often reports a trailing
+     * full stop or comma as its own tiny region; read alone it has no context and is misrecognised.
+     */
+    fun absorbFragments(regions: List<Region>): List<Region> {
+        val out = regions.toMutableList()
+        var changed = true
+        while (changed) {
+            changed = false
+            search@ for (r in out) {
+                for (p in out) {
+                    if (p === r || r.proposals > 2 || p.w < r.w * 3 || r.w > p.h * .8 || r.h > p.h * 1.2 || abs(p.angle - r.angle) > .2) continue
+                    val c = cos(p.angle)
+                    val s = sin(p.angle)
+                    val du = (r.cx - p.cx) * c + (r.cy - p.cy) * s
+                    val dv = -(r.cx - p.cx) * s + (r.cy - p.cy) * c
+                    val gap = abs(du) - (p.w + r.w) / 2
+                    if (abs(dv) > p.h * .35 || gap > p.h * .9 || gap < -r.w) continue
+                    val lo = min(-p.w / 2, du - r.w / 2)
+                    val hi = max(p.w / 2, du + r.w / 2)
+                    val shift = (lo + hi) / 2
+                    out[out.indexOf(p)] = p.copy(cx = p.cx + shift * c, cy = p.cy + shift * s, w = hi - lo)
+                    out.remove(r)
+                    changed = true
+                    break@search
+                }
+            }
+        }
+        return out
+    }
+
+    /**
      * Groups near-square upright regions stacked above each other into vertical columns. With
      * [explicit] false only clear columns (three or more glyph boxes, tall aspect) are converted.
      */
@@ -174,11 +205,31 @@ internal object Geometry {
         val columns = ArrayList<Region>()
         for (r in candidates) {
             if (r in used) continue
-            val group = candidates.filter { abs(it.cx - r.cx) < min(it.w, r.w) * .5 }
-            val x0 = group.minOf { it.cx - it.w / 2 }
-            val y0 = group.minOf { it.cy - it.h / 2 }
-            val x1 = group.maxOf { it.cx + it.w / 2 }
-            val y1 = group.maxOf { it.cy + it.h / 2 }
+            val group = candidates.filter { it !in used && abs(it.cx - r.cx) < min(it.w, r.w) * .5 }.toMutableList()
+            var x0 = group.minOf { it.cx - it.w / 2 }
+            var y0 = group.minOf { it.cy - it.h / 2 }
+            var x1 = group.maxOf { it.cx + it.w / 2 }
+            var y1 = group.maxOf { it.cy + it.h / 2 }
+            if (group.size >= 2) {
+                // A glyph the detector only partly covered still belongs to the column: take in any
+                // region lying mostly inside the column's x range and touching it vertically.
+                val pitch = group.map { it.h }.sorted()[group.size / 2]
+                var grew = true
+                while (grew) {
+                    grew = false
+                    for (p in regions) {
+                        if (p in used || p in group || abs(p.angle) >= .18 || p.w > (x1 - x0) * 1.3) continue
+                        val inside = min(x1, p.cx + p.w / 2) - max(x0, p.cx - p.w / 2)
+                        val gap = max(p.cy - p.h / 2 - y1, y0 - (p.cy + p.h / 2))
+                        if (inside > p.w * .6 && gap < pitch * .6) {
+                            group.add(p)
+                            y0 = min(y0, p.cy - p.h / 2)
+                            y1 = max(y1, p.cy + p.h / 2)
+                            grew = true
+                        }
+                    }
+                }
+            }
             if (!explicit && (group.size < 3 || y1 - y0 < (x1 - x0) * 2.5)) continue
             used.addAll(group)
             columns.add(
