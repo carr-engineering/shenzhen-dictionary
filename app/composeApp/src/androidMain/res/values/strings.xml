@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SZ Dict</string>
+    <string name="read_clipboard_shortcut">Read Clipboard</string>
+    <string name="read_clipboard_shortcut_long">Open clipboard reader</string>
+    <string name="open_camera_shortcut">Scan Chinese</string>
+    <string name="open_camera_shortcut_long">Camera OCR</string>
+    <string name="hsk_widget_name">HSK word of the day</string>
+    <string name="hsk_widget_description">A daily word from your selected HSK levels</string>
+    <string name="hsk_widget_loading">Loading today’s word…</string>
+</resources>

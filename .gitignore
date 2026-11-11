@@ -1,2 +1,15 @@
 .DS_Store
-refs/
+.gradle/
+build/
+local.properties
+.kotlin/
+*.iml
+.idea/
+__pycache__/
+.venv/
+# large downloaded sources and generated artefacts
+pipeline/sources/
+pipeline/out/
+app/composeApp/src/androidMain/assets/
+app/local-maven/
+*.apk

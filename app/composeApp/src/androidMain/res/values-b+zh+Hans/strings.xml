@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">深圳词典</string>
+    <string name="read_clipboard_shortcut">阅读剪贴板</string>
+    <string name="read_clipboard_shortcut_long">打开剪贴板阅读器</string>
+    <string name="open_camera_shortcut">扫描中文</string>
+    <string name="open_camera_shortcut_long">相机文字识别</string>
+    <string name="hsk_widget_name">HSK 每日一词</string>
+    <string name="hsk_widget_description">每天从所选 HSK 等级中学习一个词语</string>
+    <string name="hsk_widget_loading">正在加载今日词语…</string>
+</resources>
