@@ -1,0 +1,7 @@
+# Fetched by app/tools/fetch-voice-model.sh; never committed.
+/.cache/
+/libs/
+/src/main/jniLibs/
+/src/main/assets/voice-model/
+/src/androidTest/assets/voice-test/
+/build/

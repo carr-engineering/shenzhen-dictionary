@@ -14,5 +14,6 @@ object PlatformServices {
             com.szdict.app.feature.handwriting.HandwritingPlatform.KEY,
             com.szdict.app.feature.handwriting.HandwritingPlatform { com.szdict.recognition.Recognizers.handwriting(context) },
         )
+        put(com.szdict.app.feature.voice.VoiceServices.KEY, com.szdict.app.feature.voice.AndroidVoice.services(context))
     }
 }

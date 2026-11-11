@@ -32,3 +32,4 @@ rootProject.name = "ShenzhenDictionary"
 include(":core")
 include(":composeApp")
 include(":recognition")
+include(":voice")

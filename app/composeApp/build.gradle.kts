@@ -37,6 +37,8 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
         }
         androidMain.dependencies {
+            // Voice destination: sherpa-onnx engine and the bundled speech model (ARCH-095).
+            implementation(project(":voice"))
             implementation("androidx.activity:activity-compose:1.12.2")
             // OCR destination: camera preview/capture (CAM-020…) and EXIF orientation of picked images (CAM-041).
             implementation("androidx.camera:camera-core:1.5.3")
