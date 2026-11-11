@@ -160,7 +160,8 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     private fun onModeChanged() {
         dataGeneration++
         routes.clear()
-        closeWordSheet()
+        closeWordSheet(userDismissed = false)
+        handwritingVisible = false   // HW-024
         stopPlayback()
     }
 
@@ -296,7 +297,12 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
         }
     }
 
-    private fun ttsTag(mode: DictMode) = if (mode == DictMode.CANTONESE) "zh-HK" else "zh-CN"
+    /** MED-022: Cantonese → zh-HK; Mandarin follows the script (zh-TW for Traditional). */
+    private fun ttsTag(mode: DictMode) = when {
+        mode == DictMode.CANTONESE -> "zh-HK"
+        _settings.value.script(mode) == Script.TRADITIONAL -> "zh-TW"
+        else -> "zh-CN"
+    }
 
     private fun clipPaths(plan: AudioPlan, mode: DictMode): List<String>? {
         if (plan.clips.isEmpty()) return null
