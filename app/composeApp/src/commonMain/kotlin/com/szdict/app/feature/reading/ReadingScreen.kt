@@ -284,6 +284,8 @@ private fun ReadingField(
                 onValueChange = holder::onDraftChange,
                 modifier = modifier,
                 minLines = 4,
+                // A long passage scrolls inside the field instead of pushing its analysis off screen.
+                maxLines = 8,
                 interactionSource = interactions,
                 placeholder = { Text(strings.text("Paste or type a Chinese passage…")) },
                 trailingIcon = {
