@@ -1,0 +1,3 @@
+# Model binaries over 1 MB are restored by tools/fetch_models.sh (./gradlew :recognition:fetchModels).
+src/androidMain/assets/models/ink/*.tflite
+build/

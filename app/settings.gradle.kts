@@ -31,3 +31,4 @@ dependencyResolutionManagement {
 rootProject.name = "ShenzhenDictionary"
 include(":core")
 include(":composeApp")
+include(":recognition")
