@@ -4,6 +4,20 @@ import com.szdict.core.api.AnalysedPassage
 import com.szdict.core.api.Dictionary
 import com.szdict.core.api.FakeDictionary
 import com.szdict.core.api.SegmentationMode
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+
+/**
+ * Runs everything pending, including work in `backgroundScope` (which `advanceUntilIdle` skips)
+ * and short timeouts.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun TestScope.settle() {
+    advanceTimeBy(5_000)
+    runCurrent()
+}
 
 /** Converts 汉/漢, 语/語 and 软件/軟體 (phrases) and detects by those characters. */
 class FakeScriptConverter : ScriptConverter {

@@ -10,6 +10,7 @@ import com.szdict.app.feature.conversion.ConversionSelection
 import com.szdict.app.feature.conversion.CountingDictionary
 import com.szdict.app.feature.conversion.FakeScriptConverter
 import com.szdict.app.feature.conversion.ScriptVariant
+import com.szdict.app.feature.conversion.settle
 import com.szdict.app.platform.Clipboard
 import com.szdict.app.platform.LinkOpener
 import com.szdict.app.platform.NoAudioPlayer
@@ -29,7 +30,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -79,7 +79,7 @@ class ReadingStateHolderTest {
     @Test
     fun theDefaultDraftIsEmpty() = runTest {
         val f = Fixture(this)
-        advanceUntilIdle()
+        settle()
         assertEquals("", f.holder.draft.text)
         assertNull(f.holder.passage)
         assertFalse(f.holder.conversion.enabled)
@@ -88,32 +88,32 @@ class ReadingStateHolderTest {
     @Test
     fun typingAnalysesAutomaticallyAndOnlyTheLatestEdit() = runTest {
         val f = Fixture(this)
-        advanceUntilIdle()
+        settle()
         f.type("我")
         f.type("我们")
         f.type("我们好")
-        advanceUntilIdle()
+        settle()
         assertEquals(listOf("我们好"), f.dictionary.analysed)
         assertEquals("我们好", f.holder.passage?.text)
         // A caret move is not an edit.
         f.holder.onDraftChange(TextFieldValue("我们好", TextRange(1)))
-        advanceUntilIdle()
+        settle()
         assertEquals(1, f.dictionary.analysed.size)
     }
 
     @Test
     fun conversionNeverModifiesTheDraftAndSurvivesTyping() = runTest {
         val f = Fixture(this)
-        advanceUntilIdle()
+        settle()
         f.type("汉语")
-        advanceUntilIdle()
+        settle()
         f.holder.conversion.toggle()
-        advanceUntilIdle()
+        settle()
         assertEquals("汉语", f.holder.draft.text)
         assertEquals("漢語", f.holder.passage?.text)
 
         f.type("汉语汉")
-        advanceUntilIdle()
+        settle()
         assertEquals("汉语汉", f.holder.draft.text)
         assertEquals("漢語漢", f.holder.passage?.text)
         assertEquals(ConversionAction.SHOW_ORIGINAL, f.holder.conversion.mainAction)
@@ -122,11 +122,11 @@ class ReadingStateHolderTest {
     @Test
     fun clearPasteAndSharedTextStartANewUnconvertedPassage() = runTest {
         val f = Fixture(this)
-        advanceUntilIdle()
+        settle()
         f.type("汉语")
-        advanceUntilIdle()
+        settle()
         f.holder.conversion.convert(ScriptVariant.SIMPLIFIED, ScriptVariant.TRADITIONAL_TW_PHRASES)
-        advanceUntilIdle()
+        settle()
         assertTrue(f.holder.conversion.selection.isConverted)
 
         f.holder.clear()
@@ -135,20 +135,20 @@ class ReadingStateHolderTest {
         assertEquals("", f.holder.draft.text)
 
         f.type("汉语")
-        advanceUntilIdle()
+        settle()
         f.holder.conversion.toggle()
-        advanceUntilIdle()
+        settle()
         f.clipboard.text = "软件"
         assertTrue(f.holder.paste())
         assertFalse(f.holder.conversion.selection.isConverted)
-        advanceUntilIdle()
+        settle()
         assertEquals("软件", f.holder.draft.text)
         assertEquals("软件", f.holder.passage?.text)
 
         f.holder.conversion.toggle()
-        advanceUntilIdle()
+        settle()
         ReadingInbox.deliver("漢語")
-        advanceUntilIdle()
+        settle()
         assertEquals("漢語", f.holder.draft.text)              // replaced, no merge
         assertFalse(f.holder.conversion.selection.isConverted)
         assertEquals("漢語", f.holder.passage?.text)
@@ -159,20 +159,20 @@ class ReadingStateHolderTest {
     fun sharedTextIsConsumedOnceAndBlankTextIsIgnored() = runTest {
         ReadingInbox.deliver("汉语")
         val f = Fixture(this)                                  // delivered before the screen existed
-        advanceUntilIdle()
+        settle()
         assertEquals("汉语", f.holder.draft.text)
         assertNull(ReadingInbox.take())
         assertNull(ReadingInbox.pending.value)
 
         f.type("我")
-        advanceUntilIdle()
+        settle()
         ReadingInbox.deliver("   \n")
-        advanceUntilIdle()
+        settle()
         assertEquals("我", f.holder.draft.text)
 
         f.session.selectDestination(Destination.SEARCH)
         ReadingInbox.deliver("你好", f.session)
-        advanceUntilIdle()
+        settle()
         assertEquals(Destination.READING, f.session.destination)
         assertEquals("你好", f.holder.draft.text)
     }
@@ -180,17 +180,17 @@ class ReadingStateHolderTest {
     @Test
     fun pasteWithAnEmptyClipboardIsSilentButTheShortcutReportsIt() = runTest {
         val f = Fixture(this)
-        advanceUntilIdle()
+        settle()
         assertFalse(f.holder.paste())
         assertNull(f.holder.message)
 
         ReadingInbox.readClipboard()
-        advanceUntilIdle()
+        settle()
         assertEquals("Clipboard empty or unavailable", f.holder.message)
 
         f.clipboard.text = "你好"
         ReadingInbox.readClipboard()
-        advanceUntilIdle()
+        settle()
         assertEquals("你好", f.holder.draft.text)
         assertNull(f.holder.message)
     }
@@ -198,15 +198,15 @@ class ReadingStateHolderTest {
     @Test
     fun aPassageChangeClosesTheWordSheet() = runTest {
         val f = Fixture(this)
-        advanceUntilIdle()
+        settle()
         f.type("汉语")
-        advanceUntilIdle()
+        settle()
         f.holder.onPassageTap(1)
         assertEquals(1, f.holder.selectedOffset)
         f.holder.conversion.toggle()
         assertNull(f.session.wordSheet)
         assertNull(f.holder.selectedOffset)
-        advanceUntilIdle()
+        settle()
 
         f.holder.onPassageTap(0)
         assertNotNull(f.session.wordSheet)
@@ -217,20 +217,20 @@ class ReadingStateHolderTest {
     @Test
     fun sentenceActionsUseTheDisplayedText() = runTest {
         val f = Fixture(this)
-        advanceUntilIdle()
+        settle()
         f.type(" 汉语 ")
-        advanceUntilIdle()
+        settle()
         f.holder.translate()
         assertEquals("汉语" to "zh-CN", f.translator.sent.last())
         f.holder.conversion.toggle()
-        advanceUntilIdle()
+        settle()
         f.holder.copy()
         assertEquals("漢語", f.clipboard.written)
         f.holder.translate()
         assertEquals("漢語" to "zh-TW", f.translator.sent.last())
 
         f.session.updateSettings { it.copy(dictionaryMode = DictMode.CANTONESE) }
-        advanceUntilIdle()
+        settle()
         f.holder.translate()
         assertEquals("yue", f.translator.sent.last().second)
     }
@@ -238,7 +238,7 @@ class ReadingStateHolderTest {
     @Test
     fun handwritingInsertsAtTheCaretAndDeletesBackward() = runTest {
         val f = Fixture(this)
-        advanceUntilIdle()
+        settle()
         f.holder.onDraftChange(TextFieldValue("我好", TextRange(1)))
         f.holder.insert("们")
         assertEquals("我们好", f.holder.draft.text)
@@ -251,7 +251,7 @@ class ReadingStateHolderTest {
         f.holder.onDraftChange(TextFieldValue("a𠀀", TextRange(3)))
         f.holder.deleteBackward()                              // one code point
         assertEquals("a", f.holder.draft.text)
-        advanceUntilIdle()
+        settle()
         assertEquals("a", f.holder.passage?.text)              // edits analyse like typing
     }
 

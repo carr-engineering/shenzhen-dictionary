@@ -11,7 +11,6 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -38,7 +37,7 @@ class ConversionStateTest {
         val f = Fixture(this)
         f.state.setText("汉语")
         assertTrue(f.state.busy)
-        advanceUntilIdle()
+        settle()
         assertFalse(f.state.busy)
         assertEquals("汉语", f.state.passage?.text)
         assertEquals(DetectedKind.SIMPLIFIED, f.state.selection.detected?.kind)
@@ -52,12 +51,12 @@ class ConversionStateTest {
     fun conversionIsAViewOfTheOriginal() = runTest {
         val f = Fixture(this)
         f.state.setText("汉语")
-        advanceUntilIdle()
+        settle()
         f.state.toggle()
         // GLB-030: the previous analysis stays until the new one is ready.
         assertEquals("汉语", f.state.passage?.text)
         assertTrue(f.state.busy)
-        advanceUntilIdle()
+        settle()
 
         assertEquals("汉语", f.state.original)                 // the original is kept untouched
         assertEquals("漢語", f.state.passage?.text)            // analysis follows the displayed text
@@ -66,7 +65,7 @@ class ConversionStateTest {
         assertEquals(Triple("汉语", ScriptVariant.SIMPLIFIED, ScriptVariant.TRADITIONAL), f.converter.conversions.single())
 
         f.state.toggle()                                       // Show original
-        advanceUntilIdle()
+        settle()
         assertEquals("汉语", f.state.passage?.text)
         assertNull(f.state.converted)
         assertEquals(ConversionAction.CONVERT_TO_TRADITIONAL, f.state.mainAction)
@@ -76,11 +75,11 @@ class ConversionStateTest {
     fun conversionAlwaysStartsFromTheOriginalNeverFromConvertedText() = runTest {
         val f = Fixture(this)
         f.state.setText("软件")
-        advanceUntilIdle()
+        settle()
         f.state.convert(ScriptVariant.SIMPLIFIED, ScriptVariant.TRADITIONAL)
-        advanceUntilIdle()
+        settle()
         f.state.convert(ScriptVariant.SIMPLIFIED, ScriptVariant.TRADITIONAL_TW_PHRASES)
-        advanceUntilIdle()
+        settle()
         assertEquals(listOf("软件", "软件"), f.converter.conversions.map { it.first })
         assertEquals("軟體", f.state.passage?.text)
     }
@@ -90,9 +89,9 @@ class ConversionStateTest {
         val f = Fixture(this)
         f.mode = DictMode.CANTONESE
         f.state.setText("汉语")
-        advanceUntilIdle()
+        settle()
         f.state.toggle()
-        advanceUntilIdle()
+        settle()
         assertEquals(ScriptVariant.TRADITIONAL_HK, f.converter.conversions.single().third)
     }
 
@@ -100,12 +99,12 @@ class ConversionStateTest {
     fun conversionStaysOnWhileTyping() = runTest {
         val f = Fixture(this)
         f.state.setText("汉")
-        advanceUntilIdle()
+        settle()
         f.state.convert(ScriptVariant.SIMPLIFIED, ScriptVariant.TRADITIONAL_TW)
-        advanceUntilIdle()
+        settle()
 
         f.state.setText("汉语")                                // an edit of the same passage
-        advanceUntilIdle()
+        settle()
         assertEquals(ConversionAction.SHOW_ORIGINAL, f.state.mainAction)
         assertEquals("漢語", f.state.passage?.text)
         assertEquals(Triple("汉语", ScriptVariant.SIMPLIFIED, ScriptVariant.TRADITIONAL_TW), f.converter.conversions.last())
@@ -116,22 +115,22 @@ class ConversionStateTest {
     fun aNewPassageStartsUnconvertedWithFreshDetection() = runTest {
         val f = Fixture(this)
         f.state.setText("汉语")
-        advanceUntilIdle()
+        settle()
         f.state.convert(ScriptVariant.SIMPLIFIED, ScriptVariant.TRADITIONAL_TW_PHRASES)
-        advanceUntilIdle()
+        settle()
         val conversionsBefore = f.converter.conversions.size
 
         f.state.setText("漢語", newPassage = true)             // Paste / shared text
         assertFalse(f.state.selection.isConverted)
         assertNull(f.state.selection.confirmed)
-        advanceUntilIdle()
+        settle()
         assertEquals("漢語", f.state.passage?.text)
         assertEquals(conversionsBefore, f.converter.conversions.size)
         assertEquals(DetectedKind.TRADITIONAL, f.state.selection.detected?.kind)
         assertEquals(ConversionAction.CONVERT_TO_SIMPLIFIED, f.state.mainAction)
 
         f.state.toggle()
-        advanceUntilIdle()
+        settle()
         f.state.setText("", newPassage = true)                 // Clear
         assertEquals(ConversionSelection.None, f.state.selection)
         assertNull(f.state.passage)
@@ -142,13 +141,13 @@ class ConversionStateTest {
     fun blankTextRemovesTheResultAtOnce() = runTest {
         val f = Fixture(this)
         f.state.setText("汉语")
-        advanceUntilIdle()
+        settle()
         assertNotNull(f.state.passage)
         f.state.setText("汉语汉语")
         f.state.setText("  ")
         assertNull(f.state.passage)                            // no waiting for a job
         assertFalse(f.state.busy)
-        advanceUntilIdle()
+        settle()
         assertNull(f.state.passage)                            // the superseded analysis never lands
         assertFalse(f.dictionary.analysed.contains("汉语汉语"))
     }
@@ -157,7 +156,7 @@ class ConversionStateTest {
     fun analysisIsLatestOnly() = runTest {
         val f = Fixture(this)
         for (i in 1..10) f.state.setText("汉".repeat(i))
-        advanceUntilIdle()
+        settle()
         assertEquals(listOf("汉".repeat(10)), f.dictionary.analysed)   // ten edits, one analysis
         assertEquals("汉".repeat(10), f.state.passage?.text)
         assertEquals(10, f.passageChanges)
@@ -167,26 +166,26 @@ class ConversionStateTest {
     fun everyDisplayedPassageChangeIsAnnounced() = runTest {
         val f = Fixture(this)
         f.state.setText("汉语")
-        advanceUntilIdle()
+        settle()
         val before = f.passageChanges
         f.state.toggle()                                       // convert
         f.state.convert(ScriptVariant.SIMPLIFIED, ScriptVariant.TRADITIONAL_HK)   // change options
         f.state.showOriginal()
         assertEquals(before + 3, f.passageChanges)             // the word sheet closes each time (TXT-045)
-        advanceUntilIdle()
+        settle()
     }
 
     @Test
     fun nothingToConvertStillShowsOriginalAction() = runTest {
         val f = Fixture(this)
         f.state.setText("你好")
-        advanceUntilIdle()
+        settle()
         f.state.toggle()
-        advanceUntilIdle()
+        settle()
         assertEquals(ConversionNotice.NOTHING_TO_CONVERT, f.state.notice)
         assertEquals(ConversionAction.SHOW_ORIGINAL, f.state.mainAction)
         f.state.toggle()
-        advanceUntilIdle()
+        settle()
         assertNull(f.state.notice)
     }
 
@@ -194,10 +193,10 @@ class ConversionStateTest {
     fun aFailedConversionKeepsTheOriginalOnScreen() = runTest {
         val f = Fixture(this)
         f.state.setText("汉语")
-        advanceUntilIdle()
+        settle()
         f.converter.fail = true
         f.state.toggle()
-        advanceUntilIdle()
+        settle()
         assertEquals(ConversionNotice.FAILED, f.state.notice)
         assertEquals("汉语", f.state.passage?.text)
         assertFalse(f.state.selection.isConverted)
@@ -209,13 +208,13 @@ class ConversionStateTest {
         val f = Fixture(this)
         f.dictionary.fail = true
         f.state.setText("汉语")
-        advanceUntilIdle()
+        settle()
         assertTrue(f.state.analysisFailed)
         assertNull(f.state.passage)
         assertEquals("汉语", f.state.original)
         f.dictionary.fail = false
         f.state.setText("汉语。")
-        advanceUntilIdle()
+        settle()
         assertFalse(f.state.analysisFailed)
         assertEquals("汉语。", f.state.passage?.text)
     }
@@ -224,9 +223,9 @@ class ConversionStateTest {
     fun taiwanWithPhrasesIsRefusedFromATraditionalSource() = runTest {
         val f = Fixture(this)
         f.state.setText("漢語")
-        advanceUntilIdle()
+        settle()
         f.state.convert(ScriptVariant.TRADITIONAL_HK, ScriptVariant.TRADITIONAL_TW_PHRASES)
-        advanceUntilIdle()
+        settle()
         assertFalse(f.state.selection.isConverted)
         assertTrue(f.converter.conversions.isEmpty())
     }
@@ -237,7 +236,7 @@ class ConversionStateTest {
         val sentence = "我们研究生命科学。"
         val text = sentence.repeat(120)                        // 1,080 characters
         f.state.setText(text)
-        advanceUntilIdle()
+        settle()
         val passage = assertNotNull(f.state.passage)
         assertEquals(text, passage.text)
         assertTrue(f.dictionary.analysed.size >= 3)
