@@ -146,12 +146,15 @@ interface Dictionary {
 
     // ---- Handwriting / OCR helpers (HW-032) ----
 
-    /** Drops candidates containing any character absent from the dataset; keeps the given order. */
+    /**
+     * Candidates in recogniser order (best first): drops those containing any character absent from
+     * the dataset (including non-Hanzi) and re-ranks the rest by dataset character frequency, the
+     * recogniser's top surviving candidate staying within the first three (HW-032).
+     */
     suspend fun filterHandwritingCandidates(raw: List<String>): List<String>
 
     /**
-     * Filters like [filterHandwritingCandidates] and re-ranks by recogniser score combined with
-     * dataset character frequency; the recogniser's top surviving candidate stays within the first three.
+     * Same as [filterHandwritingCandidates] for candidates carrying recogniser scores (higher is better).
      */
     suspend fun rankHandwritingCandidates(raw: List<ScoredText>): List<ScoredText>
 

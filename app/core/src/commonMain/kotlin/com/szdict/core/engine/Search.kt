@@ -326,7 +326,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
 
     // ------------------------------------------------------------------ English side
 
-    private class EnCand(val id: Int, var cls: Int, val canto: Boolean, val senses: IntArray?)
+    private class EnCand(val id: Int, var cls: Int, val canto: Boolean, val senses: IntArray?, val sense: Int)
 
     suspend fun english(c: Classified, script: Script, cap: Int): EnglishOut = coroutineScope {
         val tokens = Normaliser.englishTokens(c.key)
@@ -394,7 +394,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
 
         val projs = store.projections(IntArray(cands.size) { cands[it].id })
         val order = Ranking.comparator(false)
-        fun toCandidates(src: List<EnCand>) = src.mapNotNull { e -> projs[e.id]?.let { Candidate(it, e.cls, mandarinRow = cantonese && !e.canto && !it.isUnihan) } }
+        fun toCandidates(src: List<EnCand>) = src.mapNotNull { e -> projs[e.id]?.let { Candidate(it, e.cls, mandarinRow = cantonese && !e.canto && !it.isUnihan, sense = e.sense) } }
 
         // Phrase refinement (SRCH-047): contiguous token sequence inside one sense — a local check
         // on the candidate's per-sense token lists (DATA-077), bounded to the best-ranked candidates.
@@ -451,14 +451,23 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         val lastTok = tokenCount - 1
         if (tokenCount == 1) {
             var exact = false
-            for (k in starts[0] until ends[0]) if (inGroup(lists[0][k]) && (lists[0][k] and 4L) != 0L) exact = true
-            return EnCand(id, if (exact) MatchClass.EN_PHRASE else MatchClass.EN_SENSE, wantCanto, null)
+            var first = -1
+            for (k in starts[0] until ends[0]) {
+                val v = lists[0][k]
+                if (!inGroup(v)) continue
+                val isExact = (v and 4L) != 0L
+                if (first < 0 || (isExact && !exact)) first = ((v and 0xFFFFFFFFL) ushr 3).toInt()
+                if (isExact) exact = true
+            }
+            return EnCand(id, if (exact) MatchClass.EN_PHRASE else MatchClass.EN_SENSE, wantCanto, null, first)
         }
         var common: ArrayList<Int>? = null
+        var firstSense = -1
         for (k in starts[0] until ends[0]) {
             val v = lists[0][k]
             if (!inGroup(v)) continue
             val sense = ((v and 0xFFFFFFFFL) ushr 3).toInt()
+            if (firstSense < 0) firstSense = sense
             var ok = true
             for (t in 1..lastTok) {
                 var found = false
@@ -477,7 +486,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
             if (ok) (common ?: ArrayList<Int>().also { common = it }).let { if (sense !in it) it.add(sense) }
         }
         val c = common
-        return if (c != null) EnCand(id, MatchClass.EN_SENSE, wantCanto, c.toIntArray()) else EnCand(id, MatchClass.EN_ENTRY, wantCanto, null)
+        return if (c != null) EnCand(id, MatchClass.EN_SENSE, wantCanto, c.toIntArray(), c[0]) else EnCand(id, MatchClass.EN_ENTRY, wantCanto, null, firstSense)
     }
 
     private fun containsSequence(tok: List<String>, query: List<String>): Boolean {

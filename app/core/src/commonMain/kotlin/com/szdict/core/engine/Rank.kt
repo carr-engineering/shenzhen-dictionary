@@ -25,6 +25,8 @@ internal class Candidate(
     val altKey: String? = null,
     /** Cantonese mode, English side: a CC-CEDICT row (SRCH-077). */
     val mandarinRow: Boolean = false,
+    /** English side: index of the first matched sense, or -1. */
+    val sense: Int = -1,
 ) {
     /** SRCH-072: best class, then main reading over alternative, then lowest token cost. */
     fun betterThan(o: Candidate): Boolean {

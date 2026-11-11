@@ -85,7 +85,7 @@ data class AudioPlan(
  * Cantonese-mode English result matched only through Mandarin-block senses (SRCH-077): the card
  * shows this Pinyin after a muted `Mandarin` tag and these senses only.
  */
-data class MandarinRow(val groupIndex: Int, val reading: Reading, val definitions: List<String>)
+data class MandarinRow(val groupIndex: Int, val reading: Reading, val definitions: List<String>, val sense: Int = -1)
 
 /**
  * Reference to one result row. Enough to hydrate the exact same card later (`Dictionary.cards`).
@@ -97,6 +97,8 @@ data class RowRef(
     val altOrdinal: Int = -1,
     val altKey: String? = null,
     val mandarinRow: Boolean = false,
+    /** For a CC-CEDICT row: index of the matched sense, selecting the Pinyin reading group shown (-1: the first). */
+    val sense: Int = -1,
 )
 
 /**
@@ -148,7 +150,7 @@ data class EntryCard(
 ) {
     /** One-line summary of the definitions. */
     val gloss: String get() = definitions.joinToString("; ")
-    val ref: RowRef get() = RowRef(id, matchedAlt?.ordinal ?: -1, null, mandarinRow != null)
+    val ref: RowRef get() = RowRef(id, matchedAlt?.ordinal ?: -1, null, mandarinRow != null, mandarinRow?.sense ?: -1)
 }
 
 /** A candidate with a recogniser score (higher = better), for handwriting / OCR re-ranking. */

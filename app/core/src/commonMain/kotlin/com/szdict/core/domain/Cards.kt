@@ -298,16 +298,19 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
             for (n in m.body.notes) notes.add(NoteLine(n.kind, labels[n.label.ifEmpty { n.kind }] ?: Label.missing(n.kind), n.lineText(script)))
         }
         val head = e.headword(script)
-        val alternates = if (merged && group != null && group.variants.isNotEmpty()) group.variants else listOf(e.alternate(script)).filter { it != head }
+        val alternates = (if (merged && group != null && group.variants.isNotEmpty()) group.variants else listOf(e.alternate(script))).filter { it != head }
         val matchedAlt = when {
             ref.altOrdinal >= 0 -> e.body.alt.getOrNull(ref.altOrdinal)?.toAlt(ref.altOrdinal, labels)
             ref.altKey != null -> e.body.alt.withIndex().firstOrNull { (_, a) -> Romanisation.parseCanonical(a.c).first.joinToString(" ") == ref.altKey }?.let { it.value.toAlt(it.index, labels) }
             else -> null
         }
-        val mandarinRow = if (ref.mandarinRow) e.body.blocks.firstOrNull { it.kind == "mandarin" }?.let { b ->
-            val r = b.readings.firstOrNull()
-            val reading = if (r != null) readingFromCanonical(r.d.ifEmpty { Romanisation.pinyinToMarked(r.c) }, r.c) else Reading.EMPTY
-            MandarinRow(0, reading, e.body.senses.drop(b.first).take(b.count).map { it.t })
+        val mandarinRow = if (ref.mandarinRow) e.body.blocks.firstOrNull { it.kind == "mandarin" || it.kind == "hsk_patch" }?.let { b ->
+            // Reading groups index senses absolutely (or relative to the block): pick the one holding the matched sense.
+            fun first(r: com.szdict.core.store.BlockReadingJ) = if (r.first >= b.first && r.first + r.count <= b.first + b.count) r.first else b.first + r.first
+            val gi = b.readings.indexOfFirst { r -> ref.sense >= first(r) && ref.sense < first(r) + r.count }.let { if (it < 0) 0 else it }
+            val r = b.readings.getOrNull(gi)
+            if (r == null) MandarinRow(0, Reading.EMPTY, e.body.senses.drop(b.first).take(b.count).map { it.t }, ref.sense)
+            else MandarinRow(gi, readingFromCanonical(r.d.ifEmpty { Romanisation.pinyinToMarked(r.c) }, r.c), e.body.senses.drop(first(r)).take(r.count).map { it.t }, ref.sense)
         } else null
         val ordered = listOf(e) + members.filter { it.id != e.id }
         return EntryCard(

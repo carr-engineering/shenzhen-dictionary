@@ -162,7 +162,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
 
     private class Base(val c: Classified, val script: Script, val options: SearchOptions, val result: SearchResult, val wholeIds: IntArray, val needsCombos: Boolean)
 
-    private fun refOf(c: Candidate) = RowRef(c.proj.id, if (c.alt) c.altNote else -1, if (c.alt && c.altNote < 0) c.altKey else null, c.mandarinRow)
+    private fun refOf(c: Candidate) = RowRef(c.proj.id, if (c.alt) c.altNote else -1, if (c.alt && c.altNote < 0) c.altKey else null, c.mandarinRow, if (c.mandarinRow) c.sense else -1)
 
     private suspend fun searchBase(rawQuery: String, script: Script, options: SearchOptions): Base {
         val query = SettingsCodec.normaliseLineBreaks(rawQuery)
@@ -306,16 +306,18 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         val memberIds = members.mapTo(HashSet()) { it.id }
 
         var number = 0
-        val seen = HashSet<String>()
+        val seenByOthers = HashSet<String>() // SRCH-082: identical definitions are de-duplicated across members only
         val altShown = e.body.alt.flatMapTo(HashSet()) { listOf(it.d, it.c) }
         val sections = ArrayList<MemberSection>()
         for (m in members) {
             val view = memberView(m, memberIds, entries)
             val src = view.source
             val body: Body = src.body
+            val own = ArrayList<String>()
             fun sense(s: SenseJ): Sense? {
                 val text = s.textIn(merged)
-                if (text.isEmpty() || !seen.add(text)) return null
+                if (text.isEmpty() || text in seenByOthers) return null
+                own.add(text)
                 val segs = if (text == s.t) s.seg.map { it.toSegment(script) } else listOf(com.szdict.core.api.Segment.Text(text))
                 return Sense(++number, text, s.tags.map { labels[it] ?: Label.missing(it) }, segs.ifEmpty { listOf(com.szdict.core.api.Segment.Text(text)) })
             }
@@ -354,6 +356,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
             // ENT-057: notes already shown as header alternative readings are not repeated.
             val notes = m.body.notes.filter { n -> !((n.kind == "also_pr" || n.kind == "taiwan_pr") && m.id == e.id && n.reading != null && n.reading in altShown) }
                 .map { n -> Note(n.kind, labels[n.label.ifEmpty { n.kind }] ?: Label.missing(n.kind), n.refs.map { it.toRef(script) }, n.reading, n.extra) }
+            seenByOthers.addAll(own)
             if (blocks.isEmpty() && redirect == null && notes.isEmpty() && merged) continue
             sections.add(MemberSection(m.id, if (merged) m.alternate(script) else null, redirect, blocks, notes))
         }
@@ -688,8 +691,8 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
     }
 
     override suspend fun filterHandwritingCandidates(raw: List<String>): List<String> = guard {
-        val ranks = charRanks(raw)
-        raw.filter { worstRank(it, ranks) != null }.distinct()
+        // Without scores the recogniser's order is the confidence signal.
+        rerank(raw.mapIndexed { i, t -> ScoredText(t, -i.toDouble()) }).map { it.text }
     }
 
     override suspend fun rankHandwritingCandidates(raw: List<ScoredText>): List<ScoredText> = guard { rerank(raw) }
