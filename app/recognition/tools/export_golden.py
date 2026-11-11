@@ -54,6 +54,33 @@ for ci, column in enumerate(columns):
         draw.text((x, 30 + ri * 38), ch, font=light, fill="black")
 tight.save(data / "vertical-tight.png", optimize=True)
 
+# Horizontal lines with vertical columns beside them (a sign with a notice next to it).
+def mixed(name, side="right", ncol=1, pitch=1.05, size=40, gap=70):
+    column_font = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", size)
+    row_font = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 36)
+    rows = ["请勿靠近施工现场", "前方道路正在维修", "行人请走左侧通道", "谢谢您的理解配合"]
+    cols = ["小心地滑注意安全", "高空作业禁止通行", "佩戴安全帽进入"]
+    row_width = int(max(row_font.getlength(r) for r in rows))
+    col_width = int(size * 1.6)
+    image = Image.new("RGB", (row_width + ncol * col_width + gap + 80, max(int(4 * 36 * 1.7), int(8 * size * pitch)) + 80), "white")
+    d = ImageDraw.Draw(image)
+    row_x = 40 if side == "right" else 40 + ncol * col_width + gap
+    col_x = 40 + row_width + gap if side == "right" else 40
+    for i, r in enumerate(rows):
+        d.text((row_x, 40 + i * 36 * 1.7), r, font=row_font, fill="#111")
+    for c in range(ncol):
+        for r, ch in enumerate(cols[c]):
+            d.text((col_x + (ncol - 1 - c) * col_width, 40 + r * size * pitch), ch, font=column_font, fill="#111")
+    image.save(data / f"{name}.png", optimize=True)
+
+
+mixed("mixed-right-tight")
+mixed("mixed-left-tight", side="left")
+mixed("mixed-right-loose", pitch=1.5)
+mixed("mixed-near", gap=30, pitch=1.2)
+mixed("mixed-2col", ncol=2)
+mixed("mixed-3col-loose", ncol=3, pitch=1.4)
+
 # ---- ink: reference drawings, reference features and reference candidates --------------------
 sys.path.insert(0, str(src / "native-ink"))
 from features import encode  # noqa: E402

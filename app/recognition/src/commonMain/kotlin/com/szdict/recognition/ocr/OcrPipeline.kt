@@ -58,8 +58,6 @@ internal class OcrOptions(
     val maxLines: Int = 200,
     /** Height the ink is scaled to inside the 24-px recogniser input. */
     val inkHeight: Int = 20,
-    /** Longest side of the quick detector pass that checks for text along the other axis. */
-    val turnedProbeSide: Int = 640,
 )
 
 /**
@@ -108,7 +106,8 @@ internal class OcrPipeline(
         val confidence: Double get() = chars.sumOf { it.confidence.toDouble() } / max(1, chars.size)
     }
 
-    private class Detection(val regions: List<Region>, /** Proposals above the detection threshold. */ val strong: Int, /** Detector input pixels. */ val area: Int)
+    /** Line regions in page pixels: [rows] from the upright detector pass, [columns] from the turned one. */
+    private class Layout(val rows: List<Region>, val columns: List<Region>)
 
     /** @param checkpoint called between lines; throw from it to cancel. */
     fun recognize(image: OcrImage, checkpoint: () -> Unit = {}): OcrResult {
@@ -123,11 +122,14 @@ internal class OcrPipeline(
         if (page.cornerLevel() < 110) page.invert()
         checkpoint()
 
-        val upright = detect(page, 1280)
-        var lines = readRegions(page, Geometry.verticalColumns(upright.regions).take(options.maxLines), checkpoint)
-        lines = withTurnedText(page, upright, lines, checkpoint)
+        val layout = detectLayout(page)
+        checkpoint()
+        val lines = readRegions(page, Geometry.verticalColumns(layout.rows).take(options.maxLines), checkpoint) +
+            readColumns(page, layout.columns.take(options.maxLines), checkpoint)
         val assembled = assembleRows(select(lines))
-        val ordered = Geometry.readingOrder(assembled, assembled.isNotEmpty() && assembled.all { it.vertical }) { it.box }
+        // Horizontal text in reading order, then vertical columns right to left.
+        val ordered = Geometry.readingOrder(assembled.filter { !it.vertical }, false) { it.box } +
+            Geometry.readingOrder(assembled.filter { it.vertical }, true) { it.box }
         fun scaled(q: Quad): Quad = if (backX == 1.0 && backY == 1.0) q else Quad(
             Point((q.topLeft.x * backX).toFloat(), (q.topLeft.y * backY).toFloat()),
             Point((q.topRight.x * backX).toFloat(), (q.topRight.y * backY).toFloat()),
@@ -151,6 +153,9 @@ internal class OcrPipeline(
     private companion object {
         const val STRONG_PROPOSAL = 0.65
         const val WEAK_PROPOSAL = 0.35
+
+        /** A region at least this many times longer than tall holds several glyphs. */
+        const val MULTI_GLYPH = 2.5
     }
 
     private fun readRegions(page: Gray, regions: List<Region>, checkpoint: () -> Unit): List<Line> {
@@ -191,36 +196,50 @@ internal class OcrPipeline(
     }
 
     /**
-     * The detector only finds horizontal text lines. Text running along the other axis - tightly set
-     * vertical columns, or a page photographed sideways - shows up when the page is turned by 90
-     * degrees: if the turned page has clearly more detections than the upright one, its lines are
-     * read too, and where both passes claim the same area the more confident reading is kept.
+     * Finds text lines along both axes. The detector only finds horizontal lines, so it runs twice:
+     * on the page, and on the page turned a quarter turn, where vertical columns (and the lines of
+     * a page photographed sideways) lie horizontally. Glyph blocks look like text to it either way
+     * round, so a turned detection only counts as a column where the upright pass found no proper
+     * lines; this is decided per region, which lets a column stand beside a block of horizontal text.
      */
-    private fun withTurnedText(page: Gray, upright: Detection, lines: List<Line>, checkpoint: () -> Unit): List<Line> {
-        val turned = page.rotate90()
-        val probe = detect(turned, options.turnedProbeSide)
-        val comparable = upright.strong * (probe.area.toDouble() / upright.area)
-        trace?.invoke("turned probe: ${probe.strong} strong proposals against $comparable upright")
-        if (probe.strong < 6 || probe.strong <= comparable * 1.1) return lines
-        checkpoint()
-        val full = if (max(page.w, page.h) <= options.turnedProbeSide) probe else detect(turned, 1280)
-        val turnedLines = ArrayList<Line>()
-        for (r in full.regions.take(options.maxLines)) {
-            if (r.w < r.h * 1.5) continue
+    private fun detectLayout(page: Gray): Layout {
+        val upright = detectRegions(page)
+        val turnedPage = page.rotate90()
+        // Turned (x', y') is page (y', pageHeight - x'); a turned line runs up the page.
+        val turned = detectRegions(turnedPage).map { it.copy(cx = it.cy, cy = page.h - it.cx, angle = it.angle - PI / 2) }
+        val rowBoxes = upright.filter { it.w >= it.h * MULTI_GLYPH }.map { Geometry.bounds(it) }
+        val columns = turned.filter { r ->
+            if (r.w < r.h * MULTI_GLYPH) return@filter false
+            val box = Geometry.bounds(r)
+            rowBoxes.sumOf { intersection(it, box) } < box.width * box.height * .3
+        }
+        val columnBoxes = columns.map { Geometry.bounds(it) }
+        // Stray glyph-sized upright detections inside a column belong to the column.
+        val rows = upright.filter { r -> r.w >= r.h * MULTI_GLYPH || columnBoxes.none { r.cx > it.x0 && r.cx < it.x1 && r.cy > it.y0 && r.cy < it.y1 } }
+        trace?.invoke("layout: ${rows.size} upright regions, ${columns.size} columns of ${turned.size} turned regions")
+        return Layout(
+            Geometry.joinCollinear(rows.map { extendAlongInk(page, it, columnBoxes) }),
+            Geometry.joinCollinear(columns.map { extendAlongInk(page, it, rowBoxes) }),
+        )
+    }
+
+    private fun intersection(a: Box, b: Box): Double =
+        max(0.0, min(a.x1, b.x1) - max(a.x0, b.x0)) * max(0.0, min(a.y1, b.y1) - max(a.y0, b.y0))
+
+    /** Reads turned-pass regions: natively on their side first, by glyph cells if that reads poorly. */
+    private fun readColumns(page: Gray, columns: List<Region>, checkpoint: () -> Unit): List<Line> {
+        val lines = ArrayList<Line>()
+        for (r in columns) {
             checkpoint()
-            // Turned (x', y') is page (y', pageHeight - x').
-            val cx = r.cy
-            val cy = page.h - r.cx
-            var best = readRegion(page, Region(cx, cy, r.w, r.h, r.angle - PI / 2, r.score, r.proposals))
+            var best = readRegion(page, r)
             if (best == null || best.confidence < .5) {
-                // Fall back to cutting the column into glyph cells and reading them upright.
-                val sliced = readRegion(page, Region(cx, cy, r.h, r.w, r.angle, r.score, r.proposals, vertical = true, charHeight = r.h))
+                val sliced = readRegion(page, Region(r.cx, r.cy, r.h, r.w, r.angle + PI / 2, r.score, r.proposals, vertical = true, charHeight = r.h))
                 if (sliced != null && (best == null || sliced.confidence > best.confidence)) best = sliced
             }
-            trace?.invoke("turned region cx=${cx.toInt()} cy=${cy.toInt()} w=${r.h.toInt()} h=${r.w.toInt()} -> ${best?.text} (${best?.vertical}, ${best?.confidence})")
-            if (best != null && best.confidence > .25) turnedLines.add(best)
+            trace?.invoke("column cx=${r.cx.toInt()} cy=${r.cy.toInt()} w=${r.h.toInt()} h=${r.w.toInt()} -> ${best?.text} (${best?.vertical}, ${best?.confidence})")
+            if (best != null && best.confidence > .25) lines.add(best)
         }
-        return lines + turnedLines
+        return lines
     }
 
     /**
@@ -244,10 +263,11 @@ internal class OcrPipeline(
         return kept
     }
 
-    private fun detect(page: Gray, maxSide: Int): Detection {
+    /** One detector pass: proposals merged into line regions, in the given raster's pixels. */
+    private fun detectRegions(page: Gray): List<Region> {
         val w = page.w
         val h = page.h
-        val side = min(maxSide, max(640, max(w, h)))
+        val side = min(1280, max(640, max(w, h)))
         val scale = side.toDouble() / max(w, h)
         val dw = max(32, ceil(w * scale / 32).toInt() * 32)
         val dh = max(32, ceil(h * scale / 32).toInt() * 32)
@@ -257,17 +277,16 @@ internal class OcrPipeline(
         check(out.rows == dh / 16 && out.cols == dw / 16) { "Detector output dimensions do not match input" }
         // Weak proposals bridge the glyphs the detector is unsure about (thin strokes, dense characters).
         val proposals = Geometry.decodeDetector(out.data, out.rows, out.cols, out.scale.toDouble(), out.zeroPoint, w.toDouble() / dw, h.toDouble() / dh, WEAK_PROPOSAL)
-        val merged = Geometry.absorbFragments(Geometry.mergeProposals(proposals, STRONG_PROPOSAL).filter { it.w > 4 && it.h > 5 && it.h < max(w, h) * 1.3 })
-        val regions = Geometry.joinCollinear(merged.map { extendAlongInk(page, it) })
-        return Detection(regions, proposals.count { it.score >= STRONG_PROPOSAL }, dw * dh)
+        return Geometry.absorbFragments(Geometry.mergeProposals(proposals, STRONG_PROPOSAL).filter { it.w > 4 && it.h > 5 && it.h < max(w, h) * 1.3 })
     }
 
     /**
      * Stretches a line region over ink that continues it. The detector misses some glyphs outright
      * (dense traditional characters in thin type, trailing punctuation); a text line nevertheless
-     * runs on for as long as there is ink on its baseline without a gap wider than a glyph.
+     * runs on for as long as there is ink on its baseline without a gap wider than a glyph, and
+     * stops where a line of the other direction ([obstacles]) begins.
      */
-    private fun extendAlongInk(page: Gray, region: Region): Region {
+    private fun extendAlongInk(page: Gray, region: Region, obstacles: List<Box>): Region {
         if (region.w < region.h * 1.2) return region // single glyphs may be parts of a vertical column
         val reach = (region.h * 8).roundToInt()
         val w = ceil(region.w).toInt() + 2 * reach
@@ -280,17 +299,25 @@ internal class OcrPipeline(
             any
         }
         val limit = max(3, (region.h * .9).roundToInt())
+        val cosA = cos(region.angle)
+        val sinA = sin(region.angle)
+        fun blocked(x: Int): Boolean {
+            if (obstacles.isEmpty()) return false
+            val px = region.cx + (x + .5 - w / 2.0) * cosA
+            val py = region.cy + (x + .5 - w / 2.0) * sinA
+            return obstacles.any { px > it.x0 && px < it.x1 && py > it.y0 && py < it.y1 }
+        }
         var right = w - reach
         var blank = 0
         var x = right
-        while (x < w && blank <= limit) {
+        while (x < w && blank <= limit && !blocked(x)) {
             if (column[x]) { right = x + 1; blank = 0 } else blank++
             x++
         }
         var left = reach
         blank = 0
         x = left - 1
-        while (x >= 0 && blank <= limit) {
+        while (x >= 0 && blank <= limit && !blocked(x)) {
             if (column[x]) { left = x; blank = 0 } else blank++
             x--
         }
@@ -401,7 +428,9 @@ internal class OcrPipeline(
         val labels = if (model == SequenceModel.HANI) haniLabels else latnLabels
         val strip = normalized(crop, 2048)
         val out = nets.sequence(model, strip.columns, strip.width)
-        val emissions = trimSpaces(CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives, labels.indexOf(" ")), labels)
+        var emissions = trimSpaces(CtcDecoder.decode(out.data, out.frames, out.classes, labels.size, out.scale, options.alternatives, labels.indexOf(" ")), labels)
+        // Glyph spacing in a column is leading, not word spacing.
+        if (column) emissions = emissions.filter { !labels[it.label].isBlank() }
         if (emissions.isEmpty()) return null
         val spans = CharLayout.spans(strip.columns, strip.width, emissions.map { it.peakFrame }, emissions.map { labels[it.label].isBlank() }, model.emissionOffset)
         val (x0, y0, x1, y1) = crop.box

@@ -3,7 +3,19 @@ package com.szdict.recognition
 /** A reference OCR image with the text it must produce. */
 class OcrCase(val file: String, val expected: String, private val accept: ((String) -> Boolean)? = null) {
     fun matches(actual: String): Boolean = accept?.invoke(actual) ?: (actual == expected)
+
+    companion object {
+        /** Same lines in the same order, with at most [errors] substituted characters overall. */
+        fun close(file: String, expected: String, errors: Int) = OcrCase(file, expected) { text ->
+            val a = text.split('\n')
+            val e = expected.split('\n')
+            a.size == e.size && a.indices.all { a[it].length == e[it].length } &&
+                a.indices.sumOf { i -> a[i].indices.count { a[i][it] != e[i][it] } } <= errors
+        }
+    }
 }
+
+private const val MIXED_ROWS = "请勿靠近施工现场\n前方道路正在维修\n行人请走左侧通道\n谢谢您的理解配合"
 
 /** The reference pipeline's controlled test images (`web-ocr/tests`) and one look-alike image. */
 object OcrCases {
@@ -24,6 +36,13 @@ object OcrCases {
             val expected = "春眠不覺曉處處聞啼鳥\n夜來風雨聲花落知多少\n白日依山盡黃河入海流\n欲窮千里目更上一層樓"
             text.length == expected.length && text.indices.count { text[it] != expected[it] } <= 4
         },
+        // Horizontal lines beside vertical columns: rows first, then the columns right to left.
+        OcrCase.close("mixed-right-tight.png", MIXED_ROWS + "\n小心地滑注意安全", 2),
+        OcrCase.close("mixed-left-tight.png", MIXED_ROWS + "\n小心地滑注意安全", 2),
+        OcrCase.close("mixed-right-loose.png", MIXED_ROWS + "\n小心地滑注意安全", 2),
+        OcrCase.close("mixed-near.png", MIXED_ROWS + "\n小心地滑注意安全", 2),
+        OcrCase.close("mixed-2col.png", MIXED_ROWS + "\n小心地滑注意安全\n高空作业禁止通行", 3),
+        OcrCase.close("mixed-3col-loose.png", MIXED_ROWS + "\n小心地滑注意安全\n高空作业禁止通行\n佩戴安全帽进入", 3),
         OcrCase("similar.png", "我已经吃过了\n未来的土地很大") { text ->
             // 已/己 and 未/末 are genuinely ambiguous to the recogniser; the right reading must be the
             // top-1 or among the alternatives, which the alternatives tests check per character.
