@@ -191,7 +191,8 @@ private fun DecodePhase(holder: OcrStateHolder, pickers: ImagePickers) {
 @Composable
 internal fun PickMenu(expanded: Boolean, onDismiss: () -> Unit, pickers: ImagePickers) {
     val strings = appStrings()
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+    val palette = LocalDictionaryPalette.current
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = palette.panel, border = BorderStroke(1.dp, palette.border)) {
         DropdownMenuItem(text = { Text(strings.text("Photos")) }, onClick = { onDismiss(); pickers.photos() })
         DropdownMenuItem(text = { Text(strings.text("Files")) }, onClick = { onDismiss(); pickers.files() })
     }
@@ -318,7 +319,7 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
 
                 // CAM-132: long-press offers Paste; enabled only when the clipboard holds an image.
                 Box(Modifier.align(Alignment.Center)) {
-                    DropdownMenu(expanded = pasteMenu, onDismissRequest = { pasteMenu = false }) {
+                    DropdownMenu(expanded = pasteMenu, onDismissRequest = { pasteMenu = false }, containerColor = palette.panel, border = BorderStroke(1.dp, palette.border)) {
                         DropdownMenuItem(
                             text = { Text(strings.text("Paste")) },
                             enabled = pasteEnabled,
