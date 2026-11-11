@@ -21,6 +21,10 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.ui)
             implementation("org.jetbrains.compose.ui:ui-backhandler:1.11.1")
+            // Stroke order, practice quiz and stroke geometry (docs/04 MED-060…); published from the
+            // sibling repo into local-maven by tools/publish-animator.sh.
+            implementation("engineering.carr:shenzhen-hanzi-animator-compose:0.1.0")
+            implementation("engineering.carr:shenzhen-hanzi-animator-bundled-data:0.1.0")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
             // Script conversion and detection (ARCH-196); dictionaries are staged by stageOpenccData.
             implementation("io.github.opencckmp:opencc-core:0.1.0-SNAPSHOT")
@@ -56,7 +60,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     // Datasets and SQLite packs are opened from extracted files; models are memory-mapped.
-    androidResources { noCompress += listOf("tflite", "bin", "onnx", "opus", "m4a") }
+    androidResources { noCompress += listOf("tflite", "bin", "onnx", "opus", "m4a", "hzb") }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     buildTypes {
         release {
