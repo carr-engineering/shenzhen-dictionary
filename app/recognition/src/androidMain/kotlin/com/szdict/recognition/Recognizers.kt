@@ -5,8 +5,10 @@ import android.graphics.Bitmap
 import com.szdict.recognition.ink.InkPipeline
 import com.szdict.recognition.ocr.OcrOptions
 import com.szdict.recognition.ocr.OcrPipeline
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -55,77 +57,95 @@ fun Bitmap.toOcrImage(): OcrImage {
 
 private fun workerThreads(): Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
 
-internal class AndroidTextRecognizer(private val context: Context, private val alternatives: Int) : TextRecognizer {
+/**
+ * Lazily loaded native resources shared by serialised calls. [close] never blocks: if a call is
+ * running, the resources are released as soon as it finishes.
+ */
+private class Guarded<T : Any>(private val load: () -> T, private val release: (T) -> Unit) {
     private val mutex = Mutex()
-    private var nets: LiteRtOcrNets? = null
-    private var pipeline: OcrPipeline? = null
+    private var value: T? = null
+
+    @Volatile
     private var closed = false
 
-    override suspend fun recognize(image: OcrImage): OcrResult = withContext(Dispatchers.Default) {
-        mutex.withLock {
-            check(!closed) { "TextRecognizer is closed" }
-            val active = pipeline ?: run {
-                val assets = context.assets
-                val loaded = LiteRtOcrNets(assets, workerThreads())
-                nets = loaded
-                OcrPipeline(
-                    loaded,
-                    assets.loadLabels("$MODEL_DIR/ocr/hani-labels.txt"),
-                    assets.loadLabels("$MODEL_DIR/ocr/latn-labels.txt"),
-                    OcrOptions(alternatives = alternatives),
-                ).also { pipeline = it }
-            }
-            val context = coroutineContext
-            active.recognize(image) { context.ensureActive() }
+    suspend fun <R> use(block: (T) -> R): R = mutex.withLock {
+        check(!closed) { "Recognizer is closed" }
+        try {
+            block(value ?: load().also { value = it })
+        } finally {
+            if (closed) releaseNow()
         }
     }
 
-    override fun close() {
-        // Waits for a running recognition to reach its end (or its next cancellation point).
-        kotlinx.coroutines.runBlocking {
-            mutex.withLock {
-                closed = true
-                pipeline = null
-                nets?.close()
-                nets = null
+    fun close() {
+        closed = true
+        if (mutex.tryLock()) {
+            try {
+                releaseNow()
+            } finally {
+                mutex.unlock()
             }
+        } else {
+            // A call is running: release once it has finished (it may also do so itself).
+            CoroutineScope(Dispatchers.Default).launch { mutex.withLock { releaseNow() } }
         }
+    }
+
+    private fun releaseNow() {
+        value?.let(release)
+        value = null
     }
 }
 
-internal class AndroidHandwritingRecognizer(private val context: Context) : HandwritingRecognizer {
-    private val mutex = Mutex()
-    private var net: LiteRtInkNet? = null
-    private var pipeline: InkPipeline? = null
-    private var closed = false
+internal class AndroidTextRecognizer(private val context: Context, private val alternatives: Int) : TextRecognizer {
+    private class Loaded(val nets: LiteRtOcrNets, val pipeline: OcrPipeline)
 
+    private val guarded = Guarded(
+        load = {
+            val assets = context.assets
+            val nets = LiteRtOcrNets(assets, workerThreads())
+            Loaded(
+                nets,
+                OcrPipeline(
+                    nets,
+                    assets.loadLabels("$MODEL_DIR/ocr/hani-labels.txt"),
+                    assets.loadLabels("$MODEL_DIR/ocr/latn-labels.txt"),
+                    OcrOptions(alternatives = alternatives),
+                ),
+            )
+        },
+        release = { it.nets.close() },
+    )
+
+    override suspend fun recognize(image: OcrImage): OcrResult = withContext(Dispatchers.Default) {
+        val context = coroutineContext
+        guarded.use { it.pipeline.recognize(image) { context.ensureActive() } }
+    }
+
+    override fun close() = guarded.close()
+}
+
+internal class AndroidHandwritingRecognizer(private val context: Context) : HandwritingRecognizer {
+    private class Loaded(val net: LiteRtInkNet, val pipeline: InkPipeline)
+
+    private val guarded = Guarded(
+        load = {
+            val assets = context.assets
+            val net = LiteRtInkNet(assets, workerThreads().coerceAtMost(2))
+            Loaded(net, InkPipeline(net, assets.loadLabels("$MODEL_DIR/ink/labels.txt")))
+        },
+        release = { it.net.close() },
+    )
+
+    // All three script models share the zh-Hani network; see InkModel.
     override suspend fun recognize(
         strokes: List<InkStroke>,
         writingArea: Pair<Float, Float>,
         model: InkModel,
         limit: Int,
     ): List<InkCandidate> = withContext(Dispatchers.Default) {
-        mutex.withLock {
-            check(!closed) { "HandwritingRecognizer is closed" }
-            val active = pipeline ?: run {
-                val assets = context.assets
-                val loaded = LiteRtInkNet(assets, workerThreads().coerceAtMost(2))
-                net = loaded
-                InkPipeline(loaded, assets.loadLabels("$MODEL_DIR/ink/labels.txt")).also { pipeline = it }
-            }
-            // All three scripts share the zh-Hani network; see InkModel.
-            active.recognize(strokes, limit)
-        }
+        guarded.use { it.pipeline.recognize(strokes, limit) }
     }
 
-    override fun close() {
-        kotlinx.coroutines.runBlocking {
-            mutex.withLock {
-                closed = true
-                pipeline = null
-                net?.close()
-                net = null
-            }
-        }
-    }
+    override fun close() = guarded.close()
 }

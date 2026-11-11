@@ -4,6 +4,7 @@ import com.szdict.recognition.ocr.Box
 import com.szdict.recognition.ocr.CtcDecoder
 import com.szdict.recognition.ocr.Geometry
 import com.szdict.recognition.ocr.Gray
+import com.szdict.recognition.ocr.Region
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -85,6 +86,42 @@ class PureLogicTest {
         val turned = src.rotate180()
         assertEquals(200, turned[0, 0])
         assertEquals(0, turned[7, 3])
+    }
+
+    @Test
+    fun fragmentsAndContinuationsAreFoldedIntoTheirLine() {
+        val line = Region(100.0, 50.0, 160.0, 30.0, 0.0, .9, proposals = 10)
+        val fullStop = Region(192.0, 55.0, 8.0, 10.0, 0.0, .8)
+        val otherRow = Region(100.0, 120.0, 160.0, 30.0, 0.0, .9, proposals = 10)
+        val absorbed = Geometry.absorbFragments(listOf(line, fullStop, otherRow))
+        assertEquals(2, absorbed.size)
+        val grown = absorbed.first { it.cy == 50.0 }
+        assertEquals(20.0, grown.cx - grown.w / 2, 1e-9)
+        assertEquals(196.0, grown.cx + grown.w / 2, 1e-9)
+
+        // Two pieces of one row that touch are one line; a piece across a gutter is not.
+        val left = Region(60.0, 50.0, 100.0, 30.0, 0.0, .9, proposals = 6)
+        val right = Region(165.0, 51.0, 100.0, 28.0, 0.0, .8, proposals = 6)
+        val acrossGutter = Region(400.0, 50.0, 100.0, 30.0, 0.0, .9, proposals = 6)
+        val joined = Geometry.joinCollinear(listOf(left, right, acrossGutter))
+        assertEquals(2, joined.size)
+        val row = joined.first { it.cx < 300 }
+        assertEquals(10.0, row.cx - row.w / 2, 1e-9)
+        assertEquals(215.0, row.cx + row.w / 2, 1e-9)
+        assertEquals(12, row.proposals)
+    }
+
+    @Test
+    fun aSmallRegionInsideALineNeverSuppressesTheLine() {
+        // Hysteresis lowers a long line's mean score below that of a full stop detected inside it.
+        val proposals = ArrayList<Region>()
+        for (i in 0 until 10) proposals.add(Region(20.0 + i * 16, 50.0, 32.0, 30.0, 0.0, if (i % 2 == 0) .9 else .4))
+        proposals.add(Region(150.0, 58.0, 6.0, 8.0, 0.0, .95))
+        val regions = Geometry.mergeProposals(proposals, strong = .65)
+        assertEquals(1, regions.size)
+        assertTrue(regions[0].w > 150)
+        // Weak proposals alone never make a line.
+        assertEquals(0, Geometry.mergeProposals(proposals.filter { it.score < .65 }, strong = .65).size)
     }
 
     @Test
