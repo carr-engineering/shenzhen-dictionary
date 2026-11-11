@@ -144,7 +144,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRuby(
             val color = if (toneColors && tone > 0) palette.tone(tone) else palette.muted
             val measured = measurer.measure(syllables[n], rubyStyle.copy(color = color), softWrap = false, maxLines = 1)
             val available = box.width + 2.dp.toPx()
-            val scale = if (measured.size.width > available) (available / measured.size.width).coerceAtLeast(0.72f) else 1f
+            val scale = if (measured.size.width > available) (available / measured.size.width).coerceAtLeast(0.6f) else 1f
             val w = measured.size.width * scale
             val x = box.center.x - w / 2f
             val y = box.top + 1.dp.toPx()
@@ -189,7 +189,7 @@ internal fun passageAnnotatedString(
         val end = segment.end.coerceIn(start, text.length)
         if (start == end || !segment.matched) continue
         // Constant spacing in ruby passages keeps room for readings and never reflows on toggle (GLB-120).
-        addStyle(SpanStyle(color = palette.fg, letterSpacing = if (ruby) 0.22.em else androidx.compose.ui.unit.TextUnit.Unspecified), start, end)
+        addStyle(SpanStyle(color = palette.fg, letterSpacing = if (ruby) 0.3.em else androidx.compose.ui.unit.TextUnit.Unspecified), start, end)
         if (toneColors && segment.toneColourable) {
             var i = start
             var n = 0
