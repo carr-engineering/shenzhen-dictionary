@@ -7,6 +7,7 @@ object Romanisation {
         'a' to "āáǎà", 'e' to "ēéěè", 'i' to "īíǐì", 'o' to "ōóǒò", 'u' to "ūúǔù", 'ü' to "ǖǘǚǜ",
         'A' to "ĀÁǍÀ", 'E' to "ĒÉĚÈ", 'I' to "ĪÍǏÌ", 'O' to "ŌÓǑÒ", 'U' to "ŪÚǓÙ", 'Ü' to "ǕǗǙǛ",
     )
+    private val NASALS = mapOf('m' to " \u1E3F  ", 'n' to " \u0144\u0148\u01F9", 'M' to " \u1E3E  ", 'N' to " \u0143\u0147\u01F8")
     private val COMBINING = charArrayOf('̄', '́', '̌', '̀')
 
     /**
@@ -31,10 +32,13 @@ object Romanisation {
         }
         if (idx < 0) idx = lower.indexOfLast { it in VOWELS }
         if (idx < 0) {
-            // Syllabic nasal: combining mark on the m or n.
+            // Syllabic nasal: the mark goes on the m or n — precomposed where Unicode has the letter
+            // (ḿ ń ň ǹ), otherwise as a combining diacritic.
             val n = lower.indexOfFirst { it == 'm' || it == 'n' }
             if (n < 0) return s
-            return s.substring(0, n + 1) + COMBINING[tone - 1] + s.substring(n + 1)
+            val composed = NASALS[s[n]]?.get(tone - 1)?.takeIf { it != ' ' }
+            return if (composed != null) s.substring(0, n) + composed + s.substring(n + 1)
+            else s.substring(0, n + 1) + COMBINING[tone - 1] + s.substring(n + 1)
         }
         val marked = MARKED[s[idx]]?.get(tone - 1) ?: return s
         return s.substring(0, idx) + marked + s.substring(idx + 1)

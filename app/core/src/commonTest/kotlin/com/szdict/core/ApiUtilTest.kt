@@ -162,7 +162,7 @@ class RomanisationTest {
         val cases = mapOf(
             "hao3" to "hǎo", "mei2" to "méi", "xie3" to "xiě", "lüe4" to "lüè", "lu:e4" to "lüè", "dou1" to "dōu", "gui4" to "guì",
             "liu2" to "liú", "duo1" to "duō", "jiong3" to "jiǒng", "nü3" to "nǚ", "nv3" to "nǚ", "ma5" to "ma", "Ou1" to "Ōu",
-            "m2" to "ḿ", "n3" to "ň", "ng2" to "ńg", "r5" to "r", "xx" to "xx",
+            "m2" to "\u1E3F", "n3" to "\u0148", "ng2" to "\u0144g", "m4" to "m\u0300", "n1" to "n\u0304", "ng4" to "\u01F9g", "r5" to "r", "xx" to "xx",
         )
         for ((numbered, marked) in cases) assertEquals(marked, Romanisation.pinyinSyllableToMarked(numbered), numbered)
         assertEquals("nǐ hǎo", Romanisation.pinyinToMarked("ni3 hao3"))
