@@ -37,6 +37,9 @@ class CameraHandle {
     /** False when no camera could be bound (CAM-015). */
     var available: Boolean by mutableStateOf(true)
 
+    /** The camera is open: the shutter works. */
+    var ready: Boolean by mutableStateOf(false)
+
     /** The active camera has a flash unit (CAM-037). */
     var hasFlash: Boolean by mutableStateOf(false)
 
@@ -47,7 +50,7 @@ class CameraHandle {
     var shutter: (() -> Unit)? = null
 
     fun takePicture() {
-        if (!capturing) shutter?.invoke()
+        if (ready && !capturing) shutter?.invoke()
     }
 }
 

@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +82,9 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
     val palette = LocalDictionaryPalette.current
     val density = LocalDensity.current
     val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // HW-021: the soft keyboard is never shown together with the sheet, even one left over from before.
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(keyboard) { keyboard?.hide() }
 
     Surface(
         modifier = modifier

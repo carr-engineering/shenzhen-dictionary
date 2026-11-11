@@ -191,27 +191,37 @@ private fun ReviewHeader(holder: OcrStateHolder, pickers: ImagePickers, onHeight
     val palette = LocalDictionaryPalette.current
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val camera = holder.capture?.source == CaptureSource.CAMERA
-    Surface(Modifier.fillMaxWidth().onSizeChanged { onHeight(it.height) }, color = palette.bg.copy(alpha = 0.88f)) {
+    var wide by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    Surface(
+        Modifier.fillMaxWidth().onSizeChanged {
+            onHeight(it.height)
+            wide = with(density) { it.width.toDp() } >= 440.dp
+        },
+        color = palette.bg.copy(alpha = 0.88f),
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(start = 4.dp, top = statusBarTop + 8.dp, end = 16.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.weight(1f, fill = false)) {
+            // The primary action keeps its label where there is room; on a narrow phone the gallery
+            // variant, which shares the row with two more actions, is its icon alone.
+            val labelled = camera || wide
+            Box {
                 var menu by remember { mutableStateOf(false) }
-                TextButton(onClick = { if (camera) holder.backToInput() else menu = true }) {
-                    Icon(
-                        if (camera) Icons.Rounded.Refresh else Icons.Rounded.PhotoLibrary,
-                        contentDescription = null,
-                        tint = palette.accent,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        strings.text(if (camera) "Retake" else "Pick new image"),
-                        color = palette.accent,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                val label = strings.text(if (camera) "Retake" else "Pick new image")
+                val icon = if (camera) Icons.Rounded.Refresh else Icons.Rounded.PhotoLibrary
+                val onClick = { if (camera) { holder.backToInput(); Unit } else menu = true }
+                if (labelled) {
+                    TextButton(onClick = onClick) {
+                        Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(label, color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                } else {
+                    IconButton(onClick = onClick, modifier = Modifier.padding(start = 4.dp)) {
+                        Icon(icon, contentDescription = label, tint = palette.accent, modifier = Modifier.size(22.dp))
+                    }
                 }
                 PickMenu(menu, { menu = false }, pickers)
             }

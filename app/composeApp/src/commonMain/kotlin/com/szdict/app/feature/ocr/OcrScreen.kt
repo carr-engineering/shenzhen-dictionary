@@ -290,7 +290,7 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
                 if (live) {
                     FilledIconButton(
                         onClick = handle::takePicture,
-                        enabled = !capturing,
+                        enabled = handle.ready && !capturing,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = palette.accent,
                             contentColor = palette.onAccent,

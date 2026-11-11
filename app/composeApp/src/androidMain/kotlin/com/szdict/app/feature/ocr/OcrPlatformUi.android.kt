@@ -203,19 +203,21 @@ actual fun CameraPreview(
             handle.shutter = null
             handle.capturing = false
             handle.hasFlash = false
+            handle.ready = false
             controller.unbind()
         }
     }
 
     // CAM-037 / CAM-038: the flash unit is known once the camera is open; the session's state is re-applied on every bind.
     LaunchedEffect(controller) {
-        repeat(40) {
+        while (true) {
             val info = controller.cameraInfo
             if (info != null) {
                 handle.hasFlash = info.hasFlashUnit()
+                handle.ready = true
                 return@LaunchedEffect
             }
-            delay(250)
+            delay(200)
         }
     }
     LaunchedEffect(controller, flash) {
