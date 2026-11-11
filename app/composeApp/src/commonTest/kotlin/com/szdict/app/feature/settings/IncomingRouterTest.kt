@@ -5,6 +5,7 @@ import com.szdict.app.AppSession
 import com.szdict.app.Destination
 import com.szdict.app.DetailRoute
 import com.szdict.app.feature.hsk.HskStates
+import com.szdict.app.feature.reading.ReadingInbox
 import com.szdict.app.integration.IncomingAction
 import com.szdict.app.integration.IncomingIntentData
 import com.szdict.app.integration.IncomingIntents
@@ -100,7 +101,7 @@ class IncomingRouterTest {
     }
 
     private fun drain() {
-        IncomingIntents.consumeText(); IncomingIntents.consumeImageUri(); IncomingIntents.consumeRoute()
+        ReadingInbox.take(); IncomingIntents.consumeImageUri(); IncomingIntents.consumeRoute()
     }
 
     @Test
@@ -109,15 +110,14 @@ class IncomingRouterTest {
         val session = session()
         assertFalse(IncomingRouter.dispatch(session, IncomingAction.ReadText("你好世界")))
         assertEquals(Destination.READING, session.destination)
-        assertEquals("你好世界", IncomingIntents.pendingText.value)
-        assertEquals("你好世界", IncomingIntents.consumeText())
-        assertNull(IncomingIntents.consumeText())   // SET-055: consumed once
+        assertEquals("你好世界", (ReadingInbox.take() as ReadingInbox.Delivery.SharedText).text)
+        assertNull(ReadingInbox.take())   // SET-055: consumed once
 
         // SET-056: blank text opens Reading with the draft unchanged.
         session.selectDestination(Destination.SEARCH)
         IncomingRouter.dispatch(session, IncomingAction.ReadText("  "))
         assertEquals(Destination.READING, session.destination)
-        assertNull(IncomingIntents.pendingText.value)
+        assertNull(ReadingInbox.take())
 
         IncomingRouter.dispatch(session, IncomingAction.ScanImage("content://media/7"))
         assertEquals(Destination.OCR, session.destination)
@@ -127,9 +127,9 @@ class IncomingRouterTest {
         // SET-051: the clipboard shortcut defers its read until the window has focus.
         assertTrue(IncomingRouter.dispatch(session, IncomingAction.ReadClipboard))
         assertEquals(Destination.READING, session.destination)
-        assertNull(IncomingIntents.pendingText.value)
-        IncomingRouter.deliverClipboard(session.env.clipboard.readText())
-        assertEquals("剪贴板", IncomingIntents.consumeText())
+        assertNull(ReadingInbox.take())
+        IncomingRouter.readClipboardNow()
+        assertEquals(ReadingInbox.Delivery.ReadClipboard, ReadingInbox.take())
     }
 
     @Test

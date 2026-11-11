@@ -40,7 +40,7 @@ object AndroidIntegrations {
     fun onWindowFocus(session: AppSession) {
         if (!clipboardPending) return
         clipboardPending = false
-        IncomingRouter.deliverClipboard(session.env.clipboard.readText())
+        IncomingRouter.readClipboardNow()
     }
 
     private fun handle(activity: Activity, session: AppSession, intent: Intent?) {

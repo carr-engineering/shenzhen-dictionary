@@ -3,6 +3,7 @@ package com.szdict.app.integration
 import com.szdict.app.AppSession
 import com.szdict.app.Destination
 import com.szdict.app.feature.hsk.HskStates
+import com.szdict.app.feature.reading.ReadingInbox
 import com.szdict.core.api.DictMode
 import com.szdict.core.api.Route
 import com.szdict.core.api.Routes
@@ -15,16 +16,13 @@ import kotlinx.coroutines.launch
  * Process-level inbox for content and navigation that arrive from outside the app: launcher
  * shortcuts (SET-050), share targets (SET-054…056), App Links (GLB-111) and the widget (SET-064).
  * The platform layer delivers here; each feature observes its own flow and **consumes** the value
- * once (SET-052, SET-055), so recreation or a later Back never re-applies it. Shared text and
- * image URIs are never logged (GLB-092).
+ * once (SET-052, SET-055), so recreation or a later Back never re-applies it. Shared image URIs
+ * are never logged (GLB-092). Text for Reading goes to [ReadingInbox], the Reading feature's own
+ * inbox, not through here.
  */
 object IncomingIntents {
-    private val _pendingText = MutableStateFlow<String?>(null)
     private val _pendingImageUri = MutableStateFlow<String?>(null)
     private val _pendingRoute = MutableStateFlow<Route?>(null)
-
-    /** Text for Reading (shared text, `Look up in…`, clipboard shortcut): replaces the draft (TXT-080). */
-    val pendingText: StateFlow<String?> = _pendingText.asStateFlow()
 
     /** A shared image (content URI string) for the OCR destination's gallery-review mode (SET-054). */
     val pendingImageUri: StateFlow<String?> = _pendingImageUri.asStateFlow()
@@ -37,12 +35,10 @@ object IncomingIntents {
      */
     val pendingRoute: StateFlow<Route?> = _pendingRoute.asStateFlow()
 
-    fun deliverText(text: String) { if (text.isNotBlank()) _pendingText.value = text }
     fun deliverImage(uri: String) { _pendingImageUri.value = uri }
     fun deliverRoute(route: Route) { _pendingRoute.value = route }
 
-    /** Returns the pending text and clears it; null when there is none. */
-    fun consumeText(): String? = _pendingText.value.also { _pendingText.value = null }
+    /** Returns the pending image URI and clears it; null when there is none. */
     fun consumeImageUri(): String? = _pendingImageUri.value.also { _pendingImageUri.value = null }
     fun consumeRoute(): Route? = _pendingRoute.value.also { _pendingRoute.value = null }
 
@@ -121,14 +117,14 @@ object IncomingRouter {
 
     /**
      * Applies [action] to the session. Returns true when the clipboard must be read once the
-     * window has focus (the caller then calls [deliverClipboard]).
+     * window has focus (the caller then calls [readClipboardNow]).
      */
     fun dispatch(session: AppSession, action: IncomingAction): Boolean {
         when (action) {
             IncomingAction.None -> return false
             is IncomingAction.ReadText -> {
                 show(session, Destination.READING)
-                IncomingIntents.deliverText(action.text)   // blank text is ignored (SET-056)
+                ReadingInbox.deliver(action.text)   // blank text only opens Reading (SET-056)
             }
             IncomingAction.ReadClipboard -> {
                 show(session, Destination.READING)
@@ -143,10 +139,8 @@ object IncomingRouter {
         return false
     }
 
-    /** Clipboard text for the `Read clipboard` shortcut, read by the platform while focused. */
-    fun deliverClipboard(text: String?) {
-        if (!text.isNullOrBlank()) IncomingIntents.deliverText(text)
-    }
+    /** The `Read clipboard` shortcut, once the window has focus: Reading pastes as its Paste button would. */
+    fun readClipboardNow() = ReadingInbox.readClipboard()
 
     private fun open(session: AppSession, route: Route, fromWidget: Boolean) {
         when (route) {
