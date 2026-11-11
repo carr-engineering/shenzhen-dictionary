@@ -1,10 +1,12 @@
 package com.szdict.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.os.LocaleListCompat
+import com.szdict.app.integration.AndroidIntegrations
 import com.szdict.app.platform.AndroidAudioPlayer
 import com.szdict.app.platform.AndroidClipboard
 import com.szdict.app.platform.AndroidLinkOpener
@@ -57,12 +59,23 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         session = AppGraph.session(this)
+        // Shortcuts, share targets, App Links and the widget link (SET-050…064), each consumed once.
+        AndroidIntegrations.onCreate(this, session, fresh = savedInstanceState == null)
         setContent { App(session) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        AndroidIntegrations.onNewIntent(this, session, intent)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) AppGraph.clipboard?.refresh()   // TXT-053: clipboard only while focused
+        if (hasFocus) {
+            AppGraph.clipboard?.refresh()   // TXT-053: clipboard only while focused
+            AndroidIntegrations.onWindowFocus(session)   // SET-051: the clipboard shortcut reads now
+        }
     }
 
     override fun onStop() {

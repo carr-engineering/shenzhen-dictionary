@@ -37,6 +37,7 @@ kotlin {
         androidMain.dependencies {
             implementation("androidx.activity:activity-compose:1.12.2")
             implementation("androidx.datastore:datastore-preferences:1.2.1")
+            implementation("androidx.glance:glance-appwidget:1.1.1")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
         }
     }

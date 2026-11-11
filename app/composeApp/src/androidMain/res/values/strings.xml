@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SZ Dict</string>
-    <string name="read_clipboard_shortcut">Read Clipboard</string>
-    <string name="read_clipboard_shortcut_long">Open clipboard reader</string>
+    <string name="read_clipboard_shortcut">Read clipboard</string>
+    <string name="read_clipboard_shortcut_long">Read the clipboard text</string>
     <string name="open_camera_shortcut">Scan Chinese</string>
-    <string name="open_camera_shortcut_long">Camera OCR</string>
+    <string name="open_camera_shortcut_long">Scan Chinese with the camera</string>
+    <string name="open_voice_shortcut">Voice</string>
+    <string name="open_voice_shortcut_long">Listen and transcribe</string>
+    <string name="process_text_label">Look up in Shenzhen Dictionary</string>
     <string name="hsk_widget_name">HSK word of the day</string>
     <string name="hsk_widget_description">A daily word from your selected HSK levels</string>
     <string name="hsk_widget_loading">Loading today’s word…</string>

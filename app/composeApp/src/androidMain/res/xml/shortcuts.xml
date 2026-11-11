@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static launcher shortcuts (SET-050…053). Destinations are opened through the shared route
+     table (GLB-110); the clipboard shortcut has no route, so it uses an app action. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="read_clipboard"
+        android:enabled="true"
+        android:icon="@drawable/ic_read_clipboard"
+        android:shortcutShortLabel="@string/read_clipboard_shortcut"
+        android:shortcutLongLabel="@string/read_clipboard_shortcut_long">
+        <intent
+            android:action="com.szdict.app.action.READ_CLIPBOARD"
+            android:targetPackage="com.szdict.app"
+            android:targetClass="com.szdict.app.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="open_camera"
+        android:enabled="true"
+        android:icon="@drawable/ic_open_camera"
+        android:shortcutShortLabel="@string/open_camera_shortcut"
+        android:shortcutLongLabel="@string/open_camera_shortcut_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="https://szdict.com/ocr"
+            android:targetPackage="com.szdict.app"
+            android:targetClass="com.szdict.app.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="open_voice"
+        android:enabled="true"
+        android:icon="@drawable/ic_open_voice"
+        android:shortcutShortLabel="@string/open_voice_shortcut"
+        android:shortcutLongLabel="@string/open_voice_shortcut_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="https://szdict.com/voice"
+            android:targetPackage="com.szdict.app"
+            android:targetClass="com.szdict.app.MainActivity" />
+    </shortcut>
+</shortcuts>
