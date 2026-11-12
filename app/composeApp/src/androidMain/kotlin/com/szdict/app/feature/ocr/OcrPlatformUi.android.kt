@@ -37,6 +37,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.mimeTypes
@@ -337,5 +341,30 @@ actual fun rememberSaveAction(save: () -> Unit): () -> Unit {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !context.hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
             runCatching { launcher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) }.onFailure { action() }
         } else action()
+    }
+}
+
+/** A mouse or trackpad attached to the device: Ctrl/Cmd + wheel zooms, the wheel alone pans. */
+@Composable
+actual fun Modifier.wheelGestures(enabled: Boolean, onZoom: (position: Offset, factor: Float) -> Unit, onPan: (Offset) -> Unit): Modifier {
+    val zoom by rememberUpdatedState(onZoom)
+    val pan by rememberUpdatedState(onPan)
+    if (!enabled) return this
+    return pointerInput(Unit) {
+        val notch = 48.dp.toPx()
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent()
+                if (event.type != PointerEventType.Scroll) continue
+                val change = event.changes.firstOrNull() ?: continue
+                val delta = change.scrollDelta
+                if (event.keyboardModifiers.isCtrlPressed || event.keyboardModifiers.isMetaPressed) {
+                    zoom(change.position, wheelZoomFactor(delta.y * 30f))
+                } else {
+                    pan(Offset(-delta.x * notch, -delta.y * notch))
+                }
+                change.consume()
+            }
+        }
     }
 }

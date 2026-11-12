@@ -98,15 +98,17 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
+import com.szdict.app.ImagePaneMaxWidth
 import com.szdict.app.feature.conversion.ScriptConversionButton
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.PassageText
+import com.szdict.app.ui.kit.PronunciationToggle
 import com.szdict.app.ui.kit.SegmentedPillRow
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.recognition.Quad
 
-/** Review of a capture (CAM-060…CAM-070): header, Image / Text views, and the alternatives bar. */
+/** Review of a capture (CAM-060…CAM-070): header and the Image / Text views. */
 @Composable
 internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickers: ImagePickers) {
     val strings = appStrings()
@@ -131,12 +133,16 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickers: I
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    // On a wide window the review keeps a comfortable width, centred (GLB-067).
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    Column(Modifier.widthIn(max = ImagePaneMaxWidth).fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (holder.viewMode) {
                 OcrViewMode.IMAGE -> OcrImageViewer(
                     holder = holder,
                     capture = capture,
+                    // A page over the destination takes the wheel for itself.
+                    wheelEnabled = session.routes.isEmpty(),
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(start = 16.dp, top = headerHeight + 8.dp, end = 16.dp, bottom = 12.dp)
@@ -190,9 +196,9 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickers: I
                 )
             }
         }
-        AlternativesBar(holder)
         // The content behind the word sheet is inset by exactly its visible height (TXT-044).
         Spacer(Modifier.height(LocalSheetInset.current))
+    }
     }
 }
 
@@ -333,7 +339,7 @@ private val TapSlop = 24.dp
  * The overlay lives inside the zoomed layer, so it only deals with the fit transform.
  */
 @Composable
-private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, modifier: Modifier = Modifier) {
+private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEnabled: Boolean, modifier: Modifier = Modifier) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val density = LocalDensity.current
@@ -361,6 +367,16 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, modifier
             .background(Color.Black)
             .clipToBounds()
             .onSizeChanged { container = it }
+            // Trackpad pinch and Ctrl/Cmd + wheel zoom about the pointer; two-finger scroll pans (CAM-063).
+            .wheelGestures(
+                enabled = wheelEnabled && viewport.valid,
+                onZoom = { position, factor ->
+                    val (zoom, translation) = viewport.transform(holder.zoom, holder.translation, position, Offset.Zero, factor)
+                    holder.zoom = zoom
+                    holder.translation = translation
+                },
+                onPan = { pan -> holder.translation = viewport.clamp(holder.translation + pan, holder.zoom) },
+            )
             .pointerInput(viewport) {
                 detectTransformGestures { centroid, pan, gestureZoom, _ ->
                     if (!viewport.valid) return@detectTransformGestures
@@ -486,6 +502,8 @@ private fun OcrTextList(session: AppSession, holder: OcrStateHolder, topPadding:
                             itemVerticalAlignment = Alignment.CenterVertically,
                         ) {
                             SentenceActions(holder, line = null, playing = playing != null && playing == holder.playbackKey(null))
+                            // The readings above the lines below: this view only.
+                            PronunciationToggle(session)
                             // CAM-135: the split button applies to the whole capture.
                             ScriptConversionButton(
                                 selection = holder.conversion,
@@ -568,13 +586,14 @@ private fun SentenceActions(holder: OcrStateHolder, line: Int?, playing: Boolean
 }
 
 /**
- * The other characters that could stand at the selected position, best first, in a slim bar that
- * rides directly above the word sheet. The current reading is filled; picking another replaces the
- * character in its line (the sheet refreshes on the same position), and picking the recognised
- * reading — marked with a dot — undoes the correction.
+ * The other characters that could stand at the selected position, best first, as the first row of
+ * the word sheet (the sheet's header slot). The current reading is filled; picking another
+ * replaces the character in its line (the sheet refreshes on the same position), and picking the
+ * recognised reading — marked with a dot — undoes the correction. Absent when there is nothing to
+ * choose from and while the Text view shows converted text.
  */
 @Composable
-private fun AlternativesBar(holder: OcrStateHolder) {
+internal fun AlternativesRow(holder: OcrStateHolder) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     // Corrections address the original lines; while the Text view shows converted text there is nothing to pick.
@@ -594,52 +613,42 @@ private fun AlternativesBar(holder: OcrStateHolder) {
         enter = fadeIn(tween(140)) + expandVertically(tween(160)),
         exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
     ) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Surface(
-                modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = palette.panel,
-                border = BorderStroke(1.dp, palette.border),
-                shadowElevation = 2.dp,
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                strings.text("Could also be"),
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.muted,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(10.dp))
+            LazyRow(
+                state = rowState,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp, end = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        strings.text("Could also be"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = palette.muted,
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    LazyRow(
-                        state = rowState,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp, end = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                itemsIndexed(shown, key = { _, choice -> choice.text }) { index, choice ->
+                    val label = strings.text("Alternative {0}, {1} of {2}", choice.text, index + 1, shown.size) +
+                        if (choice.recognised) ", " + strings.text("recognized") else ""
+                    Surface(
+                        onClick = { shownRef?.let { holder.pickAlternative(it, choice.text) } },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (choice.current) palette.accent else palette.bgSoft,
+                        contentColor = if (choice.current) palette.onAccent else palette.fg,
+                        border = if (choice.current) null else BorderStroke(1.dp, palette.border),
+                        modifier = Modifier.size(40.dp).semantics {
+                            contentDescription = label
+                            selected = choice.current
+                            role = Role.RadioButton
+                        },
                     ) {
-                        itemsIndexed(shown, key = { _, choice -> choice.text }) { index, choice ->
-                            val label = strings.text("Alternative {0}, {1} of {2}", choice.text, index + 1, shown.size) +
-                                if (choice.recognised) ", " + strings.text("recognized") else ""
-                            Surface(
-                                onClick = { shownRef?.let { holder.pickAlternative(it, choice.text) } },
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (choice.current) palette.accent else palette.bgSoft,
-                                contentColor = if (choice.current) palette.onAccent else palette.fg,
-                                border = if (choice.current) null else BorderStroke(1.dp, palette.border),
-                                modifier = Modifier.size(40.dp).semantics {
-                                    contentDescription = label
-                                    selected = choice.current
-                                    role = Role.RadioButton
-                                },
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(choice.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium, maxLines = 1)
-                                    if (choice.recognised) {
-                                        Box(
-                                            Modifier.align(Alignment.TopEnd).padding(4.dp).size(5.dp)
-                                                .background(if (choice.current) palette.onAccent else palette.accent, CircleShape),
-                                        )
-                                    }
-                                }
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(choice.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium, maxLines = 1)
+                            if (choice.recognised) {
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).padding(4.dp).size(5.dp)
+                                        .background(if (choice.current) palette.onAccent else palette.accent, CircleShape),
+                                )
                             }
                         }
                     }

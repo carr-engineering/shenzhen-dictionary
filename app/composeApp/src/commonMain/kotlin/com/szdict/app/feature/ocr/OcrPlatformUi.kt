@@ -86,6 +86,19 @@ expect fun rememberImagePickers(onPicked: (String) -> Unit): ImagePickers
 @Composable
 expect fun Modifier.imageDropTarget(onHover: (Boolean) -> Unit, onDrop: (String?) -> Unit): Modifier
 
+/**
+ * Wheel and trackpad input over the element, for a zoomable image: a pinch on a trackpad (browsers
+ * deliver it as wheel events with Ctrl held) and Ctrl/Cmd + wheel call [onZoom] with the pointer
+ * position inside the element and a scale factor; a plain two-finger scroll or wheel calls [onPan]
+ * with the movement of the content in pixels. On Web the browser's own page zoom and scroll are
+ * suppressed while the pointer is over the element. Nothing is delivered while [enabled] is false.
+ */
+@Composable
+expect fun Modifier.wheelGestures(enabled: Boolean, onZoom: (position: Offset, factor: Float) -> Unit, onPan: (Offset) -> Unit): Modifier
+
+/** Scale factor of one wheel event: a pinch sends many small deltas, a mouse notch one large (clamped) one. */
+fun wheelZoomFactor(deltaY: Float): Float = kotlin.math.exp(-deltaY.coerceIn(-30f, 30f) * 0.01f)
+
 /** Wraps the save action with whatever the platform must ask first (Android ≤ 9: storage permission, CAM-075). */
 @Composable
 expect fun rememberSaveAction(save: () -> Unit): () -> Unit

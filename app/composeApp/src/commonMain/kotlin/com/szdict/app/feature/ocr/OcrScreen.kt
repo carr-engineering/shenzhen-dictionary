@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
 import com.szdict.app.Destination
+import com.szdict.app.ImagePaneMaxWidth
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import kotlinx.coroutines.delay
@@ -239,7 +240,8 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
         val ratio = if (portrait) 3f / 4f else 4f / 3f
         val availableWidth = maxWidth - 40.dp
         val availableHeight = maxHeight - 56.dp
-        val frameWidth = minOf(availableWidth, availableHeight * ratio)
+        // On a wide, tall window the frame stops at the width the review uses (GLB-067).
+        val frameWidth = minOf(availableWidth, availableHeight * ratio, ImagePaneMaxWidth)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 Modifier

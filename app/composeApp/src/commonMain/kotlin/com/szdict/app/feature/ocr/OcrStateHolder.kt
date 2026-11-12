@@ -1,6 +1,7 @@
 package com.szdict.app.feature.ocr
 
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -537,6 +538,9 @@ class OcrStateHolder(
         open(current, current.lineStart(line) + offset)
     }
 
+    /** The alternatives of the selected character, shown by the word sheet under its header. */
+    private val alternativesRow: @Composable () -> Unit = { AlternativesRow(this) }
+
     private fun open(target: ReviewText, offset: Int) {
         // CAM-057: taps are ignored until the analysis matches the current dataset.
         if (busy && target.passage.mode != session.mode) return
@@ -547,6 +551,7 @@ class OcrStateHolder(
                 offset = offset,
                 mode = target.passage.mode,
                 onSelectionChanged = { moved -> onStepped(target, moved) },
+                headerExtra = alternativesRow,
             ),
         )
     }

@@ -407,3 +407,41 @@ actual fun Modifier.imageDropTarget(onHover: (Boolean) -> Unit, onDrop: (String?
 /** A download needs no permission. */
 @Composable
 actual fun rememberSaveAction(save: () -> Unit): () -> Unit = save
+
+// ---------------------------------------------------------------- wheel and trackpad over the review image
+
+// Listens before the page does (capture, not passive): a wheel event the element takes is kept from
+// the browser, whose default for a pinch or Ctrl/Cmd + wheel is to zoom the whole page. Deltas are
+// normalised to CSS pixels.
+private fun jsWheelTarget(onWheel: (Double, Double, Double, Double, Boolean) -> Boolean): JsAny = js(
+    """(() => {
+        const handler = (event) => {
+            const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
+            if (onWheel(event.clientX, event.clientY, event.deltaX * unit, event.deltaY * unit, event.ctrlKey || event.metaKey)) event.preventDefault();
+        };
+        window.addEventListener('wheel', handler, { capture: true, passive: false });
+        return () => window.removeEventListener('wheel', handler, { capture: true });
+    })()"""
+)
+
+@Composable
+actual fun Modifier.wheelGestures(enabled: Boolean, onZoom: (position: Offset, factor: Float) -> Unit, onPan: (Offset) -> Unit): Modifier {
+    val zoom by rememberUpdatedState(onZoom)
+    val pan by rememberUpdatedState(onPan)
+    val active by rememberUpdatedState(enabled)
+    val density = LocalDensity.current.density
+    val scale by rememberUpdatedState(density)
+    var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    DisposableEffect(Unit) {
+        val remove = jsWheelTarget { clientX, clientY, deltaX, deltaY, zooming ->
+            // The canvas fills the page: CSS pixels times the density are its own pixels.
+            val point = Offset((clientX * scale).toFloat(), (clientY * scale).toFloat())
+            if (!active || !bounds.contains(point)) return@jsWheelTarget false
+            if (zooming) zoom(point - bounds.topLeft, wheelZoomFactor(deltaY.toFloat()))
+            else pan(Offset(-(deltaX * scale).toFloat(), -(deltaY * scale).toFloat()))
+            true
+        }
+        onDispose { jsInvoke(remove) }
+    }
+    return onGloballyPositioned { bounds = it.boundsInWindow() }
+}
