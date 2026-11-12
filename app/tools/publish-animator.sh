@@ -1,10 +1,12 @@
 #!/bin/sh
-# Publishes the Android + JVM + Wasm (browser) + Kotlin Multiplatform root publications of
+# Publishes the Android + JVM + Wasm (browser) + iOS (arm64 device and Apple-silicon simulator) +
+# Kotlin Multiplatform root publications of
 # shenzhen-hanzi-animator 0.1.0 into app/local-maven/ (gitignored; declared as a repository in app/settings.gradle.kts).
 #
 # The animator build already supports an extra publishing repository through the Gradle property
 # publicationTestRepositoryUrl (repository name "IntegrationSmoke"), so no tracked file of that
-# repository is touched. iOS / JS publications are not built (no Xcode needed).
+# repository is touched. The JS publication is not built. The iOS publications need Xcode (klib
+# compilation only); pass ANIMATOR_SKIP_IOS=1 to leave them out on a machine without it.
 #
 # Usage: app/tools/publish-animator.sh [path-to-shenzhen_hanzi_animator_kmp]
 set -eu
@@ -13,9 +15,11 @@ ANIMATOR_DIR="${1:-$APP_DIR/../../shenzhen_hanzi_animator_kmp}"
 REPO="$APP_DIR/local-maven"
 mkdir -p "$REPO"
 
+PUBLICATIONS="Android Jvm WasmJs KotlinMultiplatform"
+if [ "${ANIMATOR_SKIP_IOS:-0}" != "1" ]; then PUBLICATIONS="$PUBLICATIONS IosArm64 IosSimulatorArm64"; fi
 TASKS=""
 for module in core codec data bundled-data library material3; do
-  for publication in Android Jvm WasmJs KotlinMultiplatform; do
+  for publication in $PUBLICATIONS; do
     TASKS="$TASKS :$module:publish${publication}PublicationToIntegrationSmokeRepository"
   done
 done

@@ -38,8 +38,30 @@ val generateWebBuild by tasks.registering {
     }
 }
 
+// The app version for the iOS build (also CFBundleShortVersionString, see iosApp/Config.xcconfig).
+val generateIosBuild by tasks.registering {
+    val version = appVersionName
+    val dir = layout.buildDirectory.dir("generated/iosBuild/kotlin")
+    inputs.property("version", version)
+    outputs.dir(dir)
+    doLast {
+        val file = dir.get().file("com/szdict/app/IosBuild.kt").asFile
+        file.parentFile.mkdirs()
+        file.writeText("package com.szdict.app\n\ninternal object IosBuild {\n    const val VERSION_NAME = \"$version\"\n}\n")
+    }
+}
+
 kotlin {
     androidTarget { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+
+    // iOS (PROD-020): a static framework hosted by the Xcode project in ../iosApp, whose first build
+    // phase runs `:composeApp:embedAndSignAppleFrameworkForXcode`.
+    listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
+        target.binaries.framework {
+            baseName = "ComposeApp"
+            isStatic = true
+        }
+    }
 
     // Web (PROD-020): Compose on a canvas; `wasmJsBrowserDevelopmentRun` serves http://localhost:8081.
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
@@ -89,6 +111,11 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-browser:0.5.0")
             // SQLite compiled to WebAssembly, run by the store worker (ARCH-026); copied by stageWebSqlite.
             implementation(npm("@sqlite.org/sqlite-wasm", "3.54.1-build1"))
+        }
+        iosMain { kotlin.srcDir(generateIosBuild) }
+        iosMain.dependencies {
+            // Voice destination: sherpa-onnx through its C API (ARCH-095).
+            implementation(project(":speech"))
         }
         androidMain.dependencies {
             // Voice destination: sherpa-onnx engine and the bundled speech model (ARCH-095).
@@ -178,6 +205,40 @@ val stageOpenccData by tasks.registering(Sync::class) {
 android.sourceSets.getByName("main").assets.srcDir(openccAssetsDir)
 android.sourceSets.getByName("test").resources.srcDir(openccAssetsDir)
 tasks.named("preBuild") { dependsOn(stageOpenccData) }
+
+// ---- iOS bundle assets (ARCH-141) ----
+// Everything the iOS app reads in place from its bundle, staged into one directory that the Xcode
+// project copies as the folder `assets/` (never committed): `data/` (datasets, packs, recorded
+// audio), `opencc/`, `strokes/` + `licenses/` (the animator's iOS stroke data), `models/` (OCR and
+// handwriting graphs) and, when tools/fetch-voice-model.sh was run, `voice-model/`.
+val strokeIosData by configurations.creating {
+    isTransitive = false
+    isCanBeConsumed = false
+}
+dependencies { add(strokeIosData.name, "engineering.carr:shenzhen-hanzi-animator-bundled-data:0.1.0:ios-data@zip") }
+val iosAssetsDir = layout.buildDirectory.dir("ios/assets")
+val stageIosAssets by tasks.registering(Sync::class) {
+    from(rootProject.file("../pipeline/out")) {
+        include("mandarin.db", "mandarin-lm.db", "cantonese.db", "cantonese-lm.db")
+        include("mandarin-widget.json", "cantonese-widget.json")
+        include("packs/**")
+        exclude("packs/packs-report.json")
+        into("data")
+    }
+    from(stageOpenccData)
+    from({ strokeIosData.files.map { zipTree(it) } }) { include("strokes/**", "licenses/**") }
+    from(project(":recognition").file("src/androidMain/assets/models")) {
+        include("ocr/*.tflite", "ocr/*-labels.txt", "ink/*.tflite", "ink/labels.txt", "ink/script-classes.txt")
+        into("models")
+    }
+    // The voice model is bundled when present (VOICE-095: without it Voice shows its unavailable state).
+    from(project(":voice").file("src/main/assets/voice-model")) {
+        include("encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt")
+        into("voice-model")
+    }
+    into(iosAssetsDir)
+}
+tasks.matching { it.name == "embedAndSignAppleFrameworkForXcode" }.configureEach { dependsOn(stageIosAssets) }
 
 // ---- Web static files (ARCH-143, ARCH-145) ----
 // `data/` is the pipeline output with a manifest of sizes and content tags: the store worker keeps
@@ -613,6 +674,29 @@ $body</main>
         )
     }
 }
+// The iOS app icon (1024 px, full square: iOS masks it), drawn from the same vectors. Run once after
+// the launcher drawables change: `./gradlew :composeApp:generateIosAppIcon`; the PNG is committed.
+val generateIosAppIcon by tasks.registering {
+    val drawables = layout.projectDirectory.dir("src/androidMain/res/drawable")
+    val iconForeground = drawables.file("ic_launcher_foreground.xml")
+    val iconBackground = drawables.file("ic_launcher_background.xml")
+    val target = rootProject.layout.projectDirectory.file("iosApp/SZDict/Assets.xcassets/AppIcon.appiconset/icon-1024.png")
+    inputs.files(iconForeground, iconBackground)
+    outputs.file(target)
+    doLast {
+        System.setProperty("java.awt.headless", "true")
+        val icon = WebIcon(readVectorDrawable(iconForeground.asFile), readVectorDrawable(iconBackground.asFile), markSize = 0.80, corner = 0.0)
+        val file = target.asFile
+        file.parentFile.mkdirs()
+        icon.png(1024, file)
+        // App Store icons must be opaque: flatten onto the background's own pixels (already full square).
+        val image = ImageIO.read(file)
+        val opaque = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_RGB)
+        opaque.createGraphics().apply { drawImage(image, 0, 0, null); dispose() }
+        ImageIO.write(opaque, "png", file)
+    }
+}
+
 tasks.named("stageWebStatic") {
     dependsOn(stageWebPwa)
     // `cjk/fonts/` holds the CJK font subsets when tools/stage-web-fonts.sh was run (ARCH-005); empty otherwise.
