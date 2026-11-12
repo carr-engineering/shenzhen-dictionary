@@ -4,7 +4,6 @@ package com.szdict.speech
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.TimeSource
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -73,15 +72,17 @@ class SpeechEngineTest {
             val samples = readWav("$wavDir/1.wav")
             if (samples != null) {
                 val stream = engine.createStream()
-                stream.accept(samples)
-                assertFalse(stream.isEndpoint())
-                var fed = 0f
-                while (!stream.isEndpoint() && fed < 5f) {
-                    stream.accept(FloatArray(SpeechModel.SAMPLE_RATE / 10))
-                    fed += 0.1f
+                val audio = samples + FloatArray(SpeechModel.SAMPLE_RATE * 5)
+                val frame = SpeechModel.SAMPLE_RATE / 10
+                var at = 0
+                while (at < audio.size && !stream.isEndpoint()) {
+                    stream.accept(audio.copyOfRange(at, minOf(at + frame, audio.size)))
+                    at += frame
                 }
-                println("endpoint after ${fmt(fed.toDouble())} s of trailing silence: ${stream.text()}")
+                val seconds = at / SpeechModel.SAMPLE_RATE.toDouble()
+                println("endpoint at ${fmt(seconds)} s of a ${fmt(samples.size / SpeechModel.SAMPLE_RATE.toDouble())} s recording: ${stream.text()}")
                 assertTrue(stream.isEndpoint(), "no endpoint after trailing silence")
+                assertTrue(seconds > 2.0, "endpoint before the speech ended")
                 assertTrue(stream.text().isNotBlank())
                 stream.reset()
                 assertEquals("", stream.text())

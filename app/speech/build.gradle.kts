@@ -31,13 +31,12 @@ kotlin {
         compilations.getByName("main").cinterops.create("sherpa") {
             definitionFile.set(file("src/nativeInterop/cinterop/sherpa.def"))
             includeDirs(sherpa.resolve("SherpaOnnxC.framework/Headers"))
-            // Used when Kotlin/Native links a binary itself (tests, a dynamic framework). A static
-            // Kotlin framework is not linked: the app target then links the same two xcframeworks.
-            linkerOpts(
-                "-F${sherpa.absolutePath}", "-framework", "SherpaOnnxC",
-                "-F${ort.absolutePath}", "-framework", "onnxruntime",
-            )
         }
+        // The .def names the frameworks; their per-target search paths are given to whatever
+        // Kotlin/Native links itself (this module's tests). A module that links a test binary or a
+        // dynamic framework on top of :speech passes the same two -F paths; a static Kotlin
+        // framework is not linked at all: the app target then links the two xcframeworks.
+        binaries.all { linkerOpts("-F${sherpa.absolutePath}", "-F${ort.absolutePath}") }
     }
 
     sourceSets {

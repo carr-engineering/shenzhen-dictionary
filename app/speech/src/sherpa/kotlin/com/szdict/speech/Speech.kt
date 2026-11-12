@@ -11,9 +11,9 @@ import com.szdict.speech.sherpa.SherpaOnnxDestroyOnlineStream
 import com.szdict.speech.sherpa.SherpaOnnxGetOnlineStreamResult
 import com.szdict.speech.sherpa.SherpaOnnxGetVersionStr
 import com.szdict.speech.sherpa.SherpaOnnxIsOnlineStreamReady
-import com.szdict.speech.sherpa.SherpaOnnxOnlineRecognizer
+import cnames.structs.SherpaOnnxOnlineRecognizer
 import com.szdict.speech.sherpa.SherpaOnnxOnlineRecognizerConfig
-import com.szdict.speech.sherpa.SherpaOnnxOnlineStream
+import cnames.structs.SherpaOnnxOnlineStream
 import com.szdict.speech.sherpa.SherpaOnnxOnlineStreamAcceptWaveform
 import com.szdict.speech.sherpa.SherpaOnnxOnlineStreamInputFinished
 import com.szdict.speech.sherpa.SherpaOnnxOnlineStreamIsEndpoint
