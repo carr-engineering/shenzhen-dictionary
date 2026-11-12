@@ -1,10 +1,14 @@
+import java.awt.Color
+import java.awt.RenderingHints
+import java.awt.image.BufferedImage
 import java.security.MessageDigest
+import javax.imageio.ImageIO
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Everything the Web build serves next to the app shell (never committed): one root per stageWeb* task.
 val webStaticDir = layout.buildDirectory.dir("web/static")
 val appVersionName = "2026.11.11-1"
-val webStaticRoots = listOf("data", "opencc", "strokes", "sqlite3", "fonts").map { name -> webStaticDir.map { it.dir(name) } }
+val webStaticRoots = listOf("data", "opencc", "strokes", "sqlite3", "fonts", "models", "pwa", "cjk").map { name -> webStaticDir.map { it.dir(name) } }
 
 plugins {
     id("com.android.application")
@@ -183,8 +187,13 @@ val stageWebData by tasks.registering(Sync::class) {
     into(webStaticRoots[0])
     preserve { include("data/manifest.json") }
     doLast {
+        // ARCH-145: the dataset version, and per file its size and SHA-256 — the store worker verifies
+        // every download against it and compares it with what is installed to find an update.
         val dir = destinationDir.resolve("data")
         val files = dir.walkTopDown().filter { it.isFile && it.extension == "db" }.sortedBy { it.path }.toList()
+        val report = out.resolve("build-report.json").takeIf { it.isFile }?.let { groovy.json.JsonSlurper().parse(it) as? Map<*, *> }
+        fun version(dataset: String): String? = ((report?.get(dataset) as? Map<*, *>)?.get("meta") as? Map<*, *>)?.get("dataset_version") as? String
+        val versions = listOf("mandarin", "cantonese").associateWith { version(it) }
         val digest = MessageDigest.getInstance("SHA-256")
         val entries = files.joinToString(",") { f ->
             f.inputStream().use { input ->
@@ -195,10 +204,14 @@ val stageWebData by tasks.registering(Sync::class) {
                     digest.update(buf, 0, n)
                 }
             }
-            val tag = digest.digest().take(8).joinToString("") { b -> "%02x".format(b) }
-            "\"${f.relativeTo(dir).invariantSeparatorsPath}\":{\"size\":${f.length()},\"tag\":\"$tag\"}"
+            val sha = digest.digest().joinToString("") { b -> "%02x".format(b) }
+            val path = f.relativeTo(dir).invariantSeparatorsPath
+            // Packs are shared by both modes and built with the Mandarin dataset.
+            val fileVersion = versions[if (path.startsWith("cantonese")) "cantonese" else "mandarin"]
+            "\"$path\":{\"size\":${f.length()},\"sha256\":\"$sha\"" + (fileVersion?.let { ",\"dataset_version\":\"$it\"" } ?: "") + "}"
         }
-        dir.resolve("manifest.json").writeText("{\"files\":{$entries}}")
+        val overall = versions.values.filterNotNull().distinct().joinToString("/").ifEmpty { "unversioned" }
+        dir.resolve("manifest.json").writeText("{\"dataset_version\":\"$overall\",\"files\":{$entries}}")
     }
 }
 
@@ -234,12 +247,11 @@ val stageWebSqlite by tasks.registering(Sync::class) {
     into(webStaticRoots[3])
 }
 
-// Optional: serve the CJK fallback font from the app's own origin instead of the font host
-// (ARCH-005), e.g. `-Pszdict.web.cjkFont=$HOME/Library/Fonts/NotoSansCJKsc-Regular.otf` — for
-// development without the network. The file is served as `fonts/NotoSansCJKsc-Regular.otf`.
+// The CJK font (ARCH-005) is not built here: `tools/stage-web-fonts.py` cuts Noto Sans CJK into
+// frequency subsets under `cjk/fonts/` (see stageWebStatic); without them the app fetches the
+// complete font from the font host. Nothing stages a single complete font any more, so the
+// `fonts` root stays empty.
 val stageWebFont by tasks.registering(Sync::class) {
-    val font = providers.gradleProperty("szdict.web.cjkFont").orNull
-    if (font != null) from(font) { into("fonts"); rename { "NotoSansCJKsc-Regular.otf" } }
     into(webStaticRoots[4])
 }
 
@@ -253,4 +265,211 @@ tasks.matching { it.name == "wasmJsBrowserDevelopmentRun" || it.name == "wasmJsB
 tasks.matching { it.name == "wasmJsBrowserDistribution" || it.name == "wasmJsBrowserDevelopmentExecutableDistribution" }.configureEach {
     dependsOn(stageWebStatic)
     webStaticRoots.forEach { (this as AbstractCopyTask).from(it) }
+}
+
+// ---- PWA shell (ARCH-145, ARCH-199, GLB-114) ----
+// The web app manifest, its icons (from the Android launcher icon) and the static privacy page,
+// rendered from the policy sources the apps bundle so the two can never differ.
+val stageWebPwa by tasks.registering {
+    val launcherIcon = layout.projectDirectory.file("src/androidMain/res/mipmap-xxxhdpi/ic_launcher.png")
+    val policyDir = layout.projectDirectory.dir("src/commonMain/kotlin/com/szdict/app/feature/settings")
+    val policySources = listOf("PrivacyPolicy.kt", "PrivacyPolicyEn.kt", "PrivacyPolicyZhHans.kt", "PrivacyPolicyZhHant.kt").map { policyDir.file(it) }
+    val target = webStaticRoots[6]
+    inputs.file(launcherIcon)
+    inputs.files(policySources)
+    inputs.property("layout", 3)
+    outputs.dir(target)
+    doLast {
+        val dir = target.get().asFile
+        dir.deleteRecursively()
+        dir.resolve("icons").mkdirs()
+
+        // Icons: the launcher bitmap as is, scaled, and on the icon's own paper colour for the
+        // opaque (Apple) and maskable (Android adaptive) variants.
+        System.setProperty("java.awt.headless", "true")
+        val source = ImageIO.read(launcherIcon.asFile)
+        fun icon(name: String, size: Int, inset: Double, background: Color?) {
+            val image = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+            val g = image.createGraphics()
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+            if (background != null) {
+                g.color = background
+                g.fillRect(0, 0, size, size)
+            }
+            val edge = Math.round(size * inset).toInt()
+            g.drawImage(source, edge, edge, size - 2 * edge, size - 2 * edge, null)
+            g.dispose()
+            ImageIO.write(image, "png", dir.resolve("icons/$name"))
+        }
+        val paper = Color(0xF4, 0xEF, 0xE3)
+        icon("icon-192.png", 192, 0.0, null)
+        icon("icon-512.png", 512, 0.0, null)
+        icon("icon-maskable-512.png", 512, 0.1, paper)
+        icon("apple-touch-icon.png", 180, 0.0, paper)
+        icon("favicon-48.png", 48, 0.0, null)
+
+        dir.resolve("manifest.webmanifest").writeText(
+            """{
+  "name": "SZ Dict",
+  "short_name": "SZ Dict",
+  "description": "Offline Chinese–English dictionary for Mandarin and Cantonese",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F1",
+  "theme_color": "#FAF7F1",
+  "lang": "en",
+  "categories": ["education", "reference"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
+""",
+        )
+
+        // The privacy page: the literals of the three policy sources, in source order.
+        fun literal(text: String): String {
+            val out = StringBuilder()
+            var i = 0
+            while (i < text.length) {
+                val c = text[i]
+                if (c == '\\' && i + 1 < text.length) {
+                    when (val e = text[i + 1]) {
+                        'n' -> out.append('\n')
+                        't' -> out.append('\t')
+                        'u' -> { out.append(text.substring(i + 2, i + 6).toInt(16).toChar()); i += 4 }
+                        else -> out.append(e)
+                    }
+                    i += 2
+                } else {
+                    out.append(c)
+                    i++
+                }
+            }
+            return out.toString()
+        }
+        fun html(text: String) = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+        val string = Regex("\"((?:[^\"\\\\]|\\\\.)*)\"")
+        fun strings(text: String) = string.findAll(text).map { literal(it.groupValues[1]) }.toList()
+        val updated = Regex("PRIVACY_LAST_UPDATED: String = \"([0-9-]+)\"").find(policySources[0].asFile.readText())?.groupValues?.get(1)
+            ?: throw GradleException("PRIVACY_LAST_UPDATED not found in PrivacyPolicy.kt")
+        val languages = listOf("en" to "English", "zh-Hans" to "简体中文", "zh-Hant" to "繁體中文")
+        val body = StringBuilder()
+        var pageTitle = ""
+        policySources.drop(1).forEachIndexed { index, file ->
+            val text = file.asFile.readText()
+            if (text.contains("\"\"\"") || Regex("\"\\s*\\+").containsMatchIn(text) || Regex("(?<!\\\\)\\$[a-zA-Z{]").containsMatchIn(text)) {
+                throw GradleException("${file.asFile.name}: only plain string literals can be rendered into the privacy page")
+            }
+            val title = Regex("title = (\"(?:[^\"\\\\]|\\\\.)*\")").find(text)?.let { strings(it.groupValues[1]).single() }
+            val lastUpdated = Regex("lastUpdated = (\"(?:[^\"\\\\]|\\\\.)*\")").find(text)?.let { strings(it.groupValues[1]).single() }
+            val summaryStart = text.indexOf("summary = listOf(")
+            val sectionsStart = text.indexOf("sections = listOf(")
+            if (title == null || lastUpdated == null || summaryStart < 0 || sectionsStart < summaryStart) {
+                throw GradleException("${file.asFile.name}: unexpected shape; update stageWebPwa with the policy sources")
+            }
+            val summary = strings(text.substring(summaryStart, sectionsStart))
+            val sections = text.substring(sectionsStart).split("PolicySection(").drop(1).map { part ->
+                val all = strings(part)
+                all.first() to all.drop(1)
+            }
+            if (summary.isEmpty() || sections.isEmpty() || sections.any { it.second.isEmpty() }) {
+                throw GradleException("${file.asFile.name}: no policy text found")
+            }
+            val (tag, _) = languages[index]
+            if (index == 0) pageTitle = title
+            body.append("<article id=\"$tag\" lang=\"$tag\">\n<h1>${html(title)}</h1>\n<p class=\"updated\">${html(lastUpdated)}</p>\n")
+            summary.forEach { body.append("<p class=\"summary\">${html(it)}</p>\n") }
+            sections.forEach { (heading, paragraphs) ->
+                body.append("<h2>${html(heading)}</h2>\n")
+                paragraphs.forEach { body.append("<p>${html(it)}</p>\n") }
+            }
+            body.append("</article>\n")
+        }
+        val nav = languages.joinToString(" · ") { (tag, name) -> "<a href=\"#$tag\" lang=\"$tag\" hreflang=\"$tag\">$name</a>" }
+        dir.resolve("privacy.html").writeText(
+            """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>${html(pageTitle)} — SZ Dict</title>
+<meta name="description" content="Privacy policy of Shenzhen Dictionary (SZ Dict, 深圳词典): no accounts, no advertising, no telemetry.">
+<link rel="canonical" href="https://szdict.com/privacy">
+<meta name="robots" content="index, follow">
+<meta name="date" content="$updated">
+<link rel="icon" type="image/png" href="/icons/favicon-48.png">
+<style>
+:root { --bg: #faf7f1; --fg: #2b2925; --muted: #6b665c; --accent: #a53a2b; --border: #ddd7c9; }
+@media (prefers-color-scheme: dark) { :root { --bg: #17140f; --fg: #ece8df; --muted: #a39d90; --accent: #e08a78; --border: #37342f; } }
+html { background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "PingFang SC", "PingFang HK", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+body { max-width: 44rem; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+header { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; justify-content: space-between; align-items: baseline; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+header .app { font-weight: 600; font-size: 1.15rem; color: var(--fg); text-decoration: none; }
+a { color: var(--accent); }
+article { padding-top: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; }
+h1 { font-size: 1.6rem; margin: 1rem 0 .25rem; }
+h2 { font-size: 1.1rem; margin: 1.6rem 0 .4rem; }
+p { margin: .6rem 0; }
+.updated { color: var(--muted); margin-top: 0; }
+.summary { font-size: 1.05rem; }
+</style>
+</head>
+<body>
+<header><a class="app" href="/">SZ Dict</a><nav aria-label="Languages">$nav</nav></header>
+<main>
+$body</main>
+</body>
+</html>
+""",
+        )
+    }
+}
+tasks.named("stageWebStatic") {
+    dependsOn(stageWebPwa)
+    // `cjk/fonts/` holds the CJK font subsets when tools/stage-web-fonts.sh was run (ARCH-005); empty otherwise.
+    val cjk = webStaticRoots[7]
+    doLast {
+        // The app always finds an index: `{}` says nothing is staged.
+        val index = cjk.get().asFile.resolve("fonts/index.json")
+        if (!index.isFile) {
+            index.parentFile.mkdirs()
+            index.writeText("{}")
+        }
+    }
+}
+
+// The distribution's service worker and start page name the files of this build: the shell the
+// worker keeps for offline use (code, workers, SQLite, the privacy page and the icons — never the
+// datasets, media, fonts or models) under a version derived from their content, and the hashed
+// WebAssembly files the page fetches ahead of the script that asks for them.
+tasks.matching { it.name == "wasmJsBrowserDistribution" }.configureEach {
+    doLast {
+        val dist = layout.buildDirectory.dir("dist/wasmJs/productionExecutable").get().asFile
+        val lazyRoots = setOf("data", "opencc", "strokes", "fonts", "models", "licenses")
+        val shell = dist.walkTopDown().filter { it.isFile }.map { it.relativeTo(dist).invariantSeparatorsPath }.filter { path ->
+            path.substringBefore('/') !in lazyRoots && path != "sw.js" &&
+                !path.endsWith(".map") && !path.endsWith(".LICENSE.txt") && !path.endsWith(".br") && !path.endsWith(".gz")
+        }.sorted().toList()
+        val digest = MessageDigest.getInstance("SHA-256")
+        shell.forEach { path ->
+            digest.update(path.toByteArray())
+            digest.update(dist.resolve(path).readBytes())
+        }
+        val version = digest.digest().take(8).joinToString("") { b -> "%02x".format(b) }
+        val worker = dist.resolve("sw.js")
+        val marker = "const BUILD = null;"
+        val source = worker.readText()
+        if (marker !in source) throw GradleException("sw.js: the build marker is missing")
+        worker.writeText(source.replace(marker, "const BUILD = {\"version\":\"$version\",\"shell\":[${shell.joinToString(",") { "\"$it\"" }}]};"))
+        val index = dist.resolve("index.html")
+        val preloads = shell.filter { it.endsWith(".wasm") && '/' !in it }
+            .joinToString("\n    ") { "<link rel=\"preload\" href=\"$it\" as=\"fetch\" type=\"application/wasm\" crossorigin>" }
+        index.writeText(index.readText().replace("<!--@preload-wasm@-->", preloads))
+    }
 }

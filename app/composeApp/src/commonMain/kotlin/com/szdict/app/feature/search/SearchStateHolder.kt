@@ -27,6 +27,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /** Identity of one search request: a result is applied only while [seq] is the newest (GLB-040). */
@@ -137,6 +138,20 @@ class SearchStateHolder(
     private var appliedSeq = -1L
     private var awaitingSide = false
     private var manualSide = false
+    /** The manual side came with a link (`&side=`, GLB-110): it holds for that query but teaches no preference. */
+    private var sideFromLink = false
+
+    /** The side the user (or the link) chose for the current query, for the URL; null while it is automatic. */
+    val explicitSide: SearchSide? get() = side.takeIf { manualSide }
+
+    /** A short inline note under the hint (a refused clipboard read, TXT-059); cleared by the next edit. */
+    var notice by mutableStateOf<String?>(null)
+        private set
+
+    /** `Paste` found nothing it may read (SRCH-124, TXT-059). */
+    fun onPasteUnavailable(denied: Boolean) {
+        if (denied) notice = "Clipboard empty or unavailable"
+    }
     private var userEdited = false
     private var restored = false
     private var seenMode: DictMode? = null
@@ -181,6 +196,23 @@ class SearchStateHolder(
                         setField(TextFieldValue(route.query, TextRange(route.query.length)), user = false)
                         submit(newQuery = true)
                     } else paste(route.query)
+                    // `&side=en|zh` (GLB-110) is a manual choice for this query (SRCH-025), never the remembered side.
+                    route.side?.let { linked ->
+                        side = linked
+                        manualSide = true
+                        sideFromLink = true
+                    }
+                }
+            }
+        }
+        // The language model arrived after the response was computed (Web, ARCH-143): the same
+        // query runs again so abbreviations and combinations appear, and the side is chosen again
+        // unless the user chose it.
+        scope.launch {
+            session.companionArrivals.drop(1).collect {
+                if (restored && input.text.isNotBlank()) {
+                    if (!manualSide) awaitingSide = true
+                    submit(newQuery = false)
                 }
             }
         }
@@ -202,10 +234,18 @@ class SearchStateHolder(
             restored = true
             seenMode = settings.dictionaryMode
             seenScript = settings.script
-            side = settings.searchSide
-            // SRCH-142: input typed before the settings loaded wins over the restored query.
-            if (!userEdited) setField(TextFieldValue(settings.lastSearchQuery, TextRange(settings.lastSearchQuery.length)), user = false)
-            else submit(newQuery = false)
+            // SRCH-142: input typed (or linked, GLB-110) before the settings loaded wins over the restored query.
+            if (!userEdited) {
+                side = settings.searchSide
+                setField(TextFieldValue(settings.lastSearchQuery, TextRange(settings.lastSearchQuery.length)), user = false)
+            } else {
+                // Its response may already be on screen with the side it selected (SRCH-024): the
+                // remembered side that has just loaded must not replace that side — the query runs
+                // again and chooses between its forced side and the remembered one.
+                if (displayed == null && !manualSide) side = settings.searchSide
+                if (!manualSide) awaitingSide = true
+                submit(newQuery = false)
+            }
             loadEmptyState()
             return
         }
@@ -252,6 +292,8 @@ class SearchStateHolder(
             session.updateSettings(debounceMs = 750) { it.withLastQuery(it.dictionaryMode, text) }   // SRCH-140
         }
         manualSide = false
+        sideFromLink = false
+        notice = null
         insideExpanded.clear()
         onScrollToTop?.invoke()
         submit(newQuery = true)
@@ -332,7 +374,7 @@ class SearchStateHolder(
             onScrollToTop?.invoke()
             if (!manualSide) {
                 side = result.forcedSide ?: session.settings.value.searchSide   // SRCH-024
-            } else if (result.forcedSide == null) {
+            } else if (result.forcedSide == null && !sideFromLink) {
                 persistSide(side)
             }
         }
@@ -363,6 +405,7 @@ class SearchStateHolder(
         if (target == side) return
         side = target
         manualSide = true
+        sideFromLink = false
         val current = displayed
         // SRCH-026: only ambiguous queries teach the remembered side.
         if (current != null && countsCurrent && !awaitingSide && current.result.forcedSide == null) persistSide(target)

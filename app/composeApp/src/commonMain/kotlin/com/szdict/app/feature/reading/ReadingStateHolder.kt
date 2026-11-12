@@ -73,6 +73,8 @@ class ReadingStateHolder(
         session.scope.launch {
             session.settings.map { it.dictionaryMode }.distinctUntilChanged().drop(1).collect { conversion.refresh() }
         },
+        // The language model arrived (Web, ARCH-143): the passage is segmented again with it.
+        session.scope.launch { session.companionArrivals.drop(1).collect { conversion.refresh() } },
     )
 
     /** Typing, IME edits and caret moves. Every text edit supersedes the in-flight analysis (TXT-051). */

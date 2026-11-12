@@ -119,6 +119,10 @@ fun HskScreen(session: AppSession, modifier: Modifier = Modifier) {
     var requestedLevel by remember(section) { mutableStateOf<Int?>(null) }
     var navigationRequest by remember { mutableIntStateOf(0) }
     val topLevel by remember(model, slot) { derivedStateOf { model?.levelAt(slot.grid.firstVisibleItemIndex) } }
+    val routeLevel by remember(model, slot, section) {
+        derivedStateOf { if (section == HskSection.WORDS && slot.grid.firstVisibleItemIndex > 0) model?.levelAt(slot.grid.firstVisibleItemIndex) else null }
+    }
+    LaunchedEffect(routeLevel) { state.shownLevel = routeLevel }
 
     // Deep-linked level, or a chip tapped before its level finished loading.
     val pending = state.pendingLevel

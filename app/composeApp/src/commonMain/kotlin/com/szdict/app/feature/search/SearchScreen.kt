@@ -138,9 +138,16 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
         if (dragged) return@LaunchedEffect   // the drag wins; where it settles is a manual change
         if (instant) pager.scrollToPage(target) else pager.animateScrollToPage(target)
     }
+    // Only a page the user's own drag settled on is a manual choice (SRCH-025). The pager also
+    // settles after the automatic scrolls above and when the screen is composed again with a
+    // saved page, and those must never overrule the side the response selected (SRCH-024).
+    val userDrag = remember { booleanArrayOf(false) }
+    LaunchedEffect(dragged) { if (dragged) userDrag[0] = true }
     LaunchedEffect(pager, holder) {
         snapshotFlow { pager.isScrollInProgress to pager.settledPage }.collect { (moving, page) ->
-            if (!moving && holder.displayed != null) holder.onManualSide(SearchSide.entries[page])
+            if (moving || !userDrag[0]) return@collect
+            userDrag[0] = false
+            if (holder.displayed != null) holder.onManualSide(SearchSide.entries[page])
         }
     }
 
@@ -266,7 +273,12 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
             onFieldTapped = showCurrentMethod,
             onPaste = {
                 // No usable text: only refresh availability so the button disappears (SRCH-124).
-                clipboard.read { text, _ -> if (text.isNullOrBlank()) clipboard.refresh() else holder.paste(text) }
+                clipboard.read { text, denied ->
+                    if (text.isNullOrBlank()) {
+                        clipboard.refresh()
+                        holder.onPasteUnavailable(denied)
+                    } else holder.paste(text)
+                }
             },
             onClear = {
                 holder.clear()
@@ -591,6 +603,10 @@ private fun EmptyStatePage(
                 )
                 if (error != null) {
                     Text(errorLine(strings, error), style = MaterialTheme.typography.bodyMedium, color = palette.accent,
+                        modifier = Modifier.padding(bottom = 8.dp))
+                }
+                holder.notice?.let { notice ->
+                    Text(strings.text(notice), style = MaterialTheme.typography.bodyMedium, color = palette.accent,
                         modifier = Modifier.padding(bottom = 8.dp))
                 }
             }

@@ -112,6 +112,18 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
     private val memoLock = Mutex()
     private val passageMemo = LinkedHashMap<String, AnalysedPassage>()
     private val relatedMemo = LinkedHashMap<String, IntArray>()
+    private var memoCompanion = 0
+
+    override val companionGeneration: kotlinx.coroutines.flow.StateFlow<Int> get() = store.lmGeneration
+
+    /** Passages analysed before the language model arrived are analysed again with it (ARCH-143). */
+    private fun dropStaleMemos() {
+        val now = store.lmGeneration.value
+        if (now != memoCompanion) {
+            memoCompanion = now
+            passageMemo.clear()
+        }
+    }
 
     private suspend fun <T> guard(block: suspend () -> T): T {
         if (closed) throw DictException(DictError.DatasetUnavailable(mode.datasetName, "closed"))
@@ -227,7 +239,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
             else -> forced
         }
         val result = SearchResult(query, c.key, c.display, c.kind, script, side, chinese, english, false, generation)
-        val needs = options.combinations && c.kind == QueryKind.ROMANISATION && store.hasLm && c.roman?.paths?.any { it.tokens.size >= 2 } == true
+        val needs = options.combinations && c.kind == QueryKind.ROMANISATION && c.roman?.paths?.any { it.tokens.size >= 2 } == true && store.lmReady()
         val whole = zh.sections.firstOrNull { it.kind == SectionKind.MATCHES }?.rows?.let { rows -> IntArray(rows.size) { rows[it].proj.id } } ?: IntArray(0)
         return Base(c, script, options, result, whole, needs, allEnglish)
     }
@@ -587,7 +599,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
 
     override suspend fun analyse(text: String, segmentation: SegmentationMode): AnalysedPassage = guard {
         val key = "${segmentation.ordinal}:$text"
-        memoLock.withLock { passageMemo[key] } ?: segmenter.analyse(text, segmentation, generation).passage.also { p ->
+        memoLock.withLock { dropStaleMemos(); passageMemo[key] } ?: segmenter.analyse(text, segmentation, generation).passage.also { p ->
             if (text.length <= 4000) memoLock.withLock {
                 passageMemo[key] = p
                 if (passageMemo.size > 8) passageMemo.remove(passageMemo.keys.first())

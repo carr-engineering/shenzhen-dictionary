@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -150,8 +151,18 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
 
     /** The engine for [mode] (default: the user's mode). Opening is a file open + metadata read (ARCH-131). */
     suspend fun dictionary(mode: DictMode = this.mode): Dictionary = dictMutex.withLock {
-        dictionaries[mode] ?: env.openDictionary(mode).also { dictionaries[mode] = it }
+        dictionaries[mode] ?: env.openDictionary(mode).also { opened ->
+            dictionaries[mode] = opened
+            scope.launch { opened.companionGeneration.drop(1).collect { companionArrivals.value++ } }
+        }
     }
+
+    /**
+     * Bumps when data a dictionary fetches on first need arrived (the language model on Web,
+     * ARCH-143): Search and Reading then run what they show again, so combinations and the better
+     * segmentation appear without another keystroke. Never changes on mobile.
+     */
+    val companionArrivals = MutableStateFlow(0)
 
     /** Bumped on a real mode change (GLB-044); requests carry it as part of their identity. */
     var dataGeneration by mutableIntStateOf(0)

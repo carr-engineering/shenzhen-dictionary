@@ -6,7 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <title>SZ Dict</title>
-    <link rel="icon" href="data:,">
+    <meta name="description" content="Offline Chinese–English dictionary for Mandarin and Cantonese">
+    <meta name="theme-color" content="#FAF7F1" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#17140F" media="(prefers-color-scheme: dark)">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" href="icons/favicon-48.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="SZ Dict">
+    <link rel="preload" href="szdict.js" as="script">
+    <!--@preload-wasm@-->
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #faf7f1; }
         #loading {
@@ -35,6 +44,42 @@
     <div id="loading-text">Loading…</div>
 </div>
 <noscript>SZ Dict needs JavaScript and WebAssembly.</noscript>
-<script type="application/javascript" src="szdict.js"></script>
+<script>
+(function () {
+    // The store worker starts with the page, beside the download of the app's code, and begins to
+    // open — on a first visit, to download — the dataset the page is about to ask for (PERF-060).
+    // Its events are kept until the app is there to read them.
+    try {
+        var mode = /^\/yue(\/|$)/.test(location.pathname) ? 'cantonese' : /^\/zh(\/|$)/.test(location.pathname) ? 'mandarin' : null;
+        try { mode = mode || localStorage.getItem('szdict.setting.dictionary_mode'); } catch (e) {}
+        var worker = new Worker('sqlite-worker.js', { type: 'module' });
+        var events = [];
+        worker.addEventListener('message', function (event) { if (event.data && event.data.id === -1) events.push(event.data); });
+        worker.postMessage({ warm: 'data/' + (mode === 'cantonese' ? 'cantonese' : 'mandarin') + '.db' });
+        window.szdictStore = { worker: worker, events: events };
+    } catch (e) { /* the app starts its own worker */ }
+
+    var started = false;
+    function boot() {
+        if (started) return;
+        started = true;
+        var script = document.createElement('script');
+        script.src = 'szdict.js';
+        document.body.appendChild(script);
+    }
+    var sw = navigator.serviceWorker;
+    if (!sw) { boot(); return; }
+    // A newer app shell that an earlier visit downloaded takes over now, before the app starts
+    // (ARCH-145); otherwise the page starts with the shell it has.
+    sw.getRegistration().then(function (registration) {
+        if (registration && registration.waiting && sw.controller) {
+            sw.addEventListener('controllerchange', function () { location.reload(); });
+            registration.waiting.postMessage('activate');
+            setTimeout(boot, 2000);
+        } else boot();
+    }, boot);
+    window.addEventListener('load', function () { sw.register('sw.js').catch(function () {}); });
+})();
+</script>
 </body>
 </html>

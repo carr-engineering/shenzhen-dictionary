@@ -61,7 +61,7 @@ private fun jsPageHidden(): Boolean = js("document.hidden")
 fun main() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val audio = WebAudioPlayer()
-    val datasets = WebDatasets(audio)
+    val datasets = WebDatasets(audio, scope)
     val env = AppEnv(
         openDictionary = datasets::open,
         settingsStorage = LocalStorageSettings(),
@@ -84,15 +84,17 @@ fun main() {
 
     ComposeViewport(document.body!!) {
         LaunchedEffect(Unit) { document.getElementById("loading")?.remove() }
-        WithCjkFont {
+        WithCjkFont(session) {
             Box(Modifier.fillMaxSize()) {
                 App(session)
                 DatasetDownloadState(session, datasets)
             }
         }
+                DatasetUpdatedNotice(session, datasets)
     }
     if (window.location.search.contains("selftest=1")) scope.launch { SelfTest.run(session) }
 }
+    installDebugState(session, datasets)
 
 /** First-visit download of a mode's dataset (ARCH-004): a progress card over the shell, or the failure with a reload. */
 @Composable

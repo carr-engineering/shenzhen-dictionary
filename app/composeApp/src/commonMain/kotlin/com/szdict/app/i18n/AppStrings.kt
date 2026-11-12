@@ -79,6 +79,8 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Downloading the dictionary…" to "正在下载词典…",
     "{0} of {1} MB · kept on this device for offline use" to "{0} / {1} MB · 保存在本设备上，可离线使用",
     "The dictionary could not be downloaded" to "无法下载词典",
+    "Dictionary updated" to "词典已更新",
+    "Reload" to "重新加载",
     "Check the connection and try again." to "请检查网络连接后重试。",
     "Paste clipboard into search" to "粘贴剪贴板内容并搜索",
     "Clear search" to "清空搜索",

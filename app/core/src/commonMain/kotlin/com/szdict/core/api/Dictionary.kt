@@ -54,11 +54,21 @@ suspend fun <T> dictResult(block: suspend () -> T): DictResult<T> = try {
  * Entry ids are meaningful only within this instance's [generation] (GLB-044); persist natural
  * keys, never ids.
  */
+private val NoCompanionChanges = kotlinx.coroutines.flow.MutableStateFlow(0)
+
 interface Dictionary {
     val mode: DictMode
 
     /** Unique per opened dataset; bumps whenever a dataset is (re)opened (GLB-044). */
     val generation: Long
+
+    /**
+     * Bumps when data that is fetched on first need — the language model with the abbreviation and
+     * combination data on Web (ARCH-143) — became available: answers given before it may lack
+     * combinations, so the current search is run again (GLB-044 keeps [generation] unchanged).
+     * Constant where everything is installed with the app.
+     */
+    val companionGeneration: kotlinx.coroutines.flow.StateFlow<Int> get() = NoCompanionChanges
 
     suspend fun info(): DatasetInfo
 

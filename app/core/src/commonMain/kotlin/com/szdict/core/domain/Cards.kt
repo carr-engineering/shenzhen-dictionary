@@ -19,6 +19,7 @@ import com.szdict.core.engine.Ranking
 import com.szdict.core.engine.cps
 import com.szdict.core.engine.cpString
 import com.szdict.core.engine.hanziCount
+import com.szdict.core.engine.lazyCompanionFiles
 import com.szdict.core.engine.readTextFile
 import com.szdict.core.store.AltJ
 import com.szdict.core.store.Codec
@@ -110,8 +111,10 @@ internal class AudioPlanner(private val store: DictionaryStore) {
 
     private fun catalog(): Catalog? {
         if (loaded) return catalog
-        loaded = true
-        val text = readTextFile(store.audioCatalogPath) ?: return null
+        val text = readTextFile(store.audioCatalogPath)
+        // Where the catalogue is fetched after start-up (Web), a miss is asked again later.
+        if (text != null || !lazyCompanionFiles) loaded = true
+        if (text == null) return null
         catalog = try {
             val root = Codec.json.parseToJsonElement(text).jsonObject
             val section = root[store.mode.datasetName] as? JsonObject

@@ -38,6 +38,23 @@ internal suspend fun fetchBytes(url: String): ByteArray? {
 
 private const val SLICE = 1 shl 20
 
+private fun jsServiceWorkerControls(timeoutMs: Int): Promise<JsAny?> = js(
+    """new Promise(function (resolve) {
+        var sw = navigator.serviceWorker;
+        if (!sw || sw.controller) { resolve(null); return; }
+        sw.addEventListener('controllerchange', function () { resolve(null); });
+        setTimeout(function () { resolve(null); }, timeoutMs);
+    })"""
+)
+
+/**
+ * Returns once the service worker controls the page — at once on every visit after the first, and
+ * after [timeoutMs] at the latest — so that what is fetched next is kept by it (ARCH-143).
+ */
+internal suspend fun awaitServiceWorker(timeoutMs: Int = 3000) {
+    jsServiceWorkerControls(timeoutMs).await<JsAny?>()
+}
+
 internal fun consoleLog(message: String): Unit = js("console.log(message)")
 
 internal fun consoleWarn(message: String): Unit = js("console.warn(message)")

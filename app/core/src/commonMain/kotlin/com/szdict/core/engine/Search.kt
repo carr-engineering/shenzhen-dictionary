@@ -88,7 +88,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         val abbrPaths = ArrayList<Pair<RomanPath, String>>()
         for (path in parse.paths) {
             if (path.hasAbbr) {
-                if (store.hasLm) abbrPaths.add(path to path.tokens.joinToString("") { it.initial.toString() })
+                if (store.lmReady()) abbrPaths.add(path to path.tokens.joinToString("") { it.initial.toString() })
                 continue
             }
             val full = path.tokens.filter { it.kind != TokKind.PARTIAL }.joinToString(" ") { it.syllable }
@@ -513,7 +513,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
      * whole query (dropped per SRCH-063).
      */
     suspend fun combinations(parse: RomanParse, script: Script, wholeIds: IntArray, englishWords: Boolean = false): List<ComboOut> {
-        if (!store.hasLm || parse.paths.none { it.tokens.size >= 2 }) return emptyList()
+        if (parse.paths.none { it.tokens.size >= 2 } || !store.lmReady()) return emptyList()
         // A query made of common English words is combined only through its full-syllable readings:
         // `hello` as he·l·lo or `ban` as ba·n… is not what was typed (SCHEMA note 19).
         fun spelled(p: RomanPath) = !englishWords || p.tokens.all { it.kind == TokKind.FULL }

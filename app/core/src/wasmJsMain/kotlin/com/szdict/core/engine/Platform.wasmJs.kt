@@ -25,5 +25,8 @@ internal actual fun readTextFile(path: String): String? = WebStore.text(path)
 
 internal actual suspend fun openSqlite(path: String): SQLiteConnection = WebStore.open(path)
 
+/** The language model is fetched on first need and never holds up single-word results (ARCH-143). */
+internal actual val lazyCompanionFiles: Boolean = true
+
 /** One worker serves every connection, so more than one per file gains nothing. */
 internal actual val sqliteConnectionsPerFile: Int = 1

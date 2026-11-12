@@ -46,4 +46,6 @@ private val driver = BundledSQLiteDriver()
 
 internal actual suspend fun openSqlite(path: String): SQLiteConnection = driver.open(path, SQLITE_OPEN_READONLY)
 
+internal actual val lazyCompanionFiles: Boolean = false
+
 internal actual val sqliteConnectionsPerFile: Int = 4

@@ -52,6 +52,8 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Downloading the dictionary…" to "正在下載詞典…",
     "{0} of {1} MB · kept on this device for offline use" to "{0} / {1} MB · 儲存在本裝置上，可離線使用",
     "The dictionary could not be downloaded" to "無法下載詞典",
+    "Dictionary updated" to "詞典已更新",
+    "Reload" to "重新載入",
     "Check the connection and try again." to "請檢查網路連線後重試。",
     "Paste clipboard into search" to "貼上剪貼簿內容並搜尋",
     "Clear search" to "清除搜尋",

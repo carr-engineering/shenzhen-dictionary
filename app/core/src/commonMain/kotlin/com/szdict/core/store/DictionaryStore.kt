@@ -10,13 +10,20 @@ import com.szdict.core.api.DictMode
 import com.szdict.core.api.DictionaryFactory
 import com.szdict.core.api.Label
 import com.szdict.core.engine.fileExists
+import com.szdict.core.engine.lazyCompanionFiles
 import com.szdict.core.engine.openSqlite
 import com.szdict.core.engine.sqliteConnectionsPerFile
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -105,7 +112,9 @@ internal class DictionaryStore private constructor(
     val mode: DictMode,
     private val dir: String,
     private val main: Db,
-    private val lm: Db?,
+    lm: Db?,
+    /** The companion's path when it is fetched on first need instead of opened with the dataset (ARCH-143). */
+    private val lazyLmPath: String?,
     val meta: Map<String, String>,
     private val io: CoroutineDispatcher,
     /** Optional tables present in this file (a dataset built before they existed lacks them). */
@@ -131,6 +140,40 @@ internal class DictionaryStore private constructor(
     /** Entries carry their word's unigram (`entry.ulp`); otherwise the `word_freq` table is read. */
     val hasEntryUnigram: Boolean get() = v2
     val hasLm: Boolean get() = lm != null
+
+    @kotlin.concurrent.Volatile
+    private var lm: Db? = lm
+    private val background = CoroutineScope(SupervisorJob() + io)
+    private var lmLoading = false
+    private var lmRetryAfter: kotlin.time.TimeMark? = null
+    private val lmArrivals = MutableStateFlow(0)
+
+    /** Bumps when the lazily fetched companion became usable (ARCH-026); constant where it is installed. */
+    val lmGeneration: StateFlow<Int> get() = lmArrivals
+
+    /**
+     * Whether the language-model companion can be read now. Where it is fetched on first need
+     * (ARCH-143) a `false` answer also starts that fetch — the caller goes on without the data
+     * ("not yet available", ARCH-026) and [lmGeneration] bumps once it arrived. A failed fetch is
+     * tried again by a later call, not in a loop.
+     */
+    fun lmReady(): Boolean {
+        if (lm != null) return true
+        val path = lazyLmPath ?: return false
+        if (lmLoading || lmRetryAfter?.hasPassedNow() == false) return false
+        lmLoading = true
+        background.launch {
+            val opened = runCatching { openCompanion(path, meta["dataset_version"]) }.getOrNull()
+            if (opened != null) {
+                lm = opened
+                lmArrivals.value++
+            } else {
+                lmRetryAfter = kotlin.time.TimeSource.Monotonic.markNow() + LM_RETRY
+            }
+            lmLoading = false
+        }
+        return false
+    }
     val maxWordLen: Int = meta["max_word_len"]?.toIntOrNull() ?: 12
     val maxHeadwordLen: Int = meta["max_headword_len"]?.toIntOrNull() ?: 64
     val hasFrequency: Boolean = metaBool("has_frequency_data", true)
@@ -153,6 +196,7 @@ internal class DictionaryStore private constructor(
     }
 
     fun close() {
+        background.cancel()
         main.close()
         lm?.close()
         sentencesDb?.close()
@@ -749,6 +793,19 @@ internal class DictionaryStore private constructor(
     companion object {
         private const val ENTRY_CACHE_SIZE = 2000
         private const val MIN_SCHEMA_VERSION = 1
+        private val LM_RETRY = kotlin.time.Duration.parse("20s")
+
+        /** The companion at [path], or null when it was built against another dataset version (DATA-006). */
+        private suspend fun openCompanion(path: String, datasetVersion: String?): Db? {
+            val lm = Db.open(path, 2)
+            var lmVersion: String? = null
+            runCatching { lm.use { c -> c.query("SELECT value FROM meta WHERE key = 'dataset_version'", {}) { lmVersion = it.getText(0) } } }
+            if (lmVersion != null && datasetVersion != null && lmVersion != datasetVersion) {
+                lm.close()
+                return null
+            }
+            return lm
+        }
 
         /** Smallest string greater than every string starting with [prefix] (binary collation). */
         fun upperBound(prefix: String): String {
@@ -782,18 +839,9 @@ internal class DictionaryStore private constructor(
                     throw DictException(DictError.SchemaMismatch(version, DictionaryFactory.SUPPORTED_SCHEMA_VERSION))
                 }
                 val lmPath = "$dir/${mode.datasetName}-lm.db"
-                var lm = if (fileExists(lmPath)) runCatching { Db.open(lmPath, 2) }.getOrNull() else null
-                if (lm != null) {
-                    // DATA-006: the companion must be built against this dataset version.
-                    var lmVersion: String? = null
-                    runCatching { lm!!.use { c -> c.query("SELECT value FROM meta WHERE key = 'dataset_version'", {}) { lmVersion = it.getText(0) } } }
-                    val own = meta["dataset_version"]
-                    if (lmVersion != null && own != null && lmVersion != own) {
-                        lm.close()
-                        lm = null
-                    }
-                }
-                DictionaryStore(mode, dir, main, lm, meta, io, tables, bodyDict)
+                val lazy = lazyCompanionFiles
+                val lm = if (!lazy && fileExists(lmPath)) runCatching { openCompanion(lmPath, meta["dataset_version"]) }.getOrNull() else null
+                DictionaryStore(mode, dir, main, lm, if (lazy) lmPath else null, meta, io, tables, bodyDict)
             } catch (e: DictException) {
                 main.close()
                 throw e

@@ -30,6 +30,9 @@ class HskState internal constructor(private val session: AppSession) {
     /** A level to bring to the top once its header exists (deep link, or a chip tapped while loading). */
     var pendingLevel by mutableStateOf<Int?>(null)
 
+    /** The level at the top of the Words grid once it is scrolled — the `{level}` of the route (GLB-110); null at the top. */
+    var shownLevel by mutableStateOf<Int?>(null)
+
     class Slot internal constructor() {
         var model by mutableStateOf<HskGridModel?>(null)
             internal set

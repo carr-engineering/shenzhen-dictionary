@@ -20,5 +20,12 @@ internal expect fun readTextFile(path: String): String?
 /** Opens a database file read-only with the platform's SQLite driver. */
 internal expect suspend fun openSqlite(path: String): SQLiteConnection
 
+/**
+ * True where the language-model companion is not installed with the dataset but fetched when a
+ * query first needs it (Web, ARCH-143): the store then opens without it and answers "not yet
+ * available" until the fetch completes (ARCH-026).
+ */
+internal expect val lazyCompanionFiles: Boolean
+
 /** Upper bound of pooled connections per database file. */
 internal expect val sqliteConnectionsPerFile: Int

@@ -45,7 +45,7 @@ internal class Segmenter(private val store: DictionaryStore) {
         val runs = runs(cps, mode)
         val allHits = HashMap<String, List<HeadHit>>()
         val logp = HashMap<String, Double>()
-        val lattice = forceStrategy == 0 && store.hasFrequency && store.hasLm && store.hasBigram
+        val lattice = forceStrategy == 0 && store.hasFrequency && store.hasBigram && store.lmReady()
         val dag = !lattice && forceStrategy != 2 && store.hasFrequency
 
         // Batched lookups: every candidate substring of every run, in batches bounded by key count.

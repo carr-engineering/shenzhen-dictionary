@@ -10,6 +10,8 @@ import com.szdict.app.platform.NoAudioPlayer
 import com.szdict.app.platform.NoSpeaker
 import com.szdict.app.platform.SettingsStorage
 import com.szdict.app.platform.Translator
+import com.szdict.app.integration.IncomingIntents
+import com.szdict.core.api.Route
 import com.szdict.core.api.DictMode
 import com.szdict.core.api.Dictionary
 import com.szdict.core.api.FakeDictionary
@@ -20,6 +22,7 @@ import com.szdict.core.api.SearchSide
 import com.szdict.core.api.SectionKind
 import com.szdict.core.api.SettingsKeys
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -316,5 +319,75 @@ class SearchStateHolderTest {
         val rows = shown.chinese.sections.first { it.section.kind == SectionKind.CONTAINS }
         assertEquals(rows.total, rows.keys.toSet().size)         // SRCH-169
         assertEquals(listOf(Block.NoMatches), buildPagePlan(shown.english, hasError = false).blocks)
+    }
+
+    /** GLB-110: a `/zh/search?q=…` link on a cold start, in every order the settings and the link can arrive in. */
+    @Test
+    fun linkedQueryOnColdStartSelectsTheSideOfItsResponse() = runTest {
+        val english = mapOf(SettingsKeys.SEARCH_SIDE to "english", SettingsKeys.lastSearchQuery(DictMode.MANDARIN) to "fate")
+        for (stored in listOf(emptyMap(), english, english + (SettingsKeys.lastSearchQuery(DictMode.MANDARIN) to "nihao"))) {
+            for (loadMs in listOf(0L, 5L, 60L)) {
+                for (linkAt in listOf(0L, 10L, 30L, 200L)) {
+                    // Each case gets its own scope: a holder left over from the previous one would take the link.
+                    val case = TestScope(testScheduler)
+                    val f = Fixture(case, stored = stored, loadMs = loadMs)
+                    advanceTimeBy(linkAt)
+                    IncomingIntents.deliverRoute(Route.Search(DictMode.MANDARIN, "nihao"))
+                    advanceTimeBy(1_000)
+                    val shown = assertNotNull(f.holder.displayed, "stored=$stored load=$loadMs link=$linkAt")
+                    assertEquals("nihao", shown.result.query)
+                    assertEquals(SearchSide.CHINESE, shown.result.forcedSide)
+                    assertEquals(SearchSide.CHINESE, f.holder.side, "stored=$stored load=$loadMs link=$linkAt")
+                    assertNull(f.holder.explicitSide)
+                    assertNull(IncomingIntents.pendingRoute.value)
+                    f.holder.close()
+                    case.backgroundScope.cancel()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun linkedSideHoldsForItsQueryAndTeachesNothing() = runTest {
+        val f = Fixture(this)
+        advanceTimeBy(100)
+        IncomingIntents.deliverRoute(Route.Search(DictMode.MANDARIN, "fa", SearchSide.CHINESE))   // both sides answer
+        advanceTimeBy(500)
+        assertEquals(SearchSide.CHINESE, f.holder.side)
+        assertEquals(SearchSide.CHINESE, f.holder.explicitSide)
+        assertEquals(SearchSide.ENGLISH, f.session.settings.value.searchSide)   // SRCH-026: a link is not the user's choice
+        f.type("fat"); advanceTimeBy(100)
+        assertEquals(SearchSide.ENGLISH, f.holder.side)                          // the next query is automatic again
+        assertNull(f.holder.explicitSide)
+    }
+
+    /** ARCH-143: when the lazily fetched language model arrives, the current query runs again and picks its side again. */
+    @Test
+    fun companionArrivalRunsTheCurrentQueryAgain() = runTest {
+        val f = Fixture(this)
+        advanceTimeBy(100)
+        f.type("nihao"); advanceTimeBy(100)
+        val before = f.dictionary.started
+        f.session.companionArrivals.value++
+        advanceTimeBy(100)
+        assertEquals(before + 1, f.dictionary.started)
+        assertEquals("nihao", f.holder.displayed?.result?.query)
+        assertEquals(SearchSide.CHINESE, f.holder.side)
+        f.holder.onManualSide(SearchSide.ENGLISH)
+        f.session.companionArrivals.value++
+        advanceTimeBy(100)
+        assertEquals(SearchSide.ENGLISH, f.holder.side)          // a manual side survives the re-run (SRCH-025)
+    }
+
+    @Test
+    fun refusedClipboardIsSaidInline() = runTest {
+        val f = Fixture(this)
+        advanceTimeBy(100)
+        f.holder.onPasteUnavailable(denied = false)
+        assertNull(f.holder.notice)
+        f.holder.onPasteUnavailable(denied = true)
+        assertEquals("Clipboard empty or unavailable", f.holder.notice)
+        f.type("n")
+        assertNull(f.holder.notice)
     }
 }

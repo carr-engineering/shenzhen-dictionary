@@ -219,8 +219,12 @@ fun App(session: AppSession) {
                             }
                         }
                     }
-                    AnimatedVisibility(showBottomBar) {
-                        AppBottomBar(destinations, session.destination, session::selectDestination)
+                    // Never beside the rail: when the width leaves the compact class the bar is gone in
+                    // that frame instead of animating out next to it.
+                    if (compact) {
+                        AnimatedVisibility(showBottomBar) {
+                            AppBottomBar(destinations, session.destination, session::selectDestination)
+                        }
                     }
                 }
             }
