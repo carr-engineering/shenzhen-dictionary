@@ -26,51 +26,40 @@ import kotlinx.cinterop.cstr
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.usePinned
 import platform.posix.memset
 
-/** sherpa-onnx streaming Paraformer through the C API (ARCH-095). */
-object Speech {
-    /** True when the sherpa-onnx library is linked into this build. */
-    const val AVAILABLE: Boolean = true
+internal actual val sherpaLinked: Boolean = true
 
-    /** The linked sherpa-onnx version. */
-    val VERSION: String get() = SherpaOnnxGetVersionStr()?.toKString().orEmpty()
+internal actual fun sherpaVersion(): String = SherpaOnnxGetVersionStr()?.toKString().orEmpty()
 
-    /**
-     * Loads the model in [modelDir], an absolute path (slow: call off the UI thread). Throws when
-     * the model is missing or corrupt.
-     */
-    fun open(modelDir: String, config: SpeechEngineConfig = SpeechEngineConfig()): SpeechEngine {
-        check(SpeechModel.isPresent(modelDir)) { "voice model is not in $modelDir" }
-        val recognizer = memScoped {
-            val c = alloc<SherpaOnnxOnlineRecognizerConfig>()
-            memset(c.ptr, 0, sizeOf<SherpaOnnxOnlineRecognizerConfig>().toULong())
-            c.feat_config.sample_rate = SpeechModel.SAMPLE_RATE
-            c.feat_config.feature_dim = 80
-            c.model_config.paraformer.encoder = "$modelDir/${SpeechModel.ENCODER}".cstr.ptr
-            c.model_config.paraformer.decoder = "$modelDir/${SpeechModel.DECODER}".cstr.ptr
-            c.model_config.tokens = "$modelDir/${SpeechModel.TOKENS}".cstr.ptr
-            c.model_config.num_threads = config.threads
-            c.model_config.debug = 0
-            c.model_config.provider = "cpu".cstr.ptr
-            c.model_config.model_type = "paraformer".cstr.ptr
-            c.enable_endpoint = 1
-            // Silence with nothing decoded: reset without committing.
-            c.rule1_min_trailing_silence = config.resetSilenceSeconds
-            // Trailing silence after speech: commit.
-            c.rule2_min_trailing_silence = config.commitSilenceSeconds
-            // Maximum utterance length: commit.
-            c.rule3_min_utterance_length = config.maxUtteranceSeconds
-            c.decoding_method = "greedy_search".cstr.ptr   // append-only results (VOICE-024)
-            SherpaOnnxCreateOnlineRecognizer(c.ptr)
-        } ?: error("the voice model could not be loaded from $modelDir")
-        return SherpaEngine(recognizer)
-    }
+internal actual fun openSherpa(modelDir: String, config: SpeechEngineConfig): SpeechEngine {
+    val recognizer = memScoped {
+        val c = alloc<SherpaOnnxOnlineRecognizerConfig>()
+        memset(c.ptr, 0, sizeOf<SherpaOnnxOnlineRecognizerConfig>().toULong())
+        c.feat_config.sample_rate = SpeechModel.SAMPLE_RATE
+        c.feat_config.feature_dim = 80
+        c.model_config.paraformer.encoder = "$modelDir/${SpeechModel.ENCODER}".cstr.ptr
+        c.model_config.paraformer.decoder = "$modelDir/${SpeechModel.DECODER}".cstr.ptr
+        c.model_config.tokens = "$modelDir/${SpeechModel.TOKENS}".cstr.ptr
+        c.model_config.num_threads = config.threads
+        c.model_config.debug = 0
+        c.model_config.provider = "cpu".cstr.ptr
+        c.model_config.model_type = "paraformer".cstr.ptr
+        c.enable_endpoint = 1
+        // Silence with nothing decoded: reset without committing.
+        c.rule1_min_trailing_silence = config.resetSilenceSeconds
+        // Trailing silence after speech: commit.
+        c.rule2_min_trailing_silence = config.commitSilenceSeconds
+        // Maximum utterance length: commit.
+        c.rule3_min_utterance_length = config.maxUtteranceSeconds
+        c.decoding_method = "greedy_search".cstr.ptr   // append-only results (VOICE-024)
+        SherpaOnnxCreateOnlineRecognizer(c.ptr)
+    } ?: error("the voice model could not be loaded from $modelDir")
+    return SherpaEngine(recognizer)
 }
-
-private inline fun <reified T : kotlinx.cinterop.CVariable> sizeOf(): Long = kotlinx.cinterop.sizeOf<T>()
 
 private class SherpaEngine(private var recognizer: CPointer<SherpaOnnxOnlineRecognizer>?) : SpeechEngine {
     override fun createStream(): SpeechStream {

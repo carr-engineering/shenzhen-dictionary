@@ -1,12 +1,10 @@
 package com.szdict.speech
 
-/** Built without the sherpa-onnx xcframeworks (see tools/fetch-voice-model.sh): no engine. */
-object Speech {
-    /** True when the sherpa-onnx library is linked into this build. */
-    const val AVAILABLE: Boolean = false
+// Built without the sherpa-onnx xcframeworks (see tools/fetch-voice-model.sh): no engine.
 
-    const val VERSION: String = ""
+internal actual val sherpaLinked: Boolean = false
 
-    fun open(modelDir: String, config: SpeechEngineConfig = SpeechEngineConfig()): SpeechEngine =
-        throw UnsupportedOperationException("built without sherpa-onnx")
-}
+internal actual fun sherpaVersion(): String = ""
+
+internal actual fun openSherpa(modelDir: String, config: SpeechEngineConfig): SpeechEngine =
+    throw UnsupportedOperationException("built without sherpa-onnx")

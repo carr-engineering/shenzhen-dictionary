@@ -42,14 +42,18 @@ kotlin {
 
     sourceSets {
         // The engine uses the cinterop bindings, which exist per target only (no commonisation):
-        // its sources go to each target's own source set, the stub to the shared one.
-        if (hasSherpa) {
-            slices.keys.forEach { getByName("${it}Main").kotlin.srcDir("src/sherpa/kotlin") }
-        } else {
-            iosMain { kotlin.srcDir("src/stub/kotlin") }
-        }
+        // the shared source set declares it (`expect`), each target's own source set provides it.
+        val engine = if (hasSherpa) "src/sherpa/kotlin" else "src/stub/kotlin"
+        slices.keys.forEach { getByName("${it}Main").kotlin.srcDir(engine) }
         iosTest.dependencies {
             implementation(kotlin("test"))
         }
     }
+}
+
+// The simulator test decodes real recordings with the real model, read from the host file system
+// (both fetched by tools/fetch-voice-model.sh into :voice); it skips itself when they are absent.
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
+    environment("SIMCTL_CHILD_SPEECH_MODEL_DIR", rootProject.file("voice/src/main/assets/voice-model").absolutePath)
+    environment("SIMCTL_CHILD_SPEECH_WAV_DIR", rootProject.file("voice/src/androidTest/assets/voice-test").absolutePath)
 }

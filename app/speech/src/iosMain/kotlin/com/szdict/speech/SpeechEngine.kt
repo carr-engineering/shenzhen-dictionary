@@ -3,6 +3,28 @@ package com.szdict.speech
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSProcessInfo
 
+/** The speech engine of this build: sherpa-onnx streaming Paraformer through the C API (ARCH-095). */
+object Speech {
+    /** True when the sherpa-onnx library is linked into this build. */
+    val AVAILABLE: Boolean get() = sherpaLinked
+
+    /** The linked sherpa-onnx version; empty without the library. */
+    val VERSION: String get() = sherpaVersion()
+
+    /**
+     * Loads the model in [modelDir], an absolute path (slow: call off the UI thread). Throws when
+     * the library is not linked, or the model is missing or corrupt.
+     */
+    fun open(modelDir: String, config: SpeechEngineConfig = SpeechEngineConfig()): SpeechEngine {
+        check(SpeechModel.isPresent(modelDir)) { "voice model is not in $modelDir" }
+        return openSherpa(modelDir, config)
+    }
+}
+
+internal expect val sherpaLinked: Boolean
+internal expect fun sherpaVersion(): String
+internal expect fun openSherpa(modelDir: String, config: SpeechEngineConfig): SpeechEngine
+
 /** The voice model: streaming Paraformer trilingual (zh / yue / en), int8 (VOICE-020). */
 object SpeechModel {
     const val ENCODER = "encoder.int8.onnx"
