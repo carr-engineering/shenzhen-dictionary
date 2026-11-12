@@ -71,8 +71,11 @@ internal fun readLabels(path: String): List<String> =
 
 /**
  * One graph on the TensorFlow Lite C API. The model file is memory-mapped by the runtime. Plain CPU
- * kernels, as on Android: no delegate is created, which keeps results identical to the reference
- * interpreter. Not thread-safe; the recogniser serialises calls.
+ * kernels, as on Android: no delegate is created (and the runtime applies none by itself to these
+ * graphs). The iOS build of the runtime computes the quantised OCR graphs bit for bit like TensorFlow
+ * Lite's reference kernels, which round a few last bits differently from the NEON kernels of Android
+ * and the desktop: readings agree, scores of near-ties can differ. The float ink network matches to 1e-5.
+ * Not thread-safe; the recogniser serialises calls.
  */
 internal class TfLiteGraph(path: String, threads: Int) {
     private var model: CPointer<TfLiteModel>? = TfLiteModelCreateFromFile(path) ?: throw IllegalStateException("Cannot load model $path")
