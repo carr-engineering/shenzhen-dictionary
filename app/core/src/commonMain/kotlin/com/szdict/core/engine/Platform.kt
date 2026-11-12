@@ -1,5 +1,7 @@
 package com.szdict.core.engine
 
+import androidx.sqlite.SQLiteConnection
+
 /**
  * Raw DEFLATE (no zlib header) decompression — `zjson` blobs of the dataset contract — with the
  * dataset's preset dictionary when it has one (`body_dict`, schema version 2).
@@ -14,3 +16,9 @@ internal expect fun fileExists(path: String): Boolean
 
 /** Reads a small UTF-8 text file, or null when it does not exist or cannot be read. */
 internal expect fun readTextFile(path: String): String?
+
+/** Opens a database file read-only with the platform's SQLite driver. */
+internal expect suspend fun openSqlite(path: String): SQLiteConnection
+
+/** Upper bound of pooled connections per database file. */
+internal expect val sqliteConnectionsPerFile: Int

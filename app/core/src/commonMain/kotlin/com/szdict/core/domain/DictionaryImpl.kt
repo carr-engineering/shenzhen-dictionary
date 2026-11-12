@@ -413,7 +413,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         }
         if (sections.isEmpty()) sections.add(MemberSection(e.id, null, null, emptyList(), emptyList()))
 
-        val badges = (e.hsk.sortedBy { it.x } + e.hskVia).groupBy { it.l }.toSortedMap().map { (level, rows) ->
+        val badges = (e.hsk.sortedBy { it.x } + e.hskVia).groupBy { it.l }.entries.sortedBy { it.key }.map { (level, rows) ->
             val tokens = rows.flatMap { it.pos }.flatMap { it.split('、') }.map { it.trim().trim('（', '）', '(', ')') }.filter { it.isNotEmpty() }.distinct()
             HskBadge(level, tokens, tokens.map { pos[it] ?: Label.missing(it) })
         }
@@ -674,7 +674,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
     // ------------------------------------------------------------------ HSK
 
     override suspend fun hskLevels(): List<HskLevelInfo> = guard {
-        store.hskCounts().toSortedMap().map { (level, c) -> HskLevelInfo(level, c[0], c[1], c[2]) }.filter { it.wordCount > 0 || it.charCount > 0 }
+        store.hskCounts().entries.sortedBy { it.key }.map { (level, c) -> HskLevelInfo(level, c[0], c[1], c[2]) }.filter { it.wordCount > 0 || it.charCount > 0 }
     }
 
     override suspend fun hsk(levels: IntRange, script: Script): List<HskCard> = guard {

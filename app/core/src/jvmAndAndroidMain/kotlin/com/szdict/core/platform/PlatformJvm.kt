@@ -1,5 +1,8 @@
 package com.szdict.core.engine
 
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import androidx.sqlite.driver.bundled.SQLITE_OPEN_READONLY
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.Normalizer
@@ -38,3 +41,9 @@ internal actual fun readTextFile(path: String): String? = try {
 } catch (e: Exception) {
     null
 }
+
+private val driver = BundledSQLiteDriver()
+
+internal actual suspend fun openSqlite(path: String): SQLiteConnection = driver.open(path, SQLITE_OPEN_READONLY)
+
+internal actual val sqliteConnectionsPerFile: Int = 4

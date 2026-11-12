@@ -11,17 +11,31 @@ plugins {
 kotlin {
     androidTarget { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
     jvm { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+    // Web (ARCH-026): the same store over the worker-based SQLite driver.
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs { browser() }
 
     sourceSets {
         commonMain.dependencies {
             api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
             api("androidx.sqlite:sqlite:2.7.1")
-            implementation("androidx.sqlite:sqlite-bundled:2.7.1")
+            // Suspending prepare/step, so the store also runs over the asynchronous web driver.
+            implementation("androidx.sqlite:sqlite-async:2.7.1")
         }
-        // Shared JVM-family actuals (inflate, Unicode normalisation, file access) for both targets.
-        jvmMain { kotlin.srcDir("src/jvmAndAndroidMain/kotlin") }
-        androidMain { kotlin.srcDir("src/jvmAndAndroidMain/kotlin") }
+        // Shared JVM-family actuals (SQLite driver, inflate, Unicode normalisation, file access) for both targets.
+        jvmMain {
+            kotlin.srcDir("src/jvmAndAndroidMain/kotlin")
+            dependencies { implementation("androidx.sqlite:sqlite-bundled:2.7.1") }
+        }
+        androidMain {
+            kotlin.srcDir("src/jvmAndAndroidMain/kotlin")
+            dependencies { implementation("androidx.sqlite:sqlite-bundled:2.7.1") }
+        }
+        wasmJsMain.dependencies {
+            api("androidx.sqlite:sqlite-web:2.7.1")
+            implementation("org.jetbrains.kotlinx:kotlinx-browser:0.5.0")
+        }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

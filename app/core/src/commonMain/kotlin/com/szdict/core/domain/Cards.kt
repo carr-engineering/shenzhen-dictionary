@@ -330,12 +330,12 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
     }
 
     fun hskLevels(members: List<EntryRow>): List<Int> {
-        val out = sortedSetOf<Int>()
+        val out = HashSet<Int>()
         for (m in members) {
             m.hsk.forEach { out.add(it.l) }
             m.hskVia.forEach { out.add(it.l) }
         }
-        return out.toList()
+        return out.sorted()
     }
 
     private fun card(

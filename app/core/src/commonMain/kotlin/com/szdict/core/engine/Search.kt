@@ -555,7 +555,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         // Toned tokens constrain edges too; tones are not in the index, so read them once for the survivors.
         val toneCheck = if (spans.values.any { s -> s.tokens.any { it.tone != 0 } }) store.forms(raws.map { it.p.entryId }.toSet().toIntArray()) else null
         val books = store.codebooks()
-        val nodes = (spans.values.flatMap { listOf(it.from, it.to) } + listOf(0, end)).toSortedSet().toList()
+        val nodes = (spans.values.flatMap { listOf(it.from, it.to) } + listOf(0, end)).distinct().sorted()
         val nodeIndex = nodes.withIndex().associate { it.value to it.index }
         // Per (from, to): best edge per entry, then the M best words.
         val perSpan = HashMap<Long, HashMap<Int, LatticeEdge>>()

@@ -2,14 +2,16 @@ package com.szdict.core.store
 
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteStatement
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import androidx.sqlite.driver.bundled.SQLITE_OPEN_READONLY
+import androidx.sqlite.async.prepare
+import androidx.sqlite.async.step
 import com.szdict.core.api.DictError
 import com.szdict.core.api.DictException
 import com.szdict.core.api.DictMode
 import com.szdict.core.api.DictionaryFactory
 import com.szdict.core.api.Label
 import com.szdict.core.engine.fileExists
+import com.szdict.core.engine.openSqlite
+import com.szdict.core.engine.sqliteConnectionsPerFile
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -30,8 +32,8 @@ import kotlinx.serialization.json.intOrNull
 internal class Conn(private val raw: SQLiteConnection) {
     private val cache = HashMap<String, SQLiteStatement>()
 
-    fun stmt(sql: String): SQLiteStatement {
-        val st = cache.getOrPut(sql) { raw.prepare(sql) }
+    suspend fun stmt(sql: String): SQLiteStatement {
+        val st = cache[sql] ?: raw.prepare(sql).also { cache[sql] = it }
         st.reset()
         st.clearBindings()
         return st
@@ -45,17 +47,11 @@ internal class Conn(private val raw: SQLiteConnection) {
 }
 
 /** A small pool of read-only connections to one database file. */
-internal class Db(val path: String, size: Int) {
-    private val pool = Channel<Conn>(size)
-    private val all = ArrayList<Conn>()
+internal class Db private constructor(val path: String, private val all: List<Conn>) {
+    private val pool = Channel<Conn>(all.size)
 
     init {
-        val driver = BundledSQLiteDriver()
-        repeat(size) {
-            val c = Conn(driver.open(path, SQLITE_OPEN_READONLY))
-            all.add(c)
-            pool.trySend(c)
-        }
+        all.forEach { pool.trySend(it) }
     }
 
     suspend fun <T> use(block: suspend (Conn) -> T): T {
@@ -70,6 +66,20 @@ internal class Db(val path: String, size: Int) {
     fun close() {
         pool.close()
         all.forEach { it.close() }
+    }
+
+    companion object {
+        /** Opens up to [size] read-only connections (fewer where the platform serves them from one thread). */
+        suspend fun open(path: String, size: Int): Db {
+            val conns = ArrayList<Conn>()
+            try {
+                repeat(minOf(size, sqliteConnectionsPerFile)) { conns.add(Conn(openSqlite(path))) }
+            } catch (e: Throwable) {
+                conns.forEach { it.close() }
+                throw e
+            }
+            return Db(path, conns)
+        }
     }
 }
 
@@ -663,7 +673,7 @@ internal class DictionaryStore private constructor(
     private suspend fun pack(path: String, current: Db?, set: (Db) -> Unit): Db? {
         current?.let { return it }
         return packLock.withLock {
-            if (!fileExists(path)) null else withContext(io) { runCatching { Db(path, 1) }.getOrNull() }?.also(set)
+            if (!fileExists(path)) null else withContext(io) { runCatching { Db.open(path, 1) }.getOrNull() }?.also(set)
         }
     }
 
@@ -748,7 +758,7 @@ internal class DictionaryStore private constructor(
             val path = "$dir/${mode.datasetName}.db"
             if (!fileExists(path)) throw DictException(DictError.DatasetUnavailable(path, "file not found"))
             val main = try {
-                Db(path, 3)
+                Db.open(path, 3)
             } catch (e: Exception) {
                 throw DictException(DictError.DatasetUnavailable(path, e.message ?: ""), e)
             }
@@ -768,7 +778,7 @@ internal class DictionaryStore private constructor(
                     throw DictException(DictError.SchemaMismatch(version, DictionaryFactory.SUPPORTED_SCHEMA_VERSION))
                 }
                 val lmPath = "$dir/${mode.datasetName}-lm.db"
-                var lm = if (fileExists(lmPath)) runCatching { Db(lmPath, 2) }.getOrNull() else null
+                var lm = if (fileExists(lmPath)) runCatching { Db.open(lmPath, 2) }.getOrNull() else null
                 if (lm != null) {
                     // DATA-006: the companion must be built against this dataset version.
                     var lmVersion: String? = null

@@ -245,8 +245,14 @@ internal class AbbrPosting(val entryId: Int, val lmWord: Int, val unigram: Int, 
 
 internal class BigramBlock(val backoff: Double, val successors: IntArray, val values: DoubleArray) {
     fun lookup(word: Int): Double {
-        val i = successors.binarySearch(word)
-        return if (i >= 0) values[i] else Double.NaN
+        var lo = 0
+        var hi = successors.size - 1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            val v = successors[mid]
+            if (v < word) lo = mid + 1 else if (v > word) hi = mid - 1 else return values[mid]
+        }
+        return Double.NaN
     }
 }
 
