@@ -19,8 +19,19 @@ kotlin {
     wasmJs { browser() }
 
     // iOS: the same pipeline; the graphs run through the TensorFlow Lite C API (iosMain).
-    iosArm64()
-    iosSimulatorArm64()
+    // The runtime is the static TensorFlowLiteC.xcframework in ios-frameworks/ (tools/fetch_ios_frameworks.sh).
+    // The cinterop klib records `-framework TensorFlowLiteC -lc++`; the framework search path is
+    // added here for this module's own binaries (tests). An app linking a static Kotlin framework
+    // links the xcframework itself.
+    listOf(iosArm64() to "ios-arm64", iosSimulatorArm64() to "ios-arm64_x86_64-simulator").forEach { (target, slice) ->
+        val frameworks = file("ios-frameworks/TensorFlowLiteC.xcframework/$slice")
+        target.compilations.getByName("main").cinterops.create("tflite") {
+            definitionFile.set(file("src/nativeInterop/cinterop/tflite.def"))
+            packageName("com.szdict.recognition.tflite")
+            compilerOpts("-F${frameworks.absolutePath}")
+        }
+        target.binaries.all { linkerOpts("-F${frameworks.absolutePath}") }
+    }
 
     sourceSets {
         commonMain.dependencies {
@@ -71,6 +82,22 @@ tasks.withType<Test>().configureEach {
     // Host-harness runs read images from outside the project: never treat them as up to date.
     if (System.getenv("RECOGNITION_HOST_PYTHON") != null) outputs.upToDateWhen { false }
     maxHeapSize = "1g"
+}
+
+// Restores the TensorFlow Lite C runtime of the iOS build (see tools/fetch_ios_frameworks.sh); a no-op once in place.
+val fetchIosFrameworks = tasks.register<Exec>("fetchIosFrameworks") {
+    group = "recognition"
+    description = "Restores TensorFlowLiteC.xcframework (pinned URL and SHA-256) into ios-frameworks/."
+    commandLine("sh", file("tools/fetch_ios_frameworks.sh").absolutePath)
+}
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.CInteropProcess>().configureEach { dependsOn(fetchIosFrameworks) }
+
+// The iOS simulator tests run the real graphs on the reference images and drawings, read from the
+// project directory (the simulator shares the host file system).
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
+    environment("SIMCTL_CHILD_RECOGNITION_MODEL_DIR", file("src/androidMain/assets/models").absolutePath)
+    environment("SIMCTL_CHILD_RECOGNITION_GOLDEN_DIR", file("src/androidUnitTest/resources/golden").absolutePath)
+    environment("SIMCTL_CHILD_RECOGNITION_TESTDATA_DIR", file("src/androidInstrumentedTest/assets/testdata").absolutePath)
 }
 
 // Restores the model binaries that are too large for git (see tools/fetch_models.sh).

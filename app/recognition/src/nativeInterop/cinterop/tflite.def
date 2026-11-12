@@ -1,0 +1,7 @@
+# The TensorFlow Lite C API of TensorFlowLiteC.xcframework (static; see tools/fetch_ios_frameworks.sh).
+# The framework search path (-F <xcframework slice>) is per target and comes from build.gradle.kts.
+language = C
+headers = TensorFlowLiteC/c_api.h TensorFlowLiteC/c_api_experimental.h
+headerFilter = TensorFlowLiteC/**
+linkerOpts = -framework TensorFlowLiteC -lc++
+strictEnums = TfLiteStatus
