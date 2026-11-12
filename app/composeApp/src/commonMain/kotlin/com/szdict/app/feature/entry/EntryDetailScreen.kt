@@ -106,6 +106,10 @@ fun EntryDetailScreen(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Kept as it was while the route animates out of the stack.
+    var showBack by remember(route.key) { mutableStateOf(session.showsBack(route, twoPane)) }
+    if (session.routes.any { it.key == route.key }) showBack = session.showsBack(route, twoPane)
+    val frame = EntryFrameState(twoPane, showBack, onBack, onClose)
     val strings = appStrings()
     val settings by session.settings.collectAsState()
     val script = settings.script(route.mode)
@@ -160,9 +164,9 @@ fun EntryDetailScreen(
     ) { kind ->
         when (kind) {
             1 -> lastReady?.let { detail ->
-                EntryReady(session, route, detail, cache.derivedFor(detail), cache, script, refreshing, twoPane, onBack, onClose)
+                EntryReady(session, route, detail, cache.derivedFor(detail), cache, script, refreshing, frame)
             }
-            2 -> EntryFrame(title = null, twoPane = twoPane, onBack = onBack, onClose = onClose) {
+            2 -> EntryFrame(title = null, frame = frame) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         (load as? EntryLoad.Error)?.message ?: strings.text("Unable to load entry"),
@@ -172,22 +176,24 @@ fun EntryDetailScreen(
                     )
                 }
             }
-            else -> EntryFrame(title = null, twoPane = twoPane, onBack = onBack, onClose = onClose) { LoadingSkeleton() }
+            else -> EntryFrame(title = null, frame = frame) { LoadingSkeleton() }
         }
     }
 }
+
+/** What the app bar of a route offers: back only where there is something to go back to, close in two-pane. */
+private class EntryFrameState(val twoPane: Boolean, val showBack: Boolean, val onBack: () -> Unit, val onClose: () -> Unit)
 
 /** App bar with working back (and close when two-pane) around every content state (ENT-017). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EntryFrame(
     title: String?,
-    twoPane: Boolean,
-    onBack: () -> Unit,
-    onClose: () -> Unit,
+    frame: EntryFrameState,
     titleVisible: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val twoPane = frame.twoPane
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     Scaffold(
@@ -205,10 +211,12 @@ private fun EntryFrame(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = strings.text("Back")) }
+                    if (frame.showBack) {
+                        IconButton(onClick = frame.onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = strings.text("Back")) }
+                    }
                 },
                 actions = {
-                    if (twoPane) IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = strings.text("Close detail")) }
+                    if (twoPane) IconButton(onClick = frame.onClose) { Icon(Icons.Rounded.Close, contentDescription = strings.text("Close detail")) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = palette.bg,
@@ -223,16 +231,15 @@ private fun EntryFrame(
     }
 }
 
-/** ENT-018: approximates the real header; a hidden reading keeps its space but is not drawn. */
+/** ENT-018: approximates the real header. */
 @Composable
 private fun LoadingSkeleton() {
     val palette = LocalDictionaryPalette.current
-    val showReading = LocalDisplayPrefs.current.showPronunciation
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).testTag("entry-detail-loading-skeleton")) {
         Spacer(Modifier.height(12.dp))
         SkeletonBar(126.dp, 42.dp)
         Spacer(Modifier.height(10.dp))
-        if (showReading) SkeletonBar(152.dp, 18.dp) else Spacer(Modifier.height(18.dp))
+        SkeletonBar(152.dp, 18.dp)
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             repeat(3) { Box(Modifier.weight(1f).height(30.dp).clip(MaterialTheme.shapes.small).background(palette.bgSoft)) }
@@ -271,9 +278,7 @@ private fun EntryReady(
     cache: EntryRouteCache,
     script: Script,
     refreshing: Boolean,
-    twoPane: Boolean,
-    onBack: () -> Unit,
-    onClose: () -> Unit,
+    frame: EntryFrameState,
 ) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
@@ -311,6 +316,7 @@ private fun EntryReady(
                     mode = route.mode,
                     fixedTitle = title,
                     fixedCards = cards,
+                    nested = true,
                 ),
             )
         }
@@ -333,9 +339,9 @@ private fun EntryReady(
                         val matches = if (resolved != null) listOf(resolved) + found.matches.filter { it.id != resolved.id } else found.matches
                         val cards = (matches + found.inside.map { it.card }).distinctBy { it.id }
                         when {
-                            cards.isEmpty() -> ref.targetId?.let { session.openEntry(it, route.mode) }
+                            cards.isEmpty() -> ref.targetId?.let { session.openEntry(it, route.mode, nested = true) }
                                 ?: run { lookupStatus = strings.text("No dictionary entry") }
-                            cards.size == 1 -> session.openEntry(cards[0].id, route.mode)
+                            cards.size == 1 -> session.openEntry(cards[0].id, route.mode, nested = true)
                             // ENT-106: never silently pick one of several readings.
                             else -> openCards(strings.text("Words at 「{0}」", found.form), found.form, cards)
                         }
@@ -346,7 +352,7 @@ private fun EntryReady(
                     }
                 }
             },
-            openEntry = { id -> session.openEntry(id, route.mode) },
+            openEntry = { id -> session.openEntry(id, route.mode, nested = true) },
             openCards = openCards,
         )
     }
@@ -359,7 +365,7 @@ private fun EntryReady(
     val wordsList = rememberLazyListState()
     val titleVisible by remember { derivedStateOf { headerState.collapseFraction > 0.95f } }
 
-    EntryFrame(title = detail.card.headword, twoPane = twoPane, onBack = onBack, onClose = onClose, titleVisible = titleVisible) {
+    EntryFrame(title = detail.card.headword, frame = frame, titleVisible = titleVisible) {
         Box(Modifier.fillMaxSize().clipToBounds().nestedScroll(headerState.connection)) {
             Column(Modifier.collapsingHeader(headerState)) {
                 EntryHeader(

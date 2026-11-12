@@ -27,13 +27,16 @@ private fun jsReplace(index: Int, url: String): Unit = js("{ try { history.repla
 private fun jsStateIndex(): Int = js("(history.state && typeof history.state.idx === 'number') ? history.state.idx : -1")
 private fun jsLocation(): String = js("location.pathname + location.search")
 private fun jsBack(): Unit = js("{ history.back(); }")
+private fun jsGo(delta: Int): Unit = js("{ history.go(delta); }")
 
 /**
  * Routes on Web (GLB-110…112): the address bar and the browser history mirror the destination, the
  * query and the detail stack. The URL the page was opened with is applied through the shared
  * route table; afterwards switching destination and pushing a route add history entries, anything
  * else (query edits, the chosen side, the HSK level in view, a mode change) replaces the current
- * one, and browser back / forward restore the screen of the entry they land on — popping the
+ * one — and so does selecting another entry in the list while one is shown: the detail has one
+ * history entry however many cards were looked at, plus one per step taken inside it — and
+ * browser back / forward restore the screen of the entry they land on — popping the
  * detail stack in place when that is all that differs, so the screens underneath keep their
  * state, and pushing the routes of a forward entry back onto what is still there, so going
  * forward to a word opened from another word brings back both.
@@ -56,6 +59,8 @@ class WebHistory(private val session: AppSession) {
     private var index = 0
     /** The next state change comes from the browser (back / forward), not from the app. */
     private var fromBrowser = false
+    /** The URL to write once the browser has gone back to the entry a new selection replaces. */
+    private var landing: String? = null
     private val naturalKeys = mutableStateMapOf<String, String>()
     private val resolving = HashSet<String>()
 
@@ -118,8 +123,30 @@ class WebHistory(private val session: AppSession) {
     private fun onState(state: State) {
         val url = state.url ?: return
         val shown = shapes[index]
+        if (landing != null) {
+            // Still on the way back to the entry being replaced: it takes the latest state when it lands.
+            landing = url
+            shapes[index] = state.shape
+            stacks[index] = specs()
+            return
+        }
         when {
             fromBrowser || shown == null || shown == state.shape -> jsReplace(index, url)
+            // Another entry selected in the list: it takes the place of the detail's history entries.
+            replacesSelection(shown, state.shape) -> {
+                var base = index
+                while (base > 0 && shapes[base - 1]?.let { it.destination == shown.destination && it.routeKeys.isNotEmpty() } == true) base--
+                if (base == index) jsReplace(index, url)
+                else {
+                    val steps = base - index
+                    index = base
+                    landing = url
+                    shapes[index] = state.shape
+                    stacks[index] = specs()
+                    jsGo(steps)
+                    return
+                }
+            }
             // The app went back to exactly the previous entry (back arrow, close): so does the browser.
             shapes[index - 1] == state.shape -> {
                 index--
@@ -132,6 +159,11 @@ class WebHistory(private val session: AppSession) {
         shapes[index] = state.shape
         stacks[index] = specs()
     }
+
+    /** The stack was replaced from its first route on, rather than grown or popped. */
+    private fun replacesSelection(shown: Shape, next: Shape): Boolean =
+        shown.destination == next.destination && shown.routeKeys.isNotEmpty() && next.routeKeys.isNotEmpty() &&
+            shown.routeKeys.first() != next.routeKeys.first()
 
     private fun specs(): List<Spec> = session.routes.map { route ->
         when (route) {
@@ -156,7 +188,8 @@ class WebHistory(private val session: AppSession) {
         while (session.routes.size > shared) session.popRoute(session.routes.last().key)
         for (spec in target.drop(shared)) {
             when (spec) {
-                is Spec.Entry -> session.openEntry(spec.entryId, spec.mode)
+                // The first entry of a stack is a selection; the ones over it were opened from inside it.
+                is Spec.Entry -> session.openEntry(spec.entryId, spec.mode, nested = session.routes.isNotEmpty())
                 Spec.Settings -> session.openSettings()
                 Spec.Privacy -> session.openPrivacy()
                 Spec.Attribution -> session.openAttribution()
@@ -167,6 +200,13 @@ class WebHistory(private val session: AppSession) {
 
     private fun onPop() {
         val target = jsStateIndex().coerceAtLeast(0)
+        landing?.let { url ->
+            // The app's own step back to the entry a new selection replaces.
+            landing = null
+            index = target
+            jsReplace(index, url)
+            return
+        }
         index = target
         val shape = shapes[target]
         val current = Shape(session.destination, session.routes.map { it.key })

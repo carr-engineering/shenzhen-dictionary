@@ -71,6 +71,8 @@ internal fun DatasetUpdatedNotice(session: AppSession, datasets: WebDatasets) {
     }
 }
 
+private fun jsHistoryLength(): Int = js("history.length")
+
 private fun jsDebugEnabled(): Boolean = js("(function () { try { return localStorage.getItem('szdict.debug') === '1'; } catch (e) { return false; } })()")
 
 private fun jsInstallState(read: () -> String): Unit = js("{ window.szdictState = function () { return JSON.parse(read()); }; }")
@@ -92,6 +94,7 @@ internal fun installDebugState(session: AppSession, datasets: WebDatasets) {
         buildString {
             append("{\"destination\":").append(quote(session.destination.name))
             append(",\"routes\":").append(session.routes.size)
+            append(",\"historyLength\":").append(jsHistoryLength())
             append(",\"topRoute\":").append(quote(session.routes.lastOrNull()?.let { it::class.simpleName }))
             append(",\"mode\":").append(quote(session.mode.name))
             append(",\"query\":").append(quote(search.query))

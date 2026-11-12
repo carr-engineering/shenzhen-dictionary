@@ -156,8 +156,7 @@ private fun BlockView(block: SourceBlock, open: Boolean, onToggle: () -> Unit, a
                 )
                 // ENT-110/112: one Mandarin entry → its Pinyin sits on the label row.
                 if (block.kind == BlockKind.MANDARIN && singleGroup != null && !singleGroup.reading.isEmpty) {
-                    TonedReadingText(singleGroup.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium,
-                        visible = prefs.showPronunciation, color = palette.accent)
+                    TonedReadingText(singleGroup.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium, color = palette.accent)
                 }
                 if (block.collapsible) {
                     Spacer(Modifier.weight(1f))
@@ -172,8 +171,7 @@ private fun BlockView(block: SourceBlock, open: Boolean, onToggle: () -> Unit, a
                 if (block.readingGroups.size > 1) {
                     // Several Mandarin entries: each introduced by its own Pinyin (ENT-112, ENT-113).
                     block.readingGroups.forEach { group ->
-                        TonedReadingText(group.reading, prefs.toneColors, MaterialTheme.typography.titleSmall,
-                            visible = prefs.showPronunciation, color = palette.accent, modifier = Modifier.padding(top = 2.dp))
+                        TonedReadingText(group.reading, prefs.toneColors, MaterialTheme.typography.titleSmall, color = palette.accent, modifier = Modifier.padding(top = 2.dp))
                         SenseList(group.senses, actions)
                     }
                 } else {
@@ -254,7 +252,7 @@ private fun ExampleRow(example: Example, derived: EntryDerived, actions: EntryAc
     val selected = session.selectionFor(owner, current)
     val text = remember(example, current, selected, prefs.toneColors, palette) {
         exampleAnnotatedString(example, current, selected, prefs.toneColors, palette) { offset ->
-            current?.let { session.openWordSheet(WordSheetRequest(owner, it, it.normaliseOffset(offset), mode)) }
+            current?.let { session.openWordSheet(WordSheetRequest(owner, it, it.normaliseOffset(offset), mode, nested = true)) }
         }
     }
     Column {

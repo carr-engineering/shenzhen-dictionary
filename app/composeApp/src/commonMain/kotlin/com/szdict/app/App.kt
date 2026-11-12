@@ -16,6 +16,24 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -105,8 +123,9 @@ fun App(session: AppSession) {
         CompositionLocalProvider(LocalStrings provides strings, LocalDisplayPrefs provides prefs, LocalSession provides session) {
             val palette = LocalDictionaryPalette.current
             BoxWithConstraints(Modifier.fillMaxSize().background(palette.bg)) {
-                val compact = maxWidth < 600.dp
-                val twoPane = maxWidth >= 840.dp && session.destination in setOf(Destination.SEARCH, Destination.HSK, Destination.READING)
+                val navigation = navigationStyle(maxWidth)
+                val compact = navigation == NavigationStyle.BOTTOM_BAR
+                val twoPane = fitsTwoPanes(maxWidth) && session.destination in setOf(Destination.SEARCH, Destination.HSK, Destination.READING)
                 val destinations = remember(session.env.voiceAvailable) {
                     Destination.entries.filter { it != Destination.VOICE || session.env.voiceAvailable }
                 }
@@ -143,8 +162,10 @@ fun App(session: AppSession) {
 
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.weight(1f).fillMaxWidth()) {
-                        if (!compact) {
-                            AppRail(destinations, session.destination, session::selectDestination)
+                        when (navigation) {
+                            NavigationStyle.BOTTOM_BAR -> Unit
+                            NavigationStyle.RAIL -> AppRail(destinations, session.destination, session::selectDestination)
+                            NavigationStyle.EXPANDED_RAIL -> AppExpandedRail(destinations, session.destination, session::selectDestination)
                         }
                         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                             val sheetInset = maxOf(wordSheetHeight, handwritingHeight)
@@ -166,8 +187,11 @@ fun App(session: AppSession) {
                                 val covered = if (fullScreenRoute) {
                                     Modifier.focusProperties { canFocus = false }.clearAndSetSemantics { }
                                 } else Modifier
+                                // Wide windows: each pane keeps a readable width and the pair is centred (GLB-067).
+                                val panes = paneLayout(maxWidth)
                                 Row(Modifier.fillMaxSize().then(covered)) {
-                                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                                    Spacer(Modifier.width(if (twoPane) panes.start else 0.dp))
+                                    Box((if (twoPane) Modifier.width(panes.list) else Modifier.weight(1f)).fillMaxHeight()) {
                                         stateHolder.SaveableStateProvider("dest-${session.destination}-${session.dataGeneration}") {
                                             when (session.destination) {
                                                 Destination.SEARCH -> SearchScreen(session, twoPane)
@@ -179,9 +203,9 @@ fun App(session: AppSession) {
                                         }
                                     }
                                     if (twoPane) {
-                                        Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
+                                        Box(Modifier.width(PaneDivider).fillMaxHeight().background(palette.border))
                                         // ENT-019: the side pane with nothing selected.
-                                        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                                        Box(Modifier.width(panes.detail).fillMaxHeight(), contentAlignment = Alignment.Center) {
                                             Text(
                                                 strings.text("Select an entry to see its detail"),
                                                 color = palette.muted,
@@ -192,11 +216,16 @@ fun App(session: AppSession) {
                                 }
                                 // One host at one place in the composition, laid out over the side pane
                                 // or the whole screen: a route keeps its tab and scroll when a rotation
-                                // moves it between the two (GLB-050).
-                                val sidePane = twoPane && topRoute is DetailRoute.Entry
+                                // moves it between the two (GLB-050). It stays over the side pane while
+                                // the last entry fades out of it.
+                                val lastTop = remember { arrayOfNulls<DetailRoute>(1) }
+                                if (topRoute != null) lastTop[0] = topRoute
+                                val hostRoute = topRoute ?: lastTop[0]
+                                val sidePane = twoPane && (hostRoute == null || hostRoute is DetailRoute.Entry)
                                 DetailHost(
                                     session, routeStates, twoPane,
-                                    Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(if (sidePane) 0.5f else 1f),
+                                    if (sidePane) Modifier.align(Alignment.TopStart).offset(x = panes.detailStart).width(panes.detail).fillMaxHeight()
+                                    else Modifier.fillMaxSize(),
                                 )
                             }
                             StatusBarScrim(Modifier.align(Alignment.TopCenter))
@@ -239,37 +268,47 @@ fun App(session: AppSession) {
 @Composable
 private fun DetailHost(session: AppSession, stateHolder: SaveableStateHolder, twoPane: Boolean, modifier: Modifier = Modifier) {
     val palette = LocalDictionaryPalette.current
-    val shown: DetailRoute? = session.routes.lastOrNull()
-    val depth = session.routes.size
-    var lastDepth by remember { mutableStateOf(depth) }
-    val forward = depth >= lastDepth
-    lastDepth = depth
+    val routes = session.routes.toList()
+    val shown: DetailRoute? = routes.lastOrNull()
+    val previous = remember { arrayOf(routes) }
+    val motion = remember { arrayOf(RouteMotion.FORWARD) }
+    if (routes.map { it.key } != previous[0].map { it.key }) {
+        motion[0] = routeMotion(previous[0], routes, twoPane)
+        previous[0] = routes
+    }
     AnimatedContent(
         targetState = shown,
         contentKey = { it?.key ?: 0L },
         transitionSpec = {
-            // ENT-016: forward slides in from the trailing edge; back mirrors.
-            if (forward) {
-                (slideInHorizontally(tween(220)) { it } + fadeIn(tween(220), initialAlpha = 0.72f)) togetherWith
-                    (slideOutHorizontally(tween(220)) { -it / 8 } + fadeOut(tween(220), targetAlpha = 0.88f))
-            } else {
-                (slideInHorizontally(tween(220)) { -it / 8 } + fadeIn(tween(220), initialAlpha = 0.88f)) togetherWith
-                    (slideOutHorizontally(tween(220)) { it } + fadeOut(tween(220), targetAlpha = 0.72f))
+            when (motion[0]) {
+                // ENT-016: forward slides in from the trailing edge; back mirrors.
+                RouteMotion.FORWARD ->
+                    (slideInHorizontally(tween(220)) { it } + fadeIn(tween(220), initialAlpha = 0.72f)) togetherWith
+                        (slideOutHorizontally(tween(220)) { -it / 8 } + fadeOut(tween(220), targetAlpha = 0.88f))
+                RouteMotion.BACK ->
+                    (slideInHorizontally(tween(220)) { -it / 8 } + fadeIn(tween(220), initialAlpha = 0.88f)) togetherWith
+                        (slideOutHorizontally(tween(220)) { it } + fadeOut(tween(220), targetAlpha = 0.72f))
+                // A selection in the list, or closing it: the side pane changes quietly in place.
+                RouteMotion.FADE -> fadeIn(tween(200)) togetherWith fadeOut(tween(200))
             }
         },
         modifier = modifier,
     ) { route ->
         when (route) {
-            null -> Unit
+            // Same size as a route, so the host never animates its size; touches pass through it.
+            null -> Box(Modifier.fillMaxSize())
             else -> stateHolder.SaveableStateProvider("route-${route.key}") {
-                // The route is opaque to touches too: nothing reaches the screen it covers.
-                Box(Modifier.fillMaxSize().background(palette.bg).pointerInput(Unit) { }) {
-                    val onBack = { session.popRoute(route.key); Unit }
-                    when (route) {
-                        is DetailRoute.Entry -> EntryDetailScreen(session, route, twoPane, onBack, onClose = session::clearRoutes)
-                        is DetailRoute.SettingsRoute -> SettingsScreen(session, onBack)
-                        is DetailRoute.Privacy -> PrivacyScreen(session, onBack)
-                        is DetailRoute.Attribution -> AttributionScreen(session, onBack)
+                // The route is opaque to touches too: nothing reaches the screen it covers. Over the
+                // whole of a wide window it keeps the readable width, centred (GLB-067).
+                Box(Modifier.fillMaxSize().background(palette.bg).pointerInput(Unit) { }, contentAlignment = Alignment.TopCenter) {
+                    Box(Modifier.widthIn(max = ReadablePaneWidth).fillMaxSize()) {
+                        val onBack = { session.popRoute(route.key); Unit }
+                        when (route) {
+                            is DetailRoute.Entry -> EntryDetailScreen(session, route, twoPane, onBack, onClose = session::clearRoutes)
+                            is DetailRoute.SettingsRoute -> SettingsScreen(session, onBack)
+                            is DetailRoute.Privacy -> PrivacyScreen(session, onBack)
+                            is DetailRoute.Attribution -> AttributionScreen(session, onBack)
+                        }
                     }
                 }
             }
@@ -329,7 +368,7 @@ private fun AppBottomBar(destinations: List<Destination>, selected: Destination,
 private fun AppRail(destinations: List<Destination>, selected: Destination, onSelect: (Destination) -> Unit) {
     val palette = LocalDictionaryPalette.current
     val strings = appStrings()
-    NavigationRail(containerColor = palette.panel) {
+    NavigationRail(containerColor = palette.panel, modifier = Modifier.drawBehind { trailingHairline(palette.border) }) {
         destinations.forEach { destination ->
             NavigationRailItem(
                 selected = destination == selected,
@@ -344,4 +383,56 @@ private fun AppRail(destinations: List<Destination>, selected: Destination, onSe
             )
         }
     }
+}
+
+/**
+ * The rail of a wide window: the app's name, then every destination as its icon with the label
+ * beside it. Same panel, accent selection and hairline as the icon rail.
+ */
+@Composable
+private fun AppExpandedRail(destinations: List<Destination>, selected: Destination, onSelect: (Destination) -> Unit) {
+    val palette = LocalDictionaryPalette.current
+    val strings = appStrings()
+    Column(
+        Modifier
+            .fillMaxHeight()
+            .width(ExpandedRailWidth)
+            .background(palette.panel)
+            .drawBehind { trailingHairline(palette.border) }
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start))
+            .padding(horizontal = 12.dp)
+            .selectableGroup(),
+    ) {
+        Text(
+            "SZ Dict",
+            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = palette.fg,
+            maxLines = 1,
+            modifier = Modifier.padding(start = 16.dp, top = 22.dp, bottom = 18.dp).semantics { heading() },
+        )
+        destinations.forEach { destination ->
+            NavigationDrawerItem(
+                label = { Text(strings.text(label(destination)), maxLines = 1) },
+                icon = { Icon(icon(destination), null) },
+                selected = destination == selected,
+                onClick = { onSelect(destination) },
+                modifier = Modifier.padding(vertical = 2.dp).height(48.dp),
+                colors = NavigationDrawerItemDefaults.colors(
+                    selectedContainerColor = palette.accentSoft,
+                    unselectedContainerColor = Color.Transparent,
+                    selectedIconColor = palette.accent, selectedTextColor = palette.accent,
+                    unselectedIconColor = palette.muted, unselectedTextColor = palette.muted,
+                ),
+            )
+        }
+    }
+}
+
+private val ExpandedRailWidth = 220.dp
+
+/** A 1 px line down the trailing edge: the rail is told apart from the page by more than its tone. */
+private fun DrawScope.trailingHairline(color: Color) {
+    val width = 1.dp.toPx()
+    drawRect(color, topLeft = Offset(size.width - width, 0f), size = Size(width, size.height))
 }

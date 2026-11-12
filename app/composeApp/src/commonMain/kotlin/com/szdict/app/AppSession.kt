@@ -1,5 +1,6 @@
 package com.szdict.app
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -78,6 +79,10 @@ data class WordSheetRequest(
     /** Rows given directly instead of a passage lookup (definition-link disambiguation, ENT-054). */
     val fixedTitle: String? = null,
     val fixedCards: List<EntryCard>? = null,
+    /** Opened from inside the detail pane: its rows push onto the detail stack instead of replacing it. */
+    val nested: Boolean = false,
+    /** Extra content under the sheet header, provided by the surface that owns the passage (OCR alternatives). */
+    val headerExtra: (@Composable () -> Unit)? = null,
 )
 
 /**
@@ -199,13 +204,40 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     val routes = mutableStateListOf<DetailRoute>()
     private var nextRouteKey = 1L
 
-    fun openEntry(entryId: Int, mode: DictMode = routeMode()) {
+    /**
+     * Shows an entry. A selection made outside the detail pane (a result card, an HSK card, a row
+     * of a sheet opened from a list passage, a link) **replaces** the whole stack with that entry;
+     * only navigation inside the detail pane ([nested]: definition links, related words, parts,
+     * rows of a sheet opened from the entry) pushes onto it.
+     */
+    fun openEntry(entryId: Int, mode: DictMode = routeMode(), nested: Boolean = false) {
         val top = routes.lastOrNull()
-        if (top is DetailRoute.Entry && top.entryId == entryId && top.mode == mode) return  // ENT-013
+        val same = top is DetailRoute.Entry && top.entryId == entryId && top.mode == mode   // ENT-013
+        if (same && (nested || routes.size == 1)) return
         closeWordSheet(userDismissed = false)
         handwritingVisible = false
-        routes += DetailRoute.Entry(nextRouteKey++, entryId, mode, dataGeneration.toLong())
+        when {
+            nested -> routes += DetailRoute.Entry(nextRouteKey++, entryId, mode, dataGeneration.toLong())
+            // The entry already on top stays as it is (its tab, its scroll); what was under it goes.
+            same -> routes.removeRange(0, routes.lastIndex)
+            else -> {
+                // One write, so nothing ever observes an empty stack between the two entries.
+                val entry = DetailRoute.Entry(nextRouteKey++, entryId, mode, dataGeneration.toLong())
+                if (routes.isEmpty()) routes += entry
+                else {
+                    routes[0] = entry
+                    if (routes.size > 1) routes.removeRange(1, routes.size)
+                }
+            }
+        }
     }
+
+    /**
+     * Whether [route] shows a navigate-up arrow. Single pane: always. Two panes: only when there is
+     * something under it in the side panel — a lone selection has the close button alone.
+     */
+    fun showsBack(route: DetailRoute, twoPane: Boolean): Boolean =
+        !twoPane || route !is DetailRoute.Entry || routes.indexOfFirst { it.key == route.key } > 0
 
     /** A route pushed from another route inherits that route's mode (ENT-010). */
     fun routeMode(): DictMode = (routes.lastOrNull() as? DetailRoute.Entry)?.mode ?: mode

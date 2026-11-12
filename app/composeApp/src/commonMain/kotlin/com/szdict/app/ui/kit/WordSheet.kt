@@ -194,6 +194,7 @@ fun WordSheet(
                 }
                 if (showBar) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = palette.accent, trackColor = palette.border)
                 else Spacer(Modifier.height(2.dp))
+                request.headerExtra?.invoke()
             }
             val cards = request.fixedCards ?: shown?.candidates?.map { it.card }
             val playing by session.playing.collectAsStateCompat()
@@ -209,7 +210,7 @@ fun WordSheet(
                 items(cards.orEmpty(), key = { it.id }) { card ->
                     EntryCardView(
                         card = card,
-                        onClick = { if (!loading) session.openEntry(card.id, request.mode) },
+                        onClick = { if (!loading) session.openEntry(card.id, request.mode, nested = request.nested) },
                         compact = true,
                         audio = CardAudio(playing == card.id) { session.play(card.id, card.audio, request.mode) },
                     )
