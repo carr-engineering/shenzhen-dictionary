@@ -1,0 +1,7 @@
+# sherpa-onnx C API (static framework SherpaOnnxC + static onnxruntime). The header directory and
+# the per-target framework search paths are set in build.gradle.kts.
+package = com.szdict.speech.sherpa
+headers = sherpa-onnx/c-api/c-api.h
+headerFilter = sherpa-onnx/c-api/*
+# What the two static archives need from the system.
+linkerOpts = -lc++ -framework Foundation -framework CoreML -framework Accelerate

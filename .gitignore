@@ -13,3 +13,7 @@ pipeline/out/
 app/composeApp/src/androidMain/assets/
 app/local-maven/
 *.apk
+# iOS: TensorFlow Lite C runtime, restored by app/recognition/tools/fetch_ios_frameworks.sh
+app/recognition/ios-frameworks/
+# iOS: sherpa-onnx and onnxruntime, restored by app/tools/fetch-voice-model.sh
+app/speech/ios-frameworks/
