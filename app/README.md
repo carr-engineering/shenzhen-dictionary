@@ -51,7 +51,7 @@ and kept in OPFS; a file whose tag in the manifest changed is downloaded again.
   (`/zh/…`, `/yue/…`, `/reading`, `/ocr`, `/settings`, `/privacy`) with `index.html`.
 - OCR and handwriting run the Android graphs in `recognition-worker.js` (TFLite Web runtime). The
   model files are staged under `models/` with a `manifest.json` (sizes, SHA-256, files per set); the
-  worker downloads a set on first use (OCR 5.6 MB, handwriting 7.9 MB plus the shared 3.8 MB
-  runtime, before compression), verifies it and keeps it in Cache Storage.
+  worker downloads a set on first use (OCR graphs 1.9 MB, handwriting 7.9 MB, plus the 3.8 MB
+  runtime they share; about 2.5 MB and 6.5 MB over gzip), verifies it and keeps it in Cache Storage.
   `/?selftest=recognition&base=testdata/&ocr=a.png,b.png&ink=ink-fixtures.txt` runs both on files
   served under `base` (the module's `androidInstrumentedTest/assets/testdata`) and logs the results.

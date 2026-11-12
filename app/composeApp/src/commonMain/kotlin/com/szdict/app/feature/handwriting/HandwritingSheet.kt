@@ -42,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,8 +103,6 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
             // Candidate row + close.
             Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val candidates = state.candidates
-                val rowState = rememberLazyListState()
-                LaunchedEffect(candidates) { rowState.scrollToItem(0) }
                 val download = state.modelDownload
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     when {
@@ -124,7 +123,9 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
                             style = MaterialTheme.typography.bodyMedium,
                             color = palette.muted,
                         )
-                        else -> LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        // Each candidate list gets a row of its own, starting at its first candidate:
+                        // a row updated in place kept showing the previous chips on Compose for Web.
+                        else -> key(candidates) { LazyRow(state = rememberLazyListState(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             itemsIndexed(candidates) { index, candidate ->
                                 val first = index == 0
                                 val label = candidate + ", " + strings.text("Candidate {0} of {1}", index + 1, candidates.size)
@@ -146,7 +147,7 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
                                     }
                                 }
                             }
-                        }
+                        } }
                     }
                 }
                 IconButton(onClick = { session.handwritingVisible = false }) {
