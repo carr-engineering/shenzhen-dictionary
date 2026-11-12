@@ -480,16 +480,16 @@ tasks.named("stageWebStatic") {
     }
 }
 
-// The distribution's service worker and start page name the files of this build: the shell the
-// worker keeps for offline use (code, workers, SQLite, the privacy page and the icons — never the
-// datasets, media, fonts or models) under a version derived from their content, and the hashed
-// WebAssembly files the page fetches ahead of the script that asks for them.
+// The distribution's service worker names the files of this build: the shell it keeps for offline
+// use (code, workers, SQLite, the privacy page — never the datasets, media, fonts or models) under a
+// version derived from their content.
 tasks.matching { it.name == "wasmJsBrowserDistribution" }.configureEach {
     doLast {
         val dist = layout.buildDirectory.dir("dist/wasmJs/productionExecutable").get().asFile
         val lazyRoots = setOf("data", "opencc", "strokes", "fonts", "models", "licenses")
         val shell = dist.walkTopDown().filter { it.isFile }.map { it.relativeTo(dist).invariantSeparatorsPath }.filter { path ->
-            path.substringBefore('/') !in lazyRoots && path != "sw.js" &&
+            // Of the icons only the tab icon is part of a start; the installer fetches the others itself.
+            path.substringBefore('/') !in lazyRoots && path != "sw.js" && (!path.startsWith("icons/") || path == "icons/favicon-48.png") &&
                 !path.endsWith(".map") && !path.endsWith(".LICENSE.txt") && !path.endsWith(".br") && !path.endsWith(".gz")
         }.sorted().toList()
         val digest = MessageDigest.getInstance("SHA-256")
@@ -503,9 +503,5 @@ tasks.matching { it.name == "wasmJsBrowserDistribution" }.configureEach {
         val source = worker.readText()
         if (marker !in source) throw GradleException("sw.js: the build marker is missing")
         worker.writeText(source.replace(marker, "const BUILD = {\"version\":\"$version\",\"shell\":[${shell.joinToString(",") { "\"$it\"" }}]};"))
-        val index = dist.resolve("index.html")
-        val preloads = shell.filter { it.endsWith(".wasm") && '/' !in it }
-            .joinToString("\n    ") { "<link rel=\"preload\" href=\"$it\" as=\"fetch\" type=\"application/wasm\" crossorigin>" }
-        index.writeText(index.readText().replace("<!--@preload-wasm@-->", preloads))
     }
 }

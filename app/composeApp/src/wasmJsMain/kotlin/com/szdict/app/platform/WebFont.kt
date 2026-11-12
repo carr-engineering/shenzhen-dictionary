@@ -76,7 +76,9 @@ fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
             register("NotoSansCJK", complete)
             return@LaunchedEffect
         }
-        // The first frames and the first search come first; the long tail follows.
+        // The first frames and the first search come first; the long tail follows — on a first
+        // visit only once the dataset is here, so it never shares the connection with it (PERF-060).
+        runCatching { session.dictionary() }
         staged.tiers.drop(1).forEachIndexed { index, url ->
             delay(TIER_DELAY_MS * (index + 1))
             register("NotoSansCJK-${index + 1}", listOf(url))

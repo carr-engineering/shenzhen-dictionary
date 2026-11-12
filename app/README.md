@@ -38,17 +38,41 @@ cd app
 ```
 
 Both tasks stage what the page fetches next to the app shell into `composeApp/build/web/static`
-(never committed): `data/` (datasets, packs, audio and a `manifest.json` of sizes and content tags
-from `pipeline/out`), `opencc/`, `strokes/` and `sqlite3/` (sqlite-wasm). The dataset of the active
-mode is downloaded on the first visit by the store worker (`wasmJsMain/resources/sqlite-worker.js`)
-and kept in OPFS; a file whose tag in the manifest changed is downloaded again.
+(never committed): `data/` (datasets, packs, audio and a `manifest.json` from `pipeline/out`),
+`opencc/`, `strokes/`, `sqlite3/` (sqlite-wasm), `models/`, and `pwa/` (web app manifest, icons
+from the launcher icon, and `privacy.html` rendered from the `PrivacyPolicy*.kt` sources).
 
-- The CJK font comes from the font host; add `-Pszdict.web.cjkFont=/path/to/NotoSansCJKsc-Regular.otf`
-  to serve it from the app's own origin instead (development without the network).
+- **Datasets.** `data/manifest.json` carries the `dataset_version` and each file's size and
+  SHA-256. The store worker (`wasmJsMain/resources/sqlite-worker.js`) downloads the active mode's
+  dataset on the first visit, verifies it and keeps it in OPFS; a pointer file names the verified
+  files. Later visits open the installed dataset without the network; the manifest is checked in
+  the background, a changed file is downloaded and verified beside the one in use, and one write
+  of the pointer file installs it for the next load (the app shows "Dictionary updated"; other
+  tabs are told through a BroadcastChannel). Updates are full downloads — changesets are not built.
+  The language model (`<mode>-lm.db`) is fetched when a query first needs it; the search runs
+  again when it arrives.
+- **Service worker** (`sw.js`, distribution only). The distribution task writes the build's
+  version and shell file list into it. It keeps the shell (start page, code, WebAssembly, workers,
+  SQLite, the privacy page) for offline starts, answers every route with the start page, and
+  keeps lazily fetched audio, OpenCC dictionaries, fonts and stroke graphics as they pass through.
+  A new build installs beside the running one and takes over on the next load. The development
+  server runs without it.
+- **Font.** Without preparation the app fetches the complete Noto Sans CJK (16 MB) of the glyph
+  variant in use from the font host. `python3 tools/stage-web-fonts.py` (needs `fonttools`) cuts
+  the SC, TC and HK variants into frequency tiers under `build/web/static/cjk/fonts` — about
+  1.5 MB for the first — which the distribution then includes and the app fetches in order;
+  `--full` also stages the complete fonts for a deployment that must not ask the font host.
+- **Compression.** `node tools/web-precompress.mjs` writes `.br` and `.gz` siblings into the
+  distribution for hosts that serve precompressed files; otherwise the host must compress
+  (the code is 4.6 MB with Brotli, 17 MB without).
+- **Hosting.** Static files. Every route of the route table (`/zh/…`, `/yue/…`, `/reading`, `/ocr`,
+  `/settings`) is answered with `index.html`; `/privacy` with `privacy.html` (the running app
+  opens its own bundled copy); `sw.js`, `index.html` and `data/manifest.json` must be revalidated
+  on every request (`Cache-Control: no-cache`).
 - `http://localhost:8081/?selftest=1` runs the shared engine in the browser (search, entry, examples,
   decomposition, analysis and HSK in both modes) and logs `[selftest] …` lines to the console.
-- The distribution is static files; the host must answer every route of the route table
-  (`/zh/…`, `/yue/…`, `/reading`, `/ocr`, `/settings`, `/privacy`) with `index.html`.
+- `localStorage["szdict.debug"] = "1"` adds `window.szdictState()` (destination, query, side,
+  counts, download state) for browser automation: the app draws on a canvas.
 - OCR and handwriting run the Android graphs in `recognition-worker.js` (TFLite Web runtime). The
   model files are staged under `models/` with a `manifest.json` (sizes, SHA-256, files per set); the
   worker downloads a set on first use (OCR graphs 1.9 MB, handwriting 7.9 MB, plus the 3.8 MB

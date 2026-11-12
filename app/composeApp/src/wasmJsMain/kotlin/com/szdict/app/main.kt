@@ -60,6 +60,8 @@ private fun jsPageHidden(): Boolean = js("document.hidden")
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Read before the history rewrites the address to the canonical route (GLB-110).
+    val selfTest = window.location.search.contains("selftest=1")
     val audio = WebAudioPlayer()
     val datasets = WebDatasets(audio, scope)
     val env = AppEnv(
@@ -90,13 +92,13 @@ fun main() {
             Box(Modifier.fillMaxSize()) {
                 App(session)
                 DatasetDownloadState(session, datasets)
+                DatasetUpdatedNotice(session, datasets)
             }
         }
-                DatasetUpdatedNotice(session, datasets)
     }
-    if (window.location.search.contains("selftest=1")) scope.launch { SelfTest.run(session) }
-}
     installDebugState(session, datasets)
+    if (selfTest) scope.launch { SelfTest.run(session) }
+}
 
 /** First-visit download of a mode's dataset (ARCH-004): a progress card over the shell, or the failure with a reload. */
 @Composable

@@ -11,7 +11,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,11 +61,10 @@ internal fun DatasetUpdatedNotice(session: AppSession, datasets: WebDatasets) {
                     modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button) { session.flushNow(); jsReloadPage() }
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                 )
-                Text(
-                    "✕", color = palette.muted, style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.clip(RoundedCornerShape(16.dp))
-                        .clickable(role = Role.Button, onClickLabel = strings.text("Close")) { datasets.dismissUpdate() }
-                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                Icon(
+                    Icons.Filled.Close, contentDescription = strings.text("Close"), tint = palette.muted,
+                    modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button) { datasets.dismissUpdate() }
+                        .padding(10.dp).size(18.dp),
                 )
             }
         }
