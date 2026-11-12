@@ -680,6 +680,10 @@ internal class DictionaryStore private constructor(
     suspend fun hasSentences(): Boolean = pack(sentencesPath, sentencesDb) { sentencesDb = it } != null
     suspend fun hasDecomposition(): Boolean = pack(decompPath, decompDb) { decompDb = it } != null
 
+    /** Whether the packs are installed, without opening them (on Web an open is what fetches a pack, ARCH-143). */
+    val sentencesInstalled: Boolean get() = sentencesDb != null || fileExists(sentencesPath)
+    val decompositionInstalled: Boolean get() = decompDb != null || fileExists(decompPath)
+
     suspend fun sentenceIds(word: String): IntArray {
         val db = pack(sentencesPath, sentencesDb) { sentencesDb = it } ?: return IntArray(0)
         return withContext(io) {

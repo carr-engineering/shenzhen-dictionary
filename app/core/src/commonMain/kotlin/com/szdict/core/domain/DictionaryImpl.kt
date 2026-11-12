@@ -151,7 +151,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
             romanization = m["romanization"] ?: "", toneCount = store.toneCount, entryCount = m["entry_count"]?.toIntOrNull() ?: 0,
             maxHeadwordLen = store.maxHeadwordLen, maxWordLen = store.maxWordLen, hasFrequencyData = store.hasFrequency,
             hasHsk = store.metaBool("has_hsk", true), hasBigramModel = store.hasBigram && store.hasLm, hasLanguageModel = store.hasLm,
-            hasSentences = store.hasSentences(), hasDecomposition = store.hasDecomposition(), sources = sources, raw = m,
+            hasSentences = store.sentencesInstalled, hasDecomposition = store.decompositionInstalled, sources = sources, raw = m,
         )
     }
 
