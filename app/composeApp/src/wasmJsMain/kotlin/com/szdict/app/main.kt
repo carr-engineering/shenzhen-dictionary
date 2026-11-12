@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ComposeViewport
 import com.szdict.app.i18n.AppStrings
@@ -31,6 +32,7 @@ import com.szdict.app.platform.LocalStorageSettings
 import com.szdict.app.platform.WebAudioPlayer
 import com.szdict.app.platform.WebClipboard
 import com.szdict.app.platform.WebDatasets
+import com.szdict.app.platform.WebHistory
 import com.szdict.app.platform.WebLinkOpener
 import com.szdict.app.platform.WebSpeaker
 import com.szdict.app.platform.WebTranslator
@@ -75,6 +77,7 @@ fun main() {
     )
     val session = AppSession(env, scope)
     requestPersistentStorage()
+    WebHistory(session).start()
     // Leaving or hiding the page is the Web's "stop": settle the settings and silence playback (ARCH-112).
     window.addEventListener("pagehide", { session.flushNow(); session.stopPlayback() })
     document.addEventListener("visibilitychange", { if (jsPageHidden()) session.flushNow() })
@@ -101,7 +104,11 @@ private fun DatasetDownloadState(session: AppSession, datasets: WebDatasets) {
     val strings = AppStrings(settings.uiLanguage.resolve(session.env.systemLocaleTag()))
     DictionaryTheme(settings.themeMode, session.routeMode()) {
         val palette = LocalDictionaryPalette.current
-        Box(Modifier.fillMaxSize().background(palette.bg.copy(alpha = 0.86f)).padding(24.dp), contentAlignment = Alignment.Center) {
+        // The shell underneath cannot answer anything yet: the scrim takes its pointer input.
+        Box(
+            Modifier.fillMaxSize().background(palette.bg.copy(alpha = 0.86f)).pointerInput(Unit) { }.padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
             Column(
                 Modifier.widthIn(max = 380.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(palette.panel)
                     .border(1.dp, palette.border, RoundedCornerShape(14.dp)).padding(20.dp),

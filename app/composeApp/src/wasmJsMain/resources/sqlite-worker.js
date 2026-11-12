@@ -27,7 +27,7 @@ const notify = (data) => self.postMessage({ id: -1, data });
 const ready = (async () => {
   sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} });
   try {
-    pool = await sqlite3.installOpfsSAHPoolVfs({ name: 'szdict-pool', directory: POOL_DIRECTORY, initialCapacity: 16 });
+    pool = await sqlite3.installOpfsSAHPoolVfs({ name: 'szdict-pool', directory: POOL_DIRECTORY, initialCapacity: 16, verbosity: 0 });
   } catch (e) {
     pool = null;
   }

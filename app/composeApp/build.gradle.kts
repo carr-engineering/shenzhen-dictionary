@@ -252,5 +252,5 @@ tasks.matching { it.name == "wasmJsBrowserDevelopmentRun" || it.name == "wasmJsB
 // The distribution carries the static files beside the app shell.
 tasks.matching { it.name == "wasmJsBrowserDistribution" || it.name == "wasmJsBrowserDevelopmentExecutableDistribution" }.configureEach {
     dependsOn(stageWebStatic)
-    webStaticRoots.forEach { (this as Copy).from(it) }
+    webStaticRoots.forEach { (this as AbstractCopyTask).from(it) }
 }
