@@ -16,6 +16,8 @@ internal actual fun openCcResourceReader(env: AppEnv): (String) -> ByteArray {
     }
 }
 
+internal actual suspend fun prepareOpenCcResources(env: AppEnv) {}
+
 /** Host JVM (unit tests): the staged dictionaries are on the test classpath. */
 internal fun readOpenCcClasspathResource(name: String): ByteArray {
     val stream = OpenCcScriptConverter::class.java.classLoader?.getResourceAsStream("$DIRECTORY/$name")

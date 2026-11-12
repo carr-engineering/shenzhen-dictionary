@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>SZ Dict</title>
+    <link rel="icon" href="data:,">
+    <style>
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #faf7f1; }
+        #loading {
+            position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 14px; font: 15px system-ui, sans-serif; color: #6b665c; background: #faf7f1;
+        }
+        #loading .name { font-size: 22px; font-weight: 600; color: #2b2925; }
+        #loading .bar { width: 160px; height: 3px; border-radius: 2px; background: #ddd7c9; overflow: hidden; }
+        #loading .bar::after {
+            content: ""; display: block; width: 40%; height: 100%; background: #a53a2b; border-radius: 2px;
+            animation: slide 1.1s ease-in-out infinite;
+        }
+        @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+        @media (prefers-color-scheme: dark) {
+            html, body, #loading { background: #17140f; }
+            #loading { color: #a39d90; }
+            #loading .name { color: #ece8df; }
+            #loading .bar { background: #37342f; }
+        }
+    </style>
+</head>
+<body>
+<div id="loading" role="status">
+    <div class="name">SZ Dict</div>
+    <div class="bar"></div>
+    <div id="loading-text">Loading…</div>
+</div>
+<noscript>SZ Dict needs JavaScript and WebAssembly.</noscript>
+<script type="application/javascript" src="szdict.js"></script>
+</body>
+</html>

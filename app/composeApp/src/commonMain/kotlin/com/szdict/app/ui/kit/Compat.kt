@@ -51,3 +51,7 @@ fun InputMethodGate(content: @Composable () -> Unit) {
     }
     InterceptPlatformTextInput(interceptor, content)
 }
+
+/** Whether the soft keyboard is showing (the bottom bar hides under it). */
+@Composable
+expect fun imeVisible(): Boolean

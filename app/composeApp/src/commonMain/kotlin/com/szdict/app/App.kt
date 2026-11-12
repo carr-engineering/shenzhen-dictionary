@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -83,6 +82,7 @@ import com.szdict.app.ui.kit.LocalDisplayPrefs
 import com.szdict.app.ui.kit.LocalSession
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.WordSheet
+import com.szdict.app.ui.kit.imeVisible
 import com.szdict.app.ui.theme.DictionaryTheme
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 
@@ -114,7 +114,7 @@ fun App(session: AppSession) {
                 var handwritingHeight by remember { mutableStateOf(0.dp) }
                 if (session.wordSheet == null) wordSheetHeight = 0.dp
                 if (!session.handwritingVisible) handwritingHeight = 0.dp
-                val imeVisible = WindowInsets.isImeVisible
+                val imeVisible = imeVisible()
                 val topRoute = session.routes.lastOrNull()
                 val fullScreenRoute = topRoute != null && (!twoPane || topRoute !is DetailRoute.Entry)
                 // Settings-family routes keep the primary navigation visible (SET-005); an entry covers it.

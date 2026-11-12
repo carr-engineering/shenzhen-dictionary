@@ -22,3 +22,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.4.0" apply false
     id("org.jetbrains.compose") version "1.11.1" apply false
 }
+
+// Kotlin/Wasm toolchain (Node.js, Yarn, Binaryen): resolved from the repositories declared in
+// settings.gradle.kts, so the Kotlin plugin must not add its own per-project ones.
+allprojects {
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsEnvSpec>().downloadBaseUrl.set(null as String?)
+    }
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootEnvSpec>().downloadBaseUrl.set(null as String?)
+    }
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
+    }
+}

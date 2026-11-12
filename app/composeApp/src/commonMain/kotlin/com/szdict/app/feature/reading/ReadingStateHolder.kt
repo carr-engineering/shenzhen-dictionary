@@ -94,13 +94,18 @@ class ReadingStateHolder(
 
     /** `Paste` (TXT-052). Returns false when the clipboard has no usable text. */
     fun paste(): Boolean {
-        val text = session.env.clipboard.readText()
-        if (text.isNullOrBlank()) {
-            session.env.clipboard.refresh()
-            return false
+        var pasted = false
+        session.env.clipboard.read { text, denied ->
+            if (text.isNullOrBlank()) {
+                session.env.clipboard.refresh()
+                // TXT-059: a refused clipboard permission is said inline, not left looking broken.
+                if (denied) message = "Clipboard empty or unavailable"
+            } else {
+                replaceDraft(text)
+                pasted = true
+            }
         }
-        replaceDraft(text)
-        return true
+        return pasted
     }
 
     /** A new passage: replaces the draft (no merge), starts unconverted, analyses automatically. */

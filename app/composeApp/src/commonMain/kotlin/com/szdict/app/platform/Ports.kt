@@ -28,6 +28,13 @@ interface Clipboard {
     fun refresh()
     fun readText(): String?
     fun writeText(text: String)
+
+    /**
+     * Reads the text for a paste and hands it to [onResult]: at once where the clipboard can be
+     * read synchronously, later on Web, where the read is asynchronous, needs a user gesture and
+     * may be refused (TXT-059) — [onResult] then gets null text with `denied` set.
+     */
+    fun read(onResult: (text: String?, denied: Boolean) -> Unit) = onResult(readText(), false)
 }
 
 /** Translate hand-off (MED-030…). */

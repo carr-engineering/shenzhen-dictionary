@@ -265,9 +265,8 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
             onFieldFocused = { if (handwriting) showHandwriting() },
             onFieldTapped = showCurrentMethod,
             onPaste = {
-                val text = clipboard.readText()
                 // No usable text: only refresh availability so the button disappears (SRCH-124).
-                if (text.isNullOrBlank()) clipboard.refresh() else holder.paste(text)
+                clipboard.read { text, _ -> if (text.isNullOrBlank()) clipboard.refresh() else holder.paste(text) }
             },
             onClear = {
                 holder.clear()

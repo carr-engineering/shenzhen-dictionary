@@ -79,7 +79,7 @@ object ScriptConverters {
     private var instance: ScriptConverter? = null
 
     fun get(env: AppEnv): ScriptConverter =
-        instance ?: OpenCcScriptConverter(openCcResourceReader(env)).also { instance = it }
+        instance ?: OpenCcScriptConverter(openCcResourceReader(env), prepare = { prepareOpenCcResources(env) }).also { instance = it }
 }
 
 /**
@@ -88,10 +88,17 @@ object ScriptConverters {
  */
 internal expect fun openCcResourceReader(env: AppEnv): (String) -> ByteArray
 
+/**
+ * Makes the resources readable before the first detection or conversion. Nothing to do where they
+ * are installed with the app; Web fetches them on first use (ARCH-143) and throws when it cannot.
+ */
+internal expect suspend fun prepareOpenCcResources(env: AppEnv)
+
 /** [ScriptConverter] over opencc-kmp. [readResource] must throw when a resource is missing. */
 class OpenCcScriptConverter(
     readResource: (String) -> ByteArray,
     private val dispatcher: CoroutineContext = Dispatchers.Default,
+    private val prepare: suspend () -> Unit = {},
 ) : ScriptConverter {
     private val provider = ResourceProvider { name ->
         try {
@@ -106,6 +113,7 @@ class OpenCcScriptConverter(
     private var detector: ScriptDetector? = null
 
     override suspend fun detect(text: String): DetectedScript = withContext(dispatcher) {
+        prepare()
         val detector = mutex.withLock { detector ?: ScriptDetector.fromResources(provider).also { detector = it } }
         coroutineContext.ensureActive()
         val d = detector.detect(wellFormed(text))
@@ -128,6 +136,7 @@ class OpenCcScriptConverter(
 
     override suspend fun convert(text: String, source: ScriptVariant, target: ScriptVariant): Converted =
         withContext(dispatcher) {
+            prepare()
             val configs = requireNotNull(ConversionRules.configs(source, target)) { "No conversion from $source to $target" }
             var result: Converted? = null
             for (config in configs) {

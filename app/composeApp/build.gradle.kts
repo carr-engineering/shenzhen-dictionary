@@ -1,4 +1,10 @@
+import java.security.MessageDigest
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+// Everything the Web build serves next to the app shell (never committed): one root per stageWeb* task.
+val webStaticDir = layout.buildDirectory.dir("web/static")
+val appVersionName = "2026.11.11-1"
+val webStaticRoots = listOf("data", "opencc", "strokes", "sqlite3", "fonts").map { name -> webStaticDir.map { it.dir(name) } }
 
 plugins {
     id("com.android.application")
@@ -8,8 +14,39 @@ plugins {
     id("org.jetbrains.compose")
 }
 
+// The app version for the Web build (Android reads it from BuildConfig).
+val generateWebBuild by tasks.registering {
+    val version = appVersionName
+    val dir = layout.buildDirectory.dir("generated/webBuild/kotlin")
+    inputs.property("version", version)
+    outputs.dir(dir)
+    doLast {
+        val file = dir.get().file("com/szdict/app/WebBuild.kt").asFile
+        file.parentFile.mkdirs()
+        file.writeText("package com.szdict.app\n\ninternal object WebBuild {\n    const val VERSION_NAME = \"$version\"\n}\n")
+    }
+}
+
 kotlin {
     androidTarget { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+
+    // Web (PROD-020): Compose on a canvas; `wasmJsBrowserDevelopmentRun` serves http://localhost:8081.
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs {
+        outputModuleName.set("szdict")
+        browser {
+            commonWebpackConfig {
+                outputFileName = "szdict.js"
+                devServer = (devServer ?: org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackConfig.DevServer()).apply {
+                    port = 8081
+                    open = false
+                    // Datasets, packs, audio, OpenCC dictionaries, stroke data and the SQLite worker files.
+                    static = (static ?: mutableListOf()).apply { webStaticRoots.forEach { add(it.get().asFile.absolutePath) } }
+                }
+            }
+        }
+        binaries.executable()
+    }
 
     sourceSets {
         commonMain.dependencies {
@@ -35,6 +72,12 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+        }
+        wasmJsMain { kotlin.srcDir(generateWebBuild) }
+        wasmJsMain.dependencies {
+            implementation("org.jetbrains.kotlinx:kotlinx-browser:0.5.0")
+            // SQLite compiled to WebAssembly, run by the store worker (ARCH-026); copied by stageWebSqlite.
+            implementation(npm("@sqlite.org/sqlite-wasm", "3.54.1-build1"))
         }
         androidMain.dependencies {
             // Voice destination: sherpa-onnx engine and the bundled speech model (ARCH-095).
@@ -62,7 +105,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "2026.11.11-1"
+        versionName = appVersionName
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     buildFeatures { buildConfig = true }
@@ -124,3 +167,90 @@ val stageOpenccData by tasks.registering(Sync::class) {
 android.sourceSets.getByName("main").assets.srcDir(openccAssetsDir)
 android.sourceSets.getByName("test").resources.srcDir(openccAssetsDir)
 tasks.named("preBuild") { dependsOn(stageOpenccData) }
+
+// ---- Web static files (ARCH-143, ARCH-145) ----
+// `data/` is the pipeline output with a manifest of sizes and content tags: the store worker keeps
+// each SQLite file in OPFS under its tag and downloads it again only when the tag changes.
+val stageWebData by tasks.registering(Sync::class) {
+    val out = rootProject.file("../pipeline/out")
+    from(out) {
+        include("mandarin.db", "mandarin-lm.db", "cantonese.db", "cantonese-lm.db")
+        include("mandarin-widget.json", "cantonese-widget.json")
+        include("packs/**")
+        exclude("packs/packs-report.json")
+        into("data")
+    }
+    into(webStaticRoots[0])
+    preserve { include("data/manifest.json") }
+    doLast {
+        val dir = destinationDir.resolve("data")
+        val files = dir.walkTopDown().filter { it.isFile && it.extension == "db" }.sortedBy { it.path }.toList()
+        val digest = MessageDigest.getInstance("SHA-256")
+        val entries = files.joinToString(",") { f ->
+            f.inputStream().use { input ->
+                val buf = ByteArray(1 shl 16)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    digest.update(buf, 0, n)
+                }
+            }
+            val tag = digest.digest().take(8).joinToString("") { b -> "%02x".format(b) }
+            "\"${f.relativeTo(dir).invariantSeparatorsPath}\":{\"size\":${f.length()},\"tag\":\"$tag\"}"
+        }
+        dir.resolve("manifest.json").writeText("{\"files\":{$entries}}")
+    }
+}
+
+// OpenCC dictionaries (ARCH-196), fetched on first use; `index.json` lists them.
+val stageWebOpencc by tasks.registering(Sync::class) {
+    from(stageOpenccData)
+    into(webStaticRoots[1])
+    doLast {
+        val dir = destinationDir.resolve("opencc")
+        val names = dir.listFiles().orEmpty().filter { it.extension == "json" || it.extension == "ocd2" }.map { it.name }.sorted()
+        dir.resolve("index.json").writeText(names.joinToString(",", "[", "]") { "\"$it\"" })
+    }
+}
+
+// Stroke graphics of the animator library's browser reader (`strokes/<shard>.hzb`).
+val strokeWebData by configurations.creating {
+    isTransitive = false
+    isCanBeConsumed = false
+}
+dependencies { add(strokeWebData.name, "engineering.carr:shenzhen-hanzi-animator-bundled-data:0.1.0:web-data@zip") }
+val stageWebStrokes by tasks.registering(Sync::class) {
+    from({ strokeWebData.files.map { zipTree(it) } }) { include("strokes/*.hzb", "licenses/**") }
+    into(webStaticRoots[2])
+}
+
+// sqlite-wasm's ES module and binary, loaded by the store worker (wasmJsMain/resources/sqlite-worker.js).
+val stageWebSqlite by tasks.registering(Sync::class) {
+    dependsOn(rootProject.tasks.named("kotlinWasmNpmInstall"))
+    from(rootProject.layout.buildDirectory.dir("wasm/node_modules/@sqlite.org/sqlite-wasm/dist")) {
+        include("index.mjs", "sqlite3.wasm", "sqlite3-opfs-async-proxy.js")
+        into("sqlite3")
+    }
+    into(webStaticRoots[3])
+}
+
+// Optional: serve the CJK fallback font from the app's own origin instead of the font host
+// (ARCH-005), e.g. `-Pszdict.web.cjkFont=$HOME/Library/Fonts/NotoSansCJKsc-Regular.otf` — for
+// development without the network. The file is served as `fonts/NotoSansCJKsc-Regular.otf`.
+val stageWebFont by tasks.registering(Sync::class) {
+    val font = providers.gradleProperty("szdict.web.cjkFont").orNull
+    if (font != null) from(font) { into("fonts"); rename { "NotoSansCJKsc-Regular.otf" } }
+    into(webStaticRoots[4])
+}
+
+val stageWebStatic by tasks.registering {
+    dependsOn(stageWebData, stageWebOpencc, stageWebStrokes, stageWebSqlite, stageWebFont)
+}
+tasks.matching { it.name == "wasmJsBrowserDevelopmentRun" || it.name == "wasmJsBrowserProductionRun" }.configureEach {
+    dependsOn(stageWebStatic)
+}
+// The distribution carries the static files beside the app shell.
+tasks.matching { it.name == "wasmJsBrowserDistribution" || it.name == "wasmJsBrowserDevelopmentExecutableDistribution" }.configureEach {
+    dependsOn(stageWebStatic)
+    webStaticRoots.forEach { (this as Copy).from(it) }
+}
