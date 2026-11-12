@@ -7,7 +7,7 @@ import com.szdict.recognition.ocr.DetectorOutput
 import com.szdict.recognition.ocr.OcrNets
 import com.szdict.recognition.ocr.SequenceModel
 import com.szdict.recognition.ocr.SequenceOutput
-import com.szdict.recognition.tflite.TfLiteInterpreter
+import cnames.structs.TfLiteInterpreter
 import com.szdict.recognition.tflite.TfLiteInterpreterAllocateTensors
 import com.szdict.recognition.tflite.TfLiteInterpreterCreate
 import com.szdict.recognition.tflite.TfLiteInterpreterDelete
@@ -19,7 +19,7 @@ import com.szdict.recognition.tflite.TfLiteInterpreterOptionsDelete
 import com.szdict.recognition.tflite.TfLiteInterpreterOptionsSetNumThreads
 import com.szdict.recognition.tflite.TfLiteInterpreterResetVariableTensors
 import com.szdict.recognition.tflite.TfLiteInterpreterResizeInputTensor
-import com.szdict.recognition.tflite.TfLiteModel
+import cnames.structs.TfLiteModel
 import com.szdict.recognition.tflite.TfLiteModelCreateFromFile
 import com.szdict.recognition.tflite.TfLiteModelDelete
 import com.szdict.recognition.tflite.TfLiteStatus
