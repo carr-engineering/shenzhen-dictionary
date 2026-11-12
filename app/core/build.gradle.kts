@@ -14,6 +14,9 @@ kotlin {
     // Web (ARCH-026): the same store over the worker-based SQLite driver.
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
     wasmJs { browser() }
+    // iOS: the bundled SQLite driver, as on Android; device and Apple-silicon simulator.
+    iosArm64()
+    iosSimulatorArm64()
 
     sourceSets {
         commonMain.dependencies {
@@ -32,6 +35,7 @@ kotlin {
             kotlin.srcDir("src/jvmAndAndroidMain/kotlin")
             dependencies { implementation("androidx.sqlite:sqlite-bundled:2.7.1") }
         }
+        iosMain.dependencies { implementation("androidx.sqlite:sqlite-bundled:2.7.1") }
         wasmJsMain.dependencies {
             api("androidx.sqlite:sqlite-web:2.7.1")
             implementation("org.jetbrains.kotlinx:kotlinx-browser:0.5.0")
