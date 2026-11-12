@@ -1,7 +1,14 @@
 import java.awt.Color
+import java.awt.LinearGradientPaint
+import java.awt.Paint
+import java.awt.RadialGradientPaint
 import java.awt.RenderingHints
+import java.awt.geom.AffineTransform
+import java.awt.geom.Path2D
+import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
 import java.security.MessageDigest
+import java.util.Locale
 import javax.imageio.ImageIO
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -304,46 +311,183 @@ tasks.matching { it.name == "wasmJsBrowserDistribution" || it.name == "wasmJsBro
 }
 
 // ---- PWA shell (ARCH-145, ARCH-199, GLB-114) ----
-// The web app manifest, its icons (from the Android launcher icon) and the static privacy page,
-// rendered from the policy sources the apps bundle so the two can never differ.
+// The web app manifest, its icons (drawn from the vector drawables of the Android adaptive icon) and
+// the static privacy page, rendered from the policy sources the apps bundle so the two can never differ.
+
+/** One `<path>` of a vector drawable: its outline and a flat colour or a gradient (colour stops in path space). */
+class IconPath(val data: String, val evenOdd: Boolean, val color: String?, val gradient: IconGradient?)
+class IconGradient(val radial: Boolean, val numbers: Map<String, Float>, val stops: List<Pair<Float, String>>)
+class IconGroup(val rotation: Double, val scale: Double, val translateX: Double, val translateY: Double, val paths: List<IconPath>)
+
+/** The groups of a vector drawable (`M L H V C Z` paths, group rotation / scale / translation, gradients). */
+fun readVectorDrawable(file: File): List<IconGroup> {
+    val document = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
+    fun org.w3c.dom.Element.number(name: String, default: Double) = getAttribute("android:$name").toDoubleOrNull() ?: default
+    fun org.w3c.dom.Element.children(tag: String): List<org.w3c.dom.Element> =
+        (0 until childNodes.length).map { childNodes.item(it) }.filterIsInstance<org.w3c.dom.Element>().filter { it.tagName == tag }
+    return document.documentElement.children("group").map { group ->
+        IconGroup(
+            group.number("rotation", 0.0), group.number("scaleX", 1.0), group.number("translateX", 0.0), group.number("translateY", 0.0),
+            group.children("path").map { path ->
+                val gradient = path.children("aapt:attr").firstOrNull()?.children("gradient")?.firstOrNull()?.let { g ->
+                    IconGradient(
+                        radial = g.getAttribute("android:type") == "radial",
+                        numbers = listOf("startX", "startY", "endX", "endY", "centerX", "centerY", "gradientRadius")
+                            .mapNotNull { name -> g.getAttribute("android:$name").toFloatOrNull()?.let { name to it } }.toMap(),
+                        stops = g.children("item").map { it.getAttribute("android:offset").toFloat() to it.getAttribute("android:color") },
+                    )
+                }
+                IconPath(
+                    path.getAttribute("android:pathData"), path.getAttribute("android:fillType") == "evenOdd",
+                    path.getAttribute("android:fillColor").takeIf { it.startsWith("#") }, gradient,
+                )
+            },
+        )
+    }
+}
+
+fun iconOutline(path: IconPath): Path2D.Double {
+    val out = Path2D.Double(if (path.evenOdd) Path2D.WIND_EVEN_ODD else Path2D.WIND_NON_ZERO)
+    val tokens = Regex("[MLHVCZ]|-?[0-9]*\\.?[0-9]+(?:[eE][-+]?[0-9]+)?").findAll(path.data).map { it.value }.toList()
+    var i = 0
+    var command = ' '
+    fun next() = tokens[i++].toDouble()
+    while (i < tokens.size) {
+        if (tokens[i].length == 1 && tokens[i][0] in "MLHVCZ") command = tokens[i++][0]
+        when (command) {
+            'M' -> { out.moveTo(next(), next()); command = 'L' }
+            'L' -> out.lineTo(next(), next())
+            'H' -> out.lineTo(next(), out.currentPoint.y)
+            'V' -> out.lineTo(out.currentPoint.x, next())
+            'C' -> out.curveTo(next(), next(), next(), next(), next(), next())
+            'Z' -> out.closePath()
+            else -> throw GradleException("launcher icon: unsupported path command in ${path.data.take(40)}")
+        }
+    }
+    return out
+}
+
+fun iconGroupTransform(group: IconGroup): AffineTransform = AffineTransform().apply {
+    translate(group.translateX, group.translateY)
+    rotate(Math.toRadians(group.rotation))
+    scale(group.scale, group.scale)
+}
+
+/**
+ * One icon of the Web set, as placed on the 1024-unit canvas of the drawables: the mark (the
+ * foreground) scaled about its own centre to [markSize] of the square and centred, over the
+ * background, the whole clipped to a rounded square of [corner] (a fraction of the side; 0 = none).
+ */
+class WebIcon(val foreground: List<IconGroup>, val background: List<IconGroup>, val markSize: Double, val corner: Double) {
+    private val bounds = foreground.flatMap { group -> group.paths.map { iconGroupTransform(group).createTransformedShape(iconOutline(it)).bounds2D } }
+        .reduce { a, b -> a.createUnion(b) }
+    /** Fits the mark's bounding box, or — for a circular safe zone — its half diagonal, into [markSize]. */
+    private val scale = markSize * 1024.0 / maxOf(bounds.width, bounds.height)
+    val markTransform: AffineTransform = AffineTransform().apply {
+        translate(512.0, 512.0)
+        scale(scale, scale)
+        translate(-bounds.centerX, -bounds.centerY)
+    }
+
+    private fun paint(path: IconPath): Paint {
+        val g = path.gradient ?: return Color.decode(path.color ?: "#000000")
+        val fractions = g.stops.map { it.first }.toFloatArray()
+        // Java2D wants strictly increasing fractions.
+        for (k in 1 until fractions.size) if (fractions[k] <= fractions[k - 1]) fractions[k] = fractions[k - 1] + 1e-4f
+        val colors = g.stops.map { Color.decode(it.second) }.toTypedArray()
+        val n = g.numbers
+        return if (g.radial) RadialGradientPaint(n.getValue("centerX"), n.getValue("centerY"), n.getValue("gradientRadius"), fractions, colors)
+        else LinearGradientPaint(n.getValue("startX"), n.getValue("startY"), n.getValue("endX"), n.getValue("endY"), fractions, colors)
+    }
+
+    fun png(size: Int, target: File) {
+        val image = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+        val g = image.createGraphics()
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
+        g.scale(size / 1024.0, size / 1024.0)
+        val square = RoundRectangle2D.Double(0.0, 0.0, 1024.0, 1024.0, 2048 * corner, 2048 * corner)
+        fun draw(groups: List<IconGroup>, outer: AffineTransform?) = groups.forEach { group ->
+            val saved = g.transform
+            outer?.let(g::transform)
+            g.transform(iconGroupTransform(group))
+            group.paths.forEach { path -> g.paint = paint(path); g.fill(iconOutline(path)) }
+            g.transform = saved
+        }
+        // The background is filled through the rounded outline itself, so its edge is anti-aliased.
+        background.forEach { group -> group.paths.forEach { path -> g.paint = paint(path); g.fill(square) } }
+        draw(foreground, markTransform)
+        g.dispose()
+        ImageIO.write(image, "png", target)
+    }
+
+    fun svg(): String {
+        val defs = StringBuilder()
+        val body = StringBuilder()
+        var id = 0
+        fun fill(path: IconPath): String {
+            val g = path.gradient ?: return path.color ?: "#000"
+            val name = "g${id++}"
+            val n = g.numbers
+            val stops = g.stops.joinToString("") { (offset, color) -> "<stop offset=\"$offset\" stop-color=\"$color\"/>" }
+            defs.append(
+                if (g.radial) "<radialGradient id=\"$name\" gradientUnits=\"userSpaceOnUse\" cx=\"${n["centerX"]}\" cy=\"${n["centerY"]}\" r=\"${n["gradientRadius"]}\">$stops</radialGradient>"
+                else "<linearGradient id=\"$name\" gradientUnits=\"userSpaceOnUse\" x1=\"${n["startX"]}\" y1=\"${n["startY"]}\" x2=\"${n["endX"]}\" y2=\"${n["endY"]}\">$stops</linearGradient>",
+            )
+            return "url(#$name)"
+        }
+        fun number(value: Double) = "%.4f".format(Locale.ROOT, value).trimEnd('0').trimEnd('.')
+        fun matrix(t: AffineTransform) =
+            "matrix(${number(t.scaleX)} ${number(t.shearY)} ${number(t.shearX)} ${number(t.scaleY)} ${number(t.translateX)} ${number(t.translateY)})"
+        background.forEach { group ->
+            group.paths.forEach { path -> body.append("<rect width=\"1024\" height=\"1024\" rx=\"${number(1024 * corner)}\" fill=\"${fill(path)}\"/>\n") }
+        }
+        foreground.forEach { group ->
+            val transform = AffineTransform(markTransform).apply { concatenate(iconGroupTransform(group)) }
+            body.append("<g transform=\"${matrix(transform)}\">\n")
+            group.paths.forEach { path ->
+                body.append("<path d=\"${path.data}\" fill=\"${fill(path)}\"${if (path.evenOdd) " fill-rule=\"evenodd\"" else ""}/>\n")
+            }
+            body.append("</g>\n")
+        }
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\">\n<defs>$defs</defs>\n$body</svg>\n"
+    }
+}
+
 val stageWebPwa by tasks.registering {
-    val launcherIcon = layout.projectDirectory.file("src/androidMain/res/mipmap-xxxhdpi/ic_launcher.png")
+    val drawables = layout.projectDirectory.dir("src/androidMain/res/drawable")
+    val iconForeground = drawables.file("ic_launcher_foreground.xml")
+    val iconBackground = drawables.file("ic_launcher_background.xml")
     val policyDir = layout.projectDirectory.dir("src/commonMain/kotlin/com/szdict/app/feature/settings")
     val policySources = listOf("PrivacyPolicy.kt", "PrivacyPolicyEn.kt", "PrivacyPolicyZhHans.kt", "PrivacyPolicyZhHant.kt").map { policyDir.file(it) }
     val target = webStaticRoots[6]
-    inputs.file(launcherIcon)
+    inputs.files(iconForeground, iconBackground)
     inputs.files(policySources)
-    inputs.property("layout", 3)
+    inputs.property("layout", 4)
     outputs.dir(target)
     doLast {
         val dir = target.get().asFile
         dir.deleteRecursively()
         dir.resolve("icons").mkdirs()
 
-        // Icons: the launcher bitmap as is, scaled, and on the icon's own paper colour for the
-        // opaque (Apple) and maskable (Android adaptive) variants.
+        // Icons, all square and drawn from the vectors at their own size (nothing is upscaled):
+        // the tab and install icons are the mark filling a rounded square of the icon's paper; the
+        // Apple icon is the same on a full square (iOS rounds it); the maskable icon is a full
+        // square with the mark inside the central safe zone (a circle of 80 % of the side).
         System.setProperty("java.awt.headless", "true")
-        val source = ImageIO.read(launcherIcon.asFile)
-        fun icon(name: String, size: Int, inset: Double, background: Color?) {
-            val image = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
-            val g = image.createGraphics()
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
-            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-            if (background != null) {
-                g.color = background
-                g.fillRect(0, 0, size, size)
-            }
-            val edge = Math.round(size * inset).toInt()
-            g.drawImage(source, edge, edge, size - 2 * edge, size - 2 * edge, null)
-            g.dispose()
-            ImageIO.write(image, "png", dir.resolve("icons/$name"))
-        }
-        val paper = Color(0xF4, 0xEF, 0xE3)
-        icon("icon-192.png", 192, 0.0, null)
-        icon("icon-512.png", 512, 0.0, null)
-        icon("icon-maskable-512.png", 512, 0.1, paper)
-        icon("apple-touch-icon.png", 180, 0.0, paper)
-        icon("favicon-48.png", 48, 0.0, null)
+        val foreground = readVectorDrawable(iconForeground.asFile)
+        val background = readVectorDrawable(iconBackground.asFile)
+        val tab = WebIcon(foreground, background, markSize = 0.86, corner = 0.22)
+        val apple = WebIcon(foreground, background, markSize = 0.80, corner = 0.0)
+        val maskable = WebIcon(foreground, background, markSize = 0.66, corner = 0.0)
+        dir.resolve("icons/favicon.svg").writeText(tab.svg())
+        tab.png(32, dir.resolve("icons/favicon-32.png"))
+        tab.png(192, dir.resolve("icons/icon-192.png"))
+        tab.png(512, dir.resolve("icons/icon-512.png"))
+        apple.png(180, dir.resolve("icons/apple-touch-icon.png"))
+        maskable.png(192, dir.resolve("icons/icon-maskable-192.png"))
+        maskable.png(512, dir.resolve("icons/icon-maskable-512.png"))
 
         dir.resolve("manifest.webmanifest").writeText(
             """{
@@ -359,8 +503,10 @@ val stageWebPwa by tasks.registering {
   "lang": "en",
   "categories": ["education", "reference"],
   "icons": [
+    { "src": "icons/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
@@ -439,7 +585,8 @@ val stageWebPwa by tasks.registering {
 <link rel="canonical" href="https://szdict.com/privacy">
 <meta name="robots" content="index, follow">
 <meta name="date" content="$updated">
-<link rel="icon" type="image/png" href="/icons/favicon-48.png">
+<link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
 <style>
 :root { --bg: #faf7f1; --fg: #2b2925; --muted: #6b665c; --accent: #a53a2b; --border: #ddd7c9; }
 @media (prefers-color-scheme: dark) { :root { --bg: #17140f; --fg: #ece8df; --muted: #a39d90; --accent: #e08a78; --border: #37342f; } }
@@ -489,7 +636,7 @@ tasks.matching { it.name == "wasmJsBrowserDistribution" }.configureEach {
         val lazyRoots = setOf("data", "opencc", "strokes", "fonts", "models", "licenses")
         val shell = dist.walkTopDown().filter { it.isFile }.map { it.relativeTo(dist).invariantSeparatorsPath }.filter { path ->
             // Of the icons only the tab icon is part of a start; the installer fetches the others itself.
-            path.substringBefore('/') !in lazyRoots && path != "sw.js" && (!path.startsWith("icons/") || path == "icons/favicon-48.png") &&
+            path.substringBefore('/') !in lazyRoots && path != "sw.js" && (!path.startsWith("icons/") || path == "icons/favicon.svg" || path == "icons/favicon-32.png") &&
                 !path.endsWith(".map") && !path.endsWith(".LICENSE.txt") && !path.endsWith(".br") && !path.endsWith(".gz")
         }.sorted().toList()
         val digest = MessageDigest.getInstance("SHA-256")

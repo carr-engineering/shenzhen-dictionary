@@ -39,8 +39,10 @@ cd app
 
 Both tasks stage what the page fetches next to the app shell into `composeApp/build/web/static`
 (never committed): `data/` (datasets, packs, audio and a `manifest.json` from `pipeline/out`),
-`opencc/`, `strokes/`, `sqlite3/` (sqlite-wasm), `models/`, and `pwa/` (web app manifest, icons
-from the launcher icon, and `privacy.html` rendered from the `PrivacyPolicy*.kt` sources).
+`opencc/`, `strokes/`, `sqlite3/` (sqlite-wasm), `models/`, and `pwa/` (web app manifest, the
+icon set — a square SVG favicon and PNGs drawn at their own size from the vector drawables of the
+Android adaptive icon, with `any` and safe-zone `maskable` variants — and `privacy.html` rendered
+from the `PrivacyPolicy*.kt` sources).
 
 - **Datasets.** `data/manifest.json` carries the `dataset_version` and each file's size and
   SHA-256. The store worker (`wasmJsMain/resources/sqlite-worker.js`) downloads the active mode's
