@@ -42,11 +42,11 @@ import platform.darwin.NSObject
  */
 object IosHost {
     /**
-     * Presents Apple's translation sheet for the text (MED-032) and returns true, or returns false
-     * when it cannot (the caller then opens the web page of MED-030). Arguments: text, source
-     * language tag (`zh-CN`, `zh-TW`, `yue`).
+     * Presents Apple's translation sheet for the text (MED-032); the host itself falls back to the
+     * web page of MED-030 (`openWebTranslation`) when the language pair is unsupported. Arguments:
+     * text, source language tag (`zh-CN`, `zh-TW`, `yue`).
      */
-    var translate: ((String, String) -> Boolean)? = null
+    var translate: ((String, String) -> Unit)? = null
 }
 
 /**
@@ -222,8 +222,8 @@ class IosTranslator(private val links: LinkOpener) : Translator {
     override fun translate(text: String, sourceLanguageTag: String) {
         val capped = text.take(1500) // MED-030
         runOnMain {
-            val presented = runCatching { IosHost.translate?.invoke(capped, sourceLanguageTag) }.getOrNull() ?: false
-            if (!presented) openWeb(capped, sourceLanguageTag)
+            val present = IosHost.translate
+            if (present != null) present(capped, sourceLanguageTag) else openWeb(capped, sourceLanguageTag)
         }
     }
 

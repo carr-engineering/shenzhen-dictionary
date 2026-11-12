@@ -108,7 +108,7 @@ fun handleIncomingUrl(url: String): Boolean = IosIntegrations.openUrl(IosAppGrap
 fun handleShortcut(type: String): Boolean = IosIntegrations.performShortcut(IosAppGraph.session, type)
 
 /** Installed by the Swift host: presents Apple's translation sheet (MED-032); see [IosHost.translate]. */
-fun setTranslationPresenter(presenter: (String, String) -> Boolean) {
+fun setTranslationPresenter(presenter: (String, String) -> Unit) {
     IosHost.translate = presenter
 }
 

@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+	</array>
+	<key>CFBundleDisplayName</key>
+	<string>SZ Dict</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.reference</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- Compose renders at the display's full refresh rate. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<!-- ARCH-106: exactly these three usage strings (translated in InfoPlist.strings). -->
+	<key>NSCameraUsageDescription</key>
+	<string>Camera access is needed to recognize Chinese text in photos.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access is needed to transcribe speech. Audio never leaves your device.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>SZ Dict saves the photos you take for text recognition to your photo library when you ask it to.</string>
+	<!-- GLB-111: the app's routes also arrive through the szdict: scheme (same paths as https://szdict.com/). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.szdict.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>szdict</string>
+			</array>
+		</dict>
+	</array>
+	<!-- SET-050…053: Home Screen quick actions; types are handled in IosIntegrations.kt. -->
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.szdict.app.read-clipboard</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>SHORTCUT_READ_CLIPBOARD</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>SHORTCUT_READ_CLIPBOARD_SUBTITLE</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>doc.on.clipboard</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.szdict.app.open-camera</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>SHORTCUT_OPEN_CAMERA</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>SHORTCUT_OPEN_CAMERA_SUBTITLE</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>camera</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.szdict.app.open-voice</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>SHORTCUT_OPEN_VOICE</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>SHORTCUT_OPEN_VOICE_SUBTITLE</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>mic</string>
+		</dict>
+	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<!-- The launch screen is the app background (#FAF7F1 light, #17140F dark) until the first frame. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

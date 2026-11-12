@@ -1,0 +1,18 @@
+// App identity and version. MARKETING_VERSION / CURRENT_PROJECT_VERSION are the two halves of
+// `appVersionName` in composeApp/build.gradle.kts ("2026.11.11-1"); keep them in step (REL-003).
+PRODUCT_BUNDLE_IDENTIFIER = com.szdict.app
+MARKETING_VERSION = 2026.11.11
+CURRENT_PROJECT_VERSION = 1
+IPHONEOS_DEPLOYMENT_TARGET = 26.0
+
+// The Kotlin framework (static) built by `:composeApp:embedAndSignAppleFrameworkForXcode`.
+FRAMEWORK_SEARCH_PATHS = $(inherited) $(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+
+// Native libraries the Kotlin code calls through cinterop are static xcframeworks; the app links
+// them. Nothing is listed here: the "Build Kotlin framework" phase (build-kotlin.sh) writes one
+// `-F<slice> -framework <name>` line per framework found in the directories below into the
+// response file passed to the linker, so adding a library is dropping its .xcframework there.
+SZDICT_XCFRAMEWORK_DIRS = $(SRCROOT)/../recognition/ios-frameworks $(SRCROOT)/../speech/ios-frameworks
+SZDICT_LINK_ARGS = $(DERIVED_FILE_DIR)/szdict-xcframeworks.txt
+// System frameworks those libraries need: CoreML (onnxruntime's CoreML provider references MLModel).
+OTHER_LDFLAGS = $(inherited) -framework ComposeApp -lc++ -framework CoreML @$(SZDICT_LINK_ARGS)

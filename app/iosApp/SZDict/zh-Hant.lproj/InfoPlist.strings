@@ -1,0 +1,9 @@
+"NSCameraUsageDescription" = "需要相機權限才能拍照辨識中文文字。";
+"NSMicrophoneUsageDescription" = "需要麥克風權限才能轉寫語音。音訊不會離開您的裝置。";
+"NSPhotoLibraryAddUsageDescription" = "在您選擇儲存時，深圳詞典會把用於文字辨識的相片儲存到相簿。";
+"SHORTCUT_READ_CLIPBOARD" = "閱讀剪貼簿";
+"SHORTCUT_READ_CLIPBOARD_SUBTITLE" = "閱讀剪貼簿中的文字";
+"SHORTCUT_OPEN_CAMERA" = "掃描中文";
+"SHORTCUT_OPEN_CAMERA_SUBTITLE" = "用相機掃描中文";
+"SHORTCUT_OPEN_VOICE" = "語音";
+"SHORTCUT_OPEN_VOICE_SUBTITLE" = "聽寫語音";

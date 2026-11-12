@@ -1,11 +1,13 @@
 # Shenzhen Dictionary — app
 
-Kotlin Multiplatform + Compose Multiplatform. Targets: Android, and Web (Kotlin/Wasm, Compose on a canvas).
+Kotlin Multiplatform + Compose Multiplatform. Targets: Android, iOS (iPhone and iPad), and Web (Kotlin/Wasm, Compose on a canvas).
 
 | Module | Contents |
 |--------|----------|
 | `core` | shared engine: store, search, segmentation, lattice decoder, domain facade (`com.szdict.core.api`) |
-| `composeApp` | UI, state holders, Android platform layer (widget, shortcuts, share targets), Web platform layer (`wasmJsMain`) |
+| `composeApp` | UI, state holders, Android platform layer (widget, shortcuts, share targets), iOS platform layer (`iosMain`), Web platform layer (`wasmJsMain`) |
+| `iosApp` | Xcode project hosting the `composeApp` framework: Swift entry point, Info.plist, icon, entitlements |
+| `speech` | iOS only: sherpa-onnx through its C API |
 | `recognition` | OCR with per-character alternatives and handwriting, run from the extracted graphs: LiteRT on Android, the TFLite Web runtime in a worker on Web |
 | `voice` | sherpa-onnx streaming Paraformer wrapper |
 
@@ -13,7 +15,7 @@ Kotlin Multiplatform + Compose Multiplatform. Targets: Android, and Web (Kotlin/
 
 ```bash
 uv run pipeline/fetch.py && uv run pipeline/packs/build_packs.py && uv run pipeline/build.py   # datasets + packs -> pipeline/out
-app/tools/publish-animator.sh        # stroke-order library (Android, JVM, Wasm) -> app/local-maven (needs ../shenzhen_hanzi_animator_kmp)
+app/tools/publish-animator.sh        # stroke-order library (Android, JVM, Wasm, iOS) -> app/local-maven (needs ../shenzhen_hanzi_animator_kmp; ANIMATOR_SKIP_IOS=1 without Xcode)
 (cd app && ./gradlew :recognition:fetchModels)   # handwriting model (needs ../chinese-handwritting) and the TFLite Web runtime
 app/tools/fetch-voice-model.sh       # sherpa-onnx library + voice model (~280 MB)
 ```
@@ -81,3 +83,47 @@ from the `PrivacyPolicy*.kt` sources).
   runtime they share; about 2.5 MB and 6.5 MB over gzip), verifies it and keeps it in Cache Storage.
   `/?selftest=recognition&base=testdata/&ocr=a.png,b.png&ink=ink-fixtures.txt` runs both on files
   served under `base` (the module's `androidInstrumentedTest/assets/testdata`) and logs the results.
+
+## iOS
+
+Needs Xcode 26 or later with an iOS simulator runtime (licence accepted: `sudo xcodebuild -license`),
+and the one-time setup above — `publish-animator.sh` publishes the iOS variants of the stroke
+library, `fetch-voice-model.sh` fetches the voice model and the sherpa-onnx / onnxruntime
+xcframeworks into `speech/ios-frameworks/`, and `./gradlew :recognition:fetchIosFrameworks` the
+TensorFlow Lite C runtime into `recognition/ios-frameworks/`. No CocoaPods, no Swift packages.
+
+```bash
+cd app
+./gradlew :composeApp:compileKotlinIosSimulatorArm64 :composeApp:compileKotlinIosArm64   # Kotlin only
+xcrun simctl list devices available        # pick a simulator; `xcrun simctl boot <udid>`
+xcodebuild -project iosApp/SZDict.xcodeproj -scheme SZDict -configuration Debug -sdk iphonesimulator \
+  -destination 'id=<udid>' -derivedDataPath iosApp/build CODE_SIGNING_ALLOWED=NO build
+xcrun simctl install <udid> iosApp/build/Build/Products/Debug-iphonesimulator/SZDict.app
+xcrun simctl launch <udid> com.szdict.app
+xcrun simctl openurl <udid> 'szdict://zh/word/…'      # any route of the route table, as under https://szdict.com/
+```
+
+Or open `iosApp/SZDict.xcodeproj` in Xcode and run the `SZDict` scheme (Apple-silicon simulators;
+a device needs a signing team, and the Associated Domains entitlement for Universal Links).
+
+- **Project.** `iosApp/SZDict.xcodeproj` is written by hand. Its first build phase
+  (`iosApp/build-kotlin.sh`) runs `./gradlew :composeApp:embedAndSignAppleFrameworkForXcode`, which
+  builds the static `ComposeApp` framework and stages the bundle assets. Identity, version and
+  linker settings are in `iosApp/Config.xcconfig`; `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`
+  mirror `appVersionName` in `composeApp/build.gradle.kts`.
+- **Native libraries.** The Kotlin code reaches TensorFlow Lite, sherpa-onnx and onnxruntime through
+  cinterop; they are static xcframeworks that the app target links. The build phase lists every
+  `*.xcframework` under `recognition/ios-frameworks/` and `speech/ios-frameworks/` into a linker
+  response file, so adding one needs no project change (a system framework it depends on goes into
+  `OTHER_LDFLAGS` in `Config.xcconfig`).
+- **Assets.** `:composeApp:stageIosAssets` copies the datasets, packs and recorded audio, the
+  OpenCC dictionaries, the stroke data, the recognition models and — when fetched — the voice model
+  into `composeApp/build/ios/assets` (about 440 MB); Xcode copies that folder into the app as
+  `assets/`. Everything is opened in place and read-only (`IosBundle.kt`); nothing is copied at
+  first launch. The Ogg Opus clips are played as they are (AudioToolbox decodes them on iOS 26).
+- **Icon.** `./gradlew :composeApp:generateIosAppIcon` redraws
+  `iosApp/SZDict/Assets.xcassets/AppIcon.appiconset/icon-1024.png` from the Android launcher
+  vectors; run it when they change (the PNG is committed).
+- **Entry points.** `MainViewController.kt` builds the session and exposes what the Swift host
+  (`iosApp/SZDict/SZDictApp.swift`) forwards: incoming URLs (`szdict:` scheme and Universal Links,
+  through `IncomingRouter`), Home Screen quick actions, and Apple's translation sheet.

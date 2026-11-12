@@ -1,0 +1,10 @@
+/* Usage descriptions (ARCH-106) and Home Screen quick actions (SET-050); wording as in the app. */
+"NSCameraUsageDescription" = "Camera access is needed to recognize Chinese text in photos.";
+"NSMicrophoneUsageDescription" = "Microphone access is needed to transcribe speech. Audio never leaves your device.";
+"NSPhotoLibraryAddUsageDescription" = "SZ Dict saves the photos you take for text recognition to your photo library when you ask it to.";
+"SHORTCUT_READ_CLIPBOARD" = "Read clipboard";
+"SHORTCUT_READ_CLIPBOARD_SUBTITLE" = "Read the clipboard text";
+"SHORTCUT_OPEN_CAMERA" = "Scan Chinese";
+"SHORTCUT_OPEN_CAMERA_SUBTITLE" = "Scan Chinese with the camera";
+"SHORTCUT_OPEN_VOICE" = "Voice";
+"SHORTCUT_OPEN_VOICE_SUBTITLE" = "Listen and transcribe";
