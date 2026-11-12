@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ComposeViewport
+import com.szdict.app.feature.search.SearchStateHolder
 import com.szdict.app.i18n.AppStrings
 import com.szdict.app.platform.LocalStorageSettings
 import com.szdict.app.platform.WebAudioPlayer
@@ -81,6 +82,10 @@ fun main() {
     // Read before the history layer rewrites the URL.
     window.location.search.let { query -> if (query.contains("selftest=recognition")) scope.launch { com.szdict.app.feature.ocr.RecognitionSelfTest.run(query) } }
     requestPersistentStorage()
+    // Search starts with the page, not with its first frame: a tab that is loading in the
+    // background gets few frames or none, and the linked or restored query, its search and the
+    // empty state's content must not wait for one.
+    SearchStateHolder.of(session).start()
     WebHistory(session).start()
     // Leaving or hiding the page is the Web's "stop": settle the settings and silence playback (ARCH-112).
     window.addEventListener("pagehide", { session.flushNow(); session.stopPlayback() })

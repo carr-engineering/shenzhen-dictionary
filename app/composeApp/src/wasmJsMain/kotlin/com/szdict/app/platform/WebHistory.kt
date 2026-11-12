@@ -10,6 +10,7 @@ import com.szdict.app.DetailRoute
 import com.szdict.app.feature.hsk.HskStates
 import com.szdict.app.feature.search.SearchStateHolder
 import com.szdict.app.integration.IncomingAction
+import com.szdict.app.integration.IncomingIntents
 import com.szdict.app.integration.IncomingRouter
 import com.szdict.core.api.DictMode
 import com.szdict.core.api.Route
@@ -85,6 +86,8 @@ class WebHistory(private val session: AppSession) {
         null -> when (session.destination) {
             Destination.SEARCH -> {
                 val holder = SearchStateHolder.of(session)
+                // A linked query that Search has not taken yet: the address keeps naming it.
+                if (IncomingIntents.pendingRoute.value is Route.Search) return null
                 val mode = holder.linkMode ?: session.mode
                 val query = holder.query
                 // GLB-112: passages never go into the URL.
