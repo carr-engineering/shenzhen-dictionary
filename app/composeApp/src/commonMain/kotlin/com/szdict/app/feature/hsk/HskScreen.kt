@@ -169,8 +169,6 @@ fun HskScreen(session: AppSession, modifier: Modifier = Modifier) {
             levels = model?.levels,
             selectedLevel = requestedLevel ?: topLevel,
             linkMode = state.linkMode,
-            showPronunciation = settings.showPronunciation,
-            onTogglePronunciation = { session.updateSettings { it.copy(showPronunciation = !it.showPronunciation) } },
             canScrollUp = canScrollUp,
             onHeight = { headerHeightPx = it },
             onLevel = { level ->
@@ -256,8 +254,6 @@ private fun HskHeader(
     levels: List<HskLevelCount>?,
     selectedLevel: Int?,
     linkMode: DictMode?,
-    showPronunciation: Boolean,
-    onTogglePronunciation: () -> Unit,
     canScrollUp: Boolean,
     onHeight: (Int) -> Unit,
     onLevel: (Int) -> Unit,
@@ -289,7 +285,7 @@ private fun HskHeader(
                 LazyRow(
                     state = chipRow,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(start = 14.dp, end = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -324,8 +320,6 @@ private fun HskHeader(
                         }
                     }
                 }
-                PronunciationToggle(showPronunciation, onTogglePronunciation)
-                Spacer(Modifier.width(12.dp))
             }
         }
         Box(
@@ -356,34 +350,6 @@ private fun LevelChip(level: HskLevelCount, selected: Boolean, onClick: () -> Un
                 Text(hskLevelLabel(level.level), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
                     color = color, maxLines = 1)
                 Text(level.count.toString(), style = MaterialTheme.typography.labelSmall, color = palette.muted, maxLines = 1)
-            }
-        }
-    }
-}
-
-/** The global pronunciation-visibility toggle (GLB-120, HSK-015): one persisted setting, shared app-wide. */
-@Composable
-internal fun PronunciationToggle(shown: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
-    val palette = LocalDictionaryPalette.current
-    val strings = appStrings()
-    // GLB-080: labelled by what a tap does, as on every other screen.
-    val label = strings.text(if (shown) "Hide pronunciation" else "Show pronunciation")
-    val stateText = if (shown) strings.text("On") else strings.text("Off")
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        Surface(
-            onClick = onToggle,
-            shape = CircleShape,
-            color = if (shown) palette.accentSoft else palette.panel,
-            contentColor = if (shown) palette.accent else palette.muted,
-            border = BorderStroke(1.dp, if (shown) palette.accent.copy(alpha = 0.35f) else palette.border),
-            modifier = modifier.size(36.dp).semantics {
-                role = Role.Switch
-                contentDescription = label
-                stateDescription = stateText
-            },
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(if (shown) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, contentDescription = null, modifier = Modifier.size(20.dp))
             }
         }
     }

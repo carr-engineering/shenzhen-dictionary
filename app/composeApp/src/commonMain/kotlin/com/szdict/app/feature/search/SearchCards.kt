@@ -69,6 +69,8 @@ internal fun PassageCard(
     onTranslate: () -> Unit,
     onCopy: () -> Unit,
     modifier: Modifier = Modifier,
+    /** At the trailing end of the action row: the pronunciation toggle of the passage. */
+    trailing: @Composable () -> Unit = {},
 ) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
@@ -87,7 +89,11 @@ internal fun PassageCard(
             Spacer(Modifier.height(6.dp))
             PassageText(passage, selectedOffset, onTap, Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(10.dp))
-            SentenceActions(passage.text.isNotBlank(), speaking, onSpeak, onTranslate, onCopy)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SentenceActions(passage.text.isNotBlank(), speaking, onSpeak, onTranslate, onCopy)
+                Spacer(Modifier.weight(1f))
+                trailing()
+            }
         }
     }
 }
@@ -159,7 +165,7 @@ internal fun CombinationCard(
     val palette = LocalDictionaryPalette.current
     val prefs = LocalDisplayPrefs.current
     val spoken = combination.words.joinToString(", ") { word ->
-        if (prefs.showPronunciation && !word.reading.isEmpty) "${word.headword} ${word.reading.display}" else word.headword
+        if (!word.reading.isEmpty) "${word.headword} ${word.reading.display}" else word.headword
     }
     Surface(
         modifier = modifier.fillMaxWidth().padding(vertical = 4.dp).semantics { contentDescription = spoken },
@@ -188,7 +194,7 @@ internal fun CombinationCard(
                     )
                     TonedReadingText(
                         word.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium,
-                        visible = prefs.showPronunciation, color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

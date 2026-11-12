@@ -84,7 +84,8 @@ internal fun ProseText(
     selectable: Boolean = true,
 ) {
     val palette = LocalDictionaryPalette.current
-    val showReadings = LocalDisplayPrefs.current.showPronunciation
+    // Readings inside definitions are always shown: the pronunciation toggle is about passages.
+    val showReadings = true
     val currentOnRef = rememberUpdatedState(onRef)
     val hasLinks = onRef != null
     val text = remember(prose, palette, showReadings, hasLinks) {

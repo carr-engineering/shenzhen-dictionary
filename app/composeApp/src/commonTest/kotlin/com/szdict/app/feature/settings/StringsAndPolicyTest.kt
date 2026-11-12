@@ -47,7 +47,7 @@ class StringsAndPolicyTest {
     fun settingsStringsAreTranslatedInBothChineseTables() {
         val keys = listOf(
             "Settings", "Dictionary", "Default script", "App language", "System", "Theme", "Light", "Dark", "Auto", "Tone coloring",
-            "Show pronunciation", "Reading boundaries", "Save photos to gallery", "Privacy policy", "About & Attribution", "Version {0}",
+            "Show pronunciation", "Show pronunciation above sentences", "Reading boundaries", "Save photos to gallery", "Privacy policy", "About & Attribution", "Version {0}",
             "Dataset {0}", "Open-source library licenses", "Data sources", "Models and engines", "Words", "Characters", "No HSK data",
             "Unable to load HSK words", "Choose HSK levels", "Word unavailable", AttributionIntro,
         ) + DataSourceCredits.map { it.role } + ModelCredits.map { it.role } + LibraryCredits.map { it.role }

@@ -85,7 +85,7 @@ internal data class CategoryChip(val label: String, val count: Int, val itemInde
 
 /**
  * The floating search control (SRCH-090…093): field with paste/clear and the input-method button,
- * the pronunciation toggle, the two-segment section indicator and the visible page's category chips.
+ * the two-segment section indicator and the visible page's category chips.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -94,7 +94,6 @@ internal fun SearchControl(
     onFieldChange: (TextFieldValue) -> Unit,
     cantonese: Boolean,
     handwriting: Boolean,
-    showPronunciation: Boolean,
     canPaste: Boolean,
     indicatorVisible: Boolean,
     chineseCount: Int?,
@@ -110,7 +109,6 @@ internal fun SearchControl(
     onPaste: () -> Unit,
     onClear: () -> Unit,
     onToggleInputMethod: () -> Unit,
-    onTogglePronunciation: () -> Unit,
     onImeSearch: () -> Unit,
     onSelectPage: (Int) -> Unit,
     onChip: (CategoryChip) -> Unit,
@@ -118,7 +116,8 @@ internal fun SearchControl(
 ) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    val elevation by animateDpAsState(if (elevated) 8.dp else 3.dp, tween(160), label = "search-shadow")
+    // Flat on the page until the list beneath it has scrolled.
+    val elevation by animateDpAsState(if (elevated) 8.dp else 0.dp, tween(160), label = "search-shadow")
     val interactions = remember { MutableInteractionSource() }
     LaunchedEffect(interactions) {
         interactions.interactions.collect { if (it is PressInteraction.Release) onFieldTapped() }
@@ -178,8 +177,6 @@ internal fun SearchControl(
                         ),
                     )
                 }
-                Box(Modifier.size(width = 1.dp, height = 28.dp).drawBehind { drawRect(palette.border) })
-                PronunciationToggle(showPronunciation, onTogglePronunciation, Modifier.padding(horizontal = 4.dp))
             }
             AnimatedVisibility(
                 visible = indicatorVisible,
@@ -218,29 +215,6 @@ private fun ControlIcon(icon: ImageVector, label: String, tint: Color, onClick: 
                 Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
             }
         }
-    }
-}
-
-/** GLB-120/122: labelled by what a tap does, and exposed as a toggle. */
-@Composable
-private fun PronunciationToggle(shown: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
-    val strings = appStrings()
-    val palette = LocalDictionaryPalette.current
-    val label = strings.text(if (shown) "Hide pronunciation" else "Show pronunciation")
-    Box(
-        modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .toggleable(value = shown, role = Role.Switch, onValueChange = { onToggle() })
-            .semantics { contentDescription = label },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            if (shown) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-            contentDescription = null,
-            tint = if (shown) palette.accent else palette.muted,
-            modifier = Modifier.size(22.dp),
-        )
     }
 }
 

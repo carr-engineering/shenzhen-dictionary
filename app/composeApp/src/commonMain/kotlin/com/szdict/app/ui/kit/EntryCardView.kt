@@ -1,6 +1,11 @@
 package com.szdict.app.ui.kit
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,15 +14,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,8 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -49,7 +57,8 @@ import com.szdict.core.api.InsideWord
 
 /**
  * Display preferences every card and passage needs (GLB-066, GLB-120). Provided once by the app
- * shell through [LocalDisplayPrefs].
+ * shell through [LocalDisplayPrefs]. [showPronunciation] applies to the readings above passages
+ * only ([PassageText]); cards and entry pages always show theirs.
  */
 data class DisplayPrefs(
     val toneColors: Boolean = true,
@@ -64,7 +73,7 @@ data class CardAudio(val playing: Boolean, val onPlay: () -> Unit)
 
 /**
  * The one shared card (ENT-070): search results, compact rows, sheet rows, HSK cards, WORDS rows.
- * [inside] adds the inside-words button and expander below the card (ENT-073, SRCH-105).
+ * [inside] adds the inside-words footer strip and its rows inside the card (ENT-073, SRCH-105).
  */
 @Composable
 fun EntryCardView(
@@ -80,18 +89,21 @@ fun EntryCardView(
     inside: InsideWordsState? = null,
 ) {
     val palette = LocalDictionaryPalette.current
-    Column(modifier.fillMaxWidth()) {
-        Surface(
-            onClick = onClick,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = if (containerColor == Color.Unspecified) palette.panel else containerColor,
-            border = BorderStroke(1.dp, if (selected) palette.accent else palette.border),
-        ) {
-            EntryCardContent(card, compact, audio, maxDefinitionLines, showHsk)
+    val color = if (containerColor == Color.Unspecified) palette.panel else containerColor
+    val border = BorderStroke(1.dp, if (selected) palette.accent else palette.border)
+    val cardModifier = modifier.fillMaxWidth().padding(vertical = 4.dp)
+    if (inside != null && card.insideCount > 0 && card.hanziCount >= 2) {
+        Surface(modifier = cardModifier, shape = MaterialTheme.shapes.medium, color = color, border = border) {
+            Column {
+                Box(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+                    EntryCardContent(card, compact, audio, maxDefinitionLines, showHsk)
+                }
+                InsideWordsFooter(card.headword, card.insideCount, inside)
+            }
         }
-        if (inside != null && card.insideCount > 0 && card.hanziCount >= 2) {
-            InsideWordsExpander(card.headword, card.insideCount, inside)
+    } else {
+        Surface(onClick = onClick, modifier = cardModifier, shape = MaterialTheme.shapes.medium, color = color, border = border) {
+            EntryCardContent(card, compact, audio, maxDefinitionLines, showHsk)
         }
     }
 }
@@ -112,25 +124,23 @@ fun EntryCardGroup(
         return
     }
     val palette = LocalDictionaryPalette.current
-    Column(modifier.fillMaxWidth()) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = palette.panel,
-            border = BorderStroke(1.dp, if (cards.any { it.id == selectedId }) palette.accent else palette.border),
-        ) {
-            Column {
-                cards.forEachIndexed { index, card ->
-                    Box(Modifier.fillMaxWidth().clickable { onClick(card) }) {
-                        EntryCardContent(card, false, audio(card), 3, true)
-                    }
-                    if (index < cards.lastIndex) HorizontalDivider(color = palette.border, modifier = Modifier.padding(horizontal = 13.dp))
+    Surface(
+        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = palette.panel,
+        border = BorderStroke(1.dp, if (cards.any { it.id == selectedId }) palette.accent else palette.border),
+    ) {
+        Column {
+            cards.forEachIndexed { index, card ->
+                Box(Modifier.fillMaxWidth().clickable { onClick(card) }) {
+                    EntryCardContent(card, false, audio(card), 3, true)
                 }
+                if (index < cards.lastIndex) HorizontalDivider(color = palette.border, modifier = Modifier.padding(horizontal = 13.dp))
             }
-        }
-        val last = cards.last()
-        if (inside != null && last.insideCount > 0 && last.hanziCount >= 2) {
-            InsideWordsExpander(last.headword, last.insideCount, inside)
+            val last = cards.last()
+            if (inside != null && last.insideCount > 0 && last.hanziCount >= 2) {
+                InsideWordsFooter(last.headword, last.insideCount, inside)
+            }
         }
     }
 }
@@ -171,20 +181,20 @@ private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio
                 if (card.mandarinRow != null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(strings.text("Mandarin"), style = MaterialTheme.typography.bodyMedium, color = palette.muted)
-                        TonedReadingText(reading, prefs.toneColors, MaterialTheme.typography.bodyMedium, visible = prefs.showPronunciation,
+                        TonedReadingText(reading, prefs.toneColors, MaterialTheme.typography.bodyMedium,
                             color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 if (card.noReading) {
                     Text(strings.text("No Cantonese reading"), style = MaterialTheme.typography.bodyMedium, color = palette.muted, maxLines = 1)
                 } else if (card.mandarinRow == null) {
-                    TonedReadingText(reading, prefs.toneColors, MaterialTheme.typography.bodyMedium, visible = prefs.showPronunciation,
+                    TonedReadingText(reading, prefs.toneColors, MaterialTheme.typography.bodyMedium,
                         color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 card.matchedAlt?.let { alt ->
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(alt.label.text(strings.lang), style = MaterialTheme.typography.bodySmall, color = palette.muted)
-                        TonedReadingText(alt.reading, prefs.toneColors, MaterialTheme.typography.bodySmall, visible = prefs.showPronunciation,
+                        TonedReadingText(alt.reading, prefs.toneColors, MaterialTheme.typography.bodySmall,
                             color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
@@ -276,35 +286,60 @@ class InsideWordsState(
     val audio: (EntryCard) -> CardAudio? = { null },
 )
 
+/**
+ * The footer strip of a card with words inside its headword (ENT-073): a hairline, then the count
+ * and a chevron as one tap target that only toggles; the rows open beneath it, inside the card.
+ */
 @Composable
-private fun InsideWordsExpander(word: String, count: Int, state: InsideWordsState) {
+private fun InsideWordsFooter(word: String, count: Int, state: InsideWordsState) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    val label = strings.text("+ {0} more within 「{1}」", count, word)
+    val spoken = strings.text("Show {0} words within {1}", count, word)
+    val stateText = if (state.expanded) strings.text("Expanded") else strings.text("Collapsed")
     Column(Modifier.fillMaxWidth()) {
-        Text(
-            text = (if (state.expanded) "− " else "") + if (state.expanded) strings.text("{0} within 「{1}」", count, word) else label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = palette.accent,
-            modifier = Modifier
-                .padding(start = 2.dp, bottom = 4.dp)
-                .background(palette.accentSoft, androidx.compose.foundation.shape.CircleShape)
+        HorizontalDivider(color = palette.border)
+        Row(
+            Modifier
+                .fillMaxWidth()
                 .clickable(role = Role.Button, onClick = state.onToggle)
-                .semantics {
-                    contentDescription = strings.text("Show {0} words within {1}", count, word)
-                    stateDescription = if (state.expanded) strings.text("Expanded") else strings.text("Collapsed")
+                .clearAndSetSemantics {
+                    contentDescription = spoken
+                    stateDescription = stateText
                 }
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-        )
-        AnimatedVisibility(state.expanded) {
+                .heightIn(min = 40.dp)
+                .padding(start = 13.dp, end = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                strings.text("+ {0} more words within", count),
+                style = MaterialTheme.typography.labelLarge,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = palette.accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                if (state.expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                contentDescription = null,
+                tint = palette.accent,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        AnimatedVisibility(
+            visible = state.expanded,
+            enter = expandVertically(tween(200), expandFrom = Alignment.Top) + fadeIn(tween(160)),
+            exit = shrinkVertically(tween(160), shrinkTowards = Alignment.Top) + fadeOut(tween(110)),
+        ) {
             var rows by remember { mutableStateOf<List<InsideWord>?>(null) }
             LaunchedEffect(Unit) { rows = runCatching { state.load() }.getOrDefault(emptyList()) }
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(start = 6.dp, bottom = 4.dp)) {
-                Box(Modifier.width(2.dp).fillMaxHeight().background(palette.border))
-                Column(Modifier.padding(start = 8.dp)) {
-                    rows.orEmpty().forEach { row ->
-                        EntryCardView(row.card, { state.onOpen(row.card) }, compact = true, audio = state.audio(row.card))
+            // Flush rows on the recessed tone, each its own entry (SRCH-131).
+            Column(Modifier.fillMaxWidth().background(palette.bgSoft)) {
+                rows.orEmpty().forEach { row ->
+                    HorizontalDivider(color = palette.border)
+                    Box(Modifier.fillMaxWidth().clickable { state.onOpen(row.card) }) {
+                        EntryCardContent(row.card, true, state.audio(row.card), 3, true)
                     }
                 }
             }

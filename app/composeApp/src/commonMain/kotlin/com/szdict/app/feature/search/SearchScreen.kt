@@ -65,6 +65,7 @@ import com.szdict.app.ui.kit.EntryCardView
 import com.szdict.app.ui.kit.InertRow
 import com.szdict.app.ui.kit.InsideWordsState
 import com.szdict.app.ui.kit.LocalSheetInset
+import com.szdict.app.ui.kit.PronunciationToggle
 import com.szdict.app.ui.kit.SectionLabel
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.DictMode
@@ -259,7 +260,6 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
             onFieldChange = holder::onFieldChange,
             cantonese = cantonese,
             handwriting = handwriting,
-            showPronunciation = settings.showPronunciation,
             canPaste = canPaste,
             indicatorVisible = holder.query.isNotBlank() && (resultsVisible || holder.searching),
             chineseCount = displayed?.takeIf { holder.countsCurrent }?.result?.chinese?.count,
@@ -296,7 +296,6 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
                     keyboardShowTick++
                 }
             },
-            onTogglePronunciation = { session.updateSettings { it.copy(showPronunciation = !it.showPronunciation) } },
             onImeSearch = { keyboard?.hide() },   // SRCH-120
             onSelectPage = { page -> if (resultsVisible) holder.onManualSide(SearchSide.entries[page]) },
             onChip = { chip -> scope.launch { lists[pager.currentPage].animateScrollToItem(chip.itemIndex) } },
@@ -475,6 +474,7 @@ private fun ResultPage(
                         onSpeak = { session.speak(SentenceKey(text), text, shown.mode) },
                         onTranslate = { session.env.translator.translate(text, translateTag(shown.mode, shown.result.script)) },
                         onCopy = { session.env.clipboard.writeText(text) },
+                        trailing = { PronunciationToggle(session) },
                         modifier = Modifier.padding(bottom = 6.dp),
                     )
                 }

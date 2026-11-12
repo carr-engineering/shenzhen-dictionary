@@ -9,13 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,11 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -97,19 +87,13 @@ internal fun EntryHeader(
                 onClick = { session.play(card.id, card.audio, route.mode) },
             )
             Row(Modifier.weight(1f)) {
-                when {
-                    // ENT-116: not a reading, so it stays visible when readings are hidden.
-                    card.noReading -> Text(strings.text("No Cantonese reading"), style = MaterialTheme.typography.titleMedium, color = palette.muted)
-                    prefs.showPronunciation -> SelectionContainer {
+                if (card.noReading) {
+                    Text(strings.text("No Cantonese reading"), style = MaterialTheme.typography.titleMedium, color = palette.muted)   // ENT-116
+                } else {
+                    SelectionContainer {
                         TonedReadingText(card.reading, prefs.toneColors, MaterialTheme.typography.titleMedium, color = palette.accent, fontWeight = FontWeight.Medium)
                     }
-                    // GLB-120: measured as if shown, not drawn, not selectable (ENT-021).
-                    else -> TonedReadingText(card.reading, prefs.toneColors, MaterialTheme.typography.titleMedium, visible = false,
-                        color = palette.accent, fontWeight = FontWeight.Medium)
                 }
-            }
-            PronunciationToggle(prefs.showPronunciation) {
-                session.updateSettings { it.copy(showPronunciation = !it.showPronunciation) }
             }
         }
         if (detail.altReadings.isNotEmpty()) {
@@ -138,53 +122,25 @@ internal fun EntryHeader(
     }
 }
 
-/** `Taiwan pronunciation lè sè • Also pronounced …` (ENT-020 item 3): labels stay, readings follow GLB-120. */
+/** `Taiwan pronunciation lè sè • Also pronounced …` (ENT-020 item 3). */
 @Composable
 private fun AltReadingsLine(detail: EntryDetail) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val prefs = LocalDisplayPrefs.current
     val (line, ranges) = remember(detail.altReadings, strings.lang) { altReadingsLine(detail.altReadings, strings.lang) }
-    val text = remember(line, ranges, prefs, palette) {
+    val text = remember(line, ranges, prefs.toneColors, palette) {
         buildAnnotatedString {
             var at = 0
             for (range in ranges) {
                 append(line.substring(at, range.start))
-                if (prefs.showPronunciation) {
-                    pushStyle(SpanStyle(color = palette.accent))
-                    append(tonedReading(range.alt.reading, prefs.toneColors, palette))
-                    pop()
-                } else {
-                    pushStyle(SpanStyle(color = Color.Transparent))
-                    append(range.alt.reading.display)
-                    pop()
-                }
+                pushStyle(SpanStyle(color = palette.accent))
+                append(tonedReading(range.alt.reading, prefs.toneColors, palette))
+                pop()
                 at = range.end
             }
             append(line.substring(at))
         }
     }
-    val labelsOnly = remember(detail.altReadings, strings.lang) { detail.altReadings.joinToString(", ") { it.label.text(strings.lang) } }
-    val modifier = if (prefs.showPronunciation) Modifier else Modifier.semantics { contentDescription = labelsOnly }   // GLB-122
-    if (prefs.showPronunciation) {
-        SelectionContainer { Text(text, modifier, style = MaterialTheme.typography.bodyMedium, color = palette.muted) }
-    } else {
-        Text(text, modifier, style = MaterialTheme.typography.bodyMedium, color = palette.muted)
-    }
-}
-
-/** The global pronunciation toggle (GLB-120) at the trailing end of the reading row. */
-@Composable
-internal fun PronunciationToggle(shown: Boolean, onToggle: () -> Unit) {
-    val strings = appStrings()
-    val palette = LocalDictionaryPalette.current
-    val state = if (shown) strings.text("Shown") else strings.text("Hidden")
-    IconButton(onClick = onToggle, modifier = Modifier.semantics { stateDescription = state }) {
-        Icon(
-            imageVector = if (shown) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-            contentDescription = if (shown) strings.text("Hide pronunciation") else strings.text("Show pronunciation"),
-            tint = palette.muted,
-            modifier = Modifier.size(22.dp),
-        )
-    }
+    SelectionContainer { Text(text, style = MaterialTheme.typography.bodyMedium, color = palette.muted) }
 }

@@ -82,6 +82,7 @@ import com.szdict.app.i18n.appStrings
 import com.szdict.app.integration.IncomingIntents
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.PassageText
+import com.szdict.app.ui.kit.PronunciationToggle
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.AnalysedPassage
 import com.szdict.core.api.Route
@@ -124,9 +125,8 @@ fun VoiceScreen(session: AppSession, modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             VoiceHeader(
+                session = session,
                 holder = holder,
-                showPronunciation = settings.showPronunciation,
-                onTogglePronunciation = { session.updateSettings { it.copy(showPronunciation = !it.showPronunciation) } },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             )
             Spacer(Modifier.height(8.dp))
@@ -170,9 +170,8 @@ fun VoiceScreen(session: AppSession, modifier: Modifier = Modifier) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VoiceHeader(
+    session: AppSession,
     holder: VoiceStateHolder,
-    showPronunciation: Boolean,
-    onTogglePronunciation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = appStrings()
@@ -190,7 +189,7 @@ private fun VoiceHeader(
             color = palette.fg,
             modifier = Modifier.weight(1f).semantics { heading() },
         )
-        PronunciationToggle(showPronunciation, onTogglePronunciation)
+        PronunciationToggle(session)
         HeaderAction(Icons.Rounded.ContentCopy, strings.text("Copy"), enabled = !holder.isEmpty, onClick = holder::copy)
         HeaderAction(Icons.Rounded.Clear, strings.text("Clear"), enabled = !holder.isEmpty, onClick = holder::clear)
         ScriptConversionButton(
@@ -400,36 +399,6 @@ private fun PanelButton(text: String, onClick: () -> Unit) {
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = palette.accent, contentColor = palette.onAccent),
     ) { Text(text) }
-}
-
-/** The global pronunciation toggle (GLB-120): labelled by what a tap does, exposed as a toggle. */
-@Composable
-private fun PronunciationToggle(shown: Boolean, onToggle: () -> Unit) {
-    val strings = appStrings()
-    val palette = LocalDictionaryPalette.current
-    val label = strings.text(if (shown) "Hide pronunciation" else "Show pronunciation")
-    val state = strings.text(if (shown) "Pronunciation shown" else "Pronunciation hidden")
-    OutlinedIconToggleButton(
-        checked = shown,
-        onCheckedChange = { onToggle() },
-        modifier = Modifier.size(40.dp).semantics {
-            contentDescription = label
-            stateDescription = state
-        },
-        colors = IconButtonDefaults.outlinedIconToggleButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = palette.muted,
-            checkedContainerColor = palette.accentSoft,
-            checkedContentColor = palette.accent,
-        ),
-        border = BorderStroke(1.dp, palette.border),
-    ) {
-        Icon(
-            imageVector = if (shown) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-            contentDescription = null,
-            modifier = Modifier.size(21.dp),
-        )
-    }
 }
 
 /** A 40 dp outlined accent icon button, as the sentence actions of Reading (MED-020). */

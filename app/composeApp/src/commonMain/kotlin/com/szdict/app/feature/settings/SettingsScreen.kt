@@ -139,8 +139,11 @@ fun SettingsScreen(session: AppSession, onBack: () -> Unit, modifier: Modifier =
                 SettingToggle(strings.text("Tone coloring"), settings.toneColors) { on -> session.updateSettings { it.copy(toneColors = on) } }
             }
             item("pronunciation") {
-                // SET-017: the same key as the inline toggle buttons.
-                SettingToggle(strings.text("Show pronunciation"), settings.showPronunciation) { on ->
+                // SET-017: the same key as the inline toggle buttons; it is about passages only.
+                SettingToggle(
+                    strings.text("Show pronunciation above sentences"), settings.showPronunciation,
+                    description = strings.text("Readings above the characters of sentences and passages: Search, OCR text, Reading and Voice. Word cards and entries always show theirs."),
+                ) { on ->
                     session.updateSettings { it.copy(showPronunciation = on) }
                 }
             }
@@ -206,13 +209,16 @@ internal fun SettingBlock(label: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SettingToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SettingToggle(label: String, checked: Boolean, description: String? = null, onCheckedChange: (Boolean) -> Unit) {
     val palette = LocalDictionaryPalette.current
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = palette.fg, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f).padding(vertical = if (description != null) 6.dp else 0.dp)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = palette.fg)
+            if (description != null) Text(description, style = MaterialTheme.typography.bodySmall, color = palette.muted)
+        }
         Spacer(Modifier.width(12.dp))
         Switch(
             checked = checked,

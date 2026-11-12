@@ -522,7 +522,7 @@ private fun PartRow(node: DecompNode, context: BlockContext, topLevel: Boolean) 
         LaunchedEffect(hovered || focused) { context.onHover(key, hovered || focused) }
     }
 
-    val description = remember(node, strings, prefs.showPronunciation) { partDescription(node, topLevel, prefs.showPronunciation, strings) }
+    val description = remember(node, strings) { partDescription(node, topLevel, showReading = true, strings) }
     val stateText = when {
         !expandable -> null
         open -> strings.text("Expanded")
@@ -586,7 +586,7 @@ private fun PartRow(node: DecompNode, context: BlockContext, topLevel: Boolean) 
                 PartKind.UNKNOWN -> Text("？", style = glyphStyle, color = palette.muted)
                 PartKind.UNENCODED -> UnencodedGlyph(node.svgPath, if (topLevel) 26.dp else 22.dp)
                 else -> {
-                    val toneColours = prefs.toneColors && prefs.showPronunciation && card != null && card.toneColourable && !card.noReading &&
+                    val toneColours = prefs.toneColors && card != null && card.toneColourable && !card.noReading &&
                         node.mapsTo == null
                     if (card != null) TonedHanziText(node.glyph, card.reading, toneColours, glyphStyle, color = palette.fg)
                     else Text(node.glyph, style = glyphStyle, color = palette.fg)
@@ -597,7 +597,7 @@ private fun PartRow(node: DecompNode, context: BlockContext, topLevel: Boolean) 
                 }
             }
             if (card != null && !card.noReading && !card.reading.isEmpty) {
-                TonedReadingText(card.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium, visible = prefs.showPronunciation, color = palette.accent)
+                TonedReadingText(card.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium, color = palette.accent)
             }
             card?.provenance?.let { Text(it.text(strings.lang), style = MaterialTheme.typography.labelSmall, color = palette.muted) }
             card?.definitions?.firstOrNull()?.let {

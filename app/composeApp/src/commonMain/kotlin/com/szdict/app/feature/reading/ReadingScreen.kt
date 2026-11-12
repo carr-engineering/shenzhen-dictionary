@@ -87,6 +87,7 @@ import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.InputMethodGate
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.PassageText
+import com.szdict.app.ui.kit.PronunciationToggle
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.InputMethod
 import kotlinx.coroutines.delay
@@ -207,10 +208,7 @@ fun ReadingScreen(session: AppSession, modifier: Modifier = Modifier) {
                     Spacer(Modifier.width(8.dp))
                     Text(strings.text("Clear"))
                 }
-                PronunciationToggle(
-                    shown = settings.showPronunciation,
-                    onToggle = { session.updateSettings { it.copy(showPronunciation = !it.showPronunciation) } },
-                )
+                PronunciationToggle(session)
                 ScriptConversionButton(conversion)
             }
 
@@ -311,36 +309,6 @@ private fun ReadingField(
                     unfocusedPlaceholderColor = palette.muted,
                 ),
             )
-    }
-}
-
-/** The global pronunciation toggle (GLB-120): labelled by what a tap does, exposed as a toggle. */
-@Composable
-private fun PronunciationToggle(shown: Boolean, onToggle: () -> Unit) {
-    val strings = appStrings()
-    val palette = LocalDictionaryPalette.current
-    val label = strings.text(if (shown) "Hide pronunciation" else "Show pronunciation")
-    val state = strings.text(if (shown) "Pronunciation shown" else "Pronunciation hidden")
-    OutlinedIconToggleButton(
-        checked = shown,
-        onCheckedChange = { onToggle() },
-        modifier = Modifier.size(40.dp).semantics {
-            contentDescription = label
-            stateDescription = state
-        },
-        colors = IconButtonDefaults.outlinedIconToggleButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = palette.muted,
-            checkedContainerColor = palette.accentSoft,
-            checkedContentColor = palette.accent,
-        ),
-        border = BorderStroke(1.dp, palette.border),
-    ) {
-        Icon(
-            imageVector = if (shown) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-            contentDescription = null,
-            modifier = Modifier.size(21.dp),
-        )
     }
 }
 
