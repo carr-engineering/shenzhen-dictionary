@@ -10,6 +10,7 @@ import com.szdict.app.platform.toNSData
 import com.szdict.recognition.OcrImage
 import com.szdict.recognition.Recognizers
 import com.szdict.recognition.TextRecognizer
+import com.szdict.recognition.toOcrImage
 import kotlin.coroutines.resume
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -29,7 +30,9 @@ import platform.CoreFoundation.CFRelease
 import platform.CoreFoundation.CFRetain
 import platform.CoreFoundation.CFStringRef
 import platform.CoreGraphics.CGBitmapContextCreate
-import platform.CoreGraphics.CGColorSpaceCreateDeviceRGB
+import platform.CoreGraphics.CGColorSpaceCreateWithName
+import platform.CoreGraphics.CGImageRef
+import platform.CoreGraphics.kCGColorSpaceSRGB
 import platform.CoreGraphics.CGColorSpaceRelease
 import platform.CoreGraphics.CGContextDrawImage
 import platform.CoreGraphics.CGContextFillRect
@@ -165,47 +168,53 @@ private fun decodeUpright(data: NSData): WorkingImage {
         val width = CGImageGetWidth(image).toInt()
         val height = CGImageGetHeight(image).toInt()
         require(width > 0 && height > 0) { "Not an image" }
-        // BGRA in memory = 0xAARRGGBB as little-endian ints, the layout the recogniser expects.
+        // The displayed copy: opaque BGRA on white, which Skia takes as it is.
         val pixels = ByteArray(width * height * 4)
         pixels.usePinned { pinned ->
-            val space = CGColorSpaceCreateDeviceRGB()
+            val space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB)
             val context = CGBitmapContextCreate(
                 pinned.addressOf(0), width.convert(), height.convert(), 8u, (width * 4).convert(), space,
                 CGImageAlphaInfo.kCGImageAlphaPremultipliedFirst.value or kCGBitmapByteOrder32Little,
-            ) ?: error("Cannot allocate image")
+            )
+            CGColorSpaceRelease(space)
+            if (context == null) error("Cannot allocate image")
             val rect = CGRectMake(0.0, 0.0, width.toDouble(), height.toDouble())
-            // Transparency is composited on white, the page colour the pipeline assumes.
             CGContextSetRGBFillColor(context, 1.0, 1.0, 1.0, 1.0)
             CGContextFillRect(context, rect)
             CGContextDrawImage(context, rect, image)
             CGContextRelease(context)
-            CGColorSpaceRelease(space)
         }
         val bitmap = Image.makeRaster(ImageInfo(width, height, ColorType.BGRA_8888, ColorAlphaType.OPAQUE), pixels, width * 4).toComposeImageBitmap()
-        return PixelWorkingImage(pixels, width, height, bitmap)
-    } finally {
+        return DecodedWorkingImage(image, width, height, bitmap)
+    } catch (e: Throwable) {
         CGImageRelease(image)
+        throw e
     }
 }
 
-private class PixelWorkingImage(pixels: ByteArray, override val width: Int, override val height: Int, override val bitmap: ImageBitmap?) : WorkingImage {
-    private var pixels: ByteArray? = pixels
+/** Keeps the decoded, upright bitmap for the recogniser; the displayed [bitmap] is its own copy. */
+private class DecodedWorkingImage(image: CGImageRef, override val width: Int, override val height: Int, override val bitmap: ImageBitmap?) : WorkingImage {
+    private val lock = platform.Foundation.NSLock()
+    private var image: CGImageRef? = image
 
+    // The recognition module's own conversion: sRGB, composited on white.
     override fun toOcrImage(): OcrImage {
-        val source = pixels ?: error("Image released")
-        val argb = IntArray(width * height)
-        var at = 0
-        for (i in argb.indices) {
-            argb[i] = (source[at].toInt() and 0xFF) or ((source[at + 1].toInt() and 0xFF) shl 8) or
-                ((source[at + 2].toInt() and 0xFF) shl 16) or (0xFF shl 24)
-            at += 4
+        lock.lock()
+        try {
+            return (image ?: error("Image released")).toOcrImage()
+        } finally {
+            lock.unlock()
         }
-        return OcrImage(width, height, argb)
     }
 
-    // The displayed bitmap owns its own copy; dropping the reference frees the recogniser's pixels.
     override fun release() {
-        pixels = null
+        lock.lock()
+        try {
+            image?.let { CGImageRelease(it) }
+            image = null
+        } finally {
+            lock.unlock()
+        }
     }
 }
 

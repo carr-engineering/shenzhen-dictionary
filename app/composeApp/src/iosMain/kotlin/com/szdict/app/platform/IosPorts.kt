@@ -51,7 +51,8 @@ object IosHost {
 
 /**
  * Recorded clips, read in place from `assets/data/packs/audio/` (MED-084). The pack's Ogg Opus
- * files are decoded by AudioToolbox itself (iOS 26), so they play through [AVAudioPlayer] as they are.
+ * files are rewrapped as CAF at play time ([oggOpusToCaf]: packets copied, nothing transcoded),
+ * the container [AVAudioPlayer] plays Opus from.
  */
 class IosAudioPlayer(private val root: String = IosBundle.path("data/packs/audio")) : AudioPlayer {
     private var current: AVAudioPlayer? = null
@@ -82,8 +83,10 @@ class IosAudioPlayer(private val root: String = IosBundle.path("data/packs/audio
     }
 
     private suspend fun playOne(clip: String): Boolean = suspendCancellableCoroutine { cont ->
+        // AVAudioPlayer opens the pack's Ogg files but cannot prepare them; the same Opus packets in a
+        // CAF container play (observed on iOS 26). The clip is a few kilobytes, rewrapped in memory.
         val player = try {
-            AVAudioPlayer(contentsOfURL = NSURL.fileURLWithPath("$root/$clip"), error = null)
+            readFileBytes("$root/$clip")?.let(::oggOpusToCaf)?.let { AVAudioPlayer(data = it.toNSData(), error = null) }
         } catch (e: Throwable) {
             null
         }

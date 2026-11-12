@@ -120,7 +120,7 @@ a device needs a signing team, and the Associated Domains entitlement for Univer
   OpenCC dictionaries, the stroke data, the recognition models and — when fetched — the voice model
   into `composeApp/build/ios/assets` (about 440 MB); Xcode copies that folder into the app as
   `assets/`. Everything is opened in place and read-only (`IosBundle.kt`); nothing is copied at
-  first launch. The Ogg Opus clips are played as they are (AudioToolbox decodes them on iOS 26).
+  first launch. AVAudioPlayer does not play the pack's Ogg container, so each clip's Opus packets are rewrapped as CAF in memory when it is played (`OggOpusCaf.kt`; nothing is transcoded).
 - **Icon.** `./gradlew :composeApp:generateIosAppIcon` redraws
   `iosApp/SZDict/Assets.xcassets/AppIcon.appiconset/icon-1024.png` from the Android launcher
   vectors; run it when they change (the PNG is committed).

@@ -74,6 +74,7 @@ internal object IosAppGraph {
 
     private fun install(session: AppSession) {
         IosAppLanguage.attach(session)
+        clipboard.refresh()   // the first activation may precede this observer
         val center = NSNotificationCenter.defaultCenter
         // Entering the background is iOS's "stop": settle the settings and silence playback (ARCH-112).
         center.addObserverForName(UIApplicationDidEnterBackgroundNotification, null, NSOperationQueue.mainQueue) {
