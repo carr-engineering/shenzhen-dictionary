@@ -70,12 +70,14 @@ fun main() {
         clipboard = WebClipboard(scope),
         translator = WebTranslator(),
         links = WebLinkOpener(),
-        services = emptyMap(),
+        services = webServices(scope),
         voiceAvailable = false,
         systemLocaleTag = ::browserLanguageTag,
         appVersion = WebBuild.VERSION_NAME,
     )
     val session = AppSession(env, scope)
+    // Read before the history layer rewrites the URL.
+    window.location.search.let { query -> if (query.contains("selftest=recognition")) scope.launch { com.szdict.app.feature.ocr.RecognitionSelfTest.run(query) } }
     requestPersistentStorage()
     WebHistory(session).start()
     // Leaving or hiding the page is the Web's "stop": settle the settings and silence playback (ARCH-112).

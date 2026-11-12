@@ -93,6 +93,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
 import com.szdict.app.feature.conversion.ScriptConversionButton
@@ -144,7 +147,15 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickers: I
 
             // CAM-050: a centred spinner over the image while recognising; header and toggle stay usable.
             if (holder.recognising) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = palette.accent) }
+                val download = holder.modelDownload
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // CAM-134: the recogniser's one-time download takes the spinner's place.
+                    if (download is ModelDownload.Failed || (download is ModelDownload.InProgress && download.fraction != null)) {
+                        ModelDownloadPanel(download, holder::retryModelDownload)
+                    } else {
+                        CircularProgressIndicator(color = palette.accent)
+                    }
+                }
             }
             val error = holder.recognitionError
             val message = when {
@@ -239,6 +250,56 @@ private fun ReviewHeader(holder: OcrStateHolder, pickers: ImagePickers, onHeight
             )
         }
     }
+}
+
+/** CAM-134: `Downloading text recognition… 45%` with the size, or the failure with `Retry`. */
+@Composable
+private fun ModelDownloadPanel(download: ModelDownload, onRetry: () -> Unit) {
+    val strings = appStrings()
+    val palette = LocalDictionaryPalette.current
+    Surface(
+        modifier = Modifier.padding(24.dp).widthIn(max = 360.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = palette.panel,
+        border = BorderStroke(1.dp, palette.border),
+        shadowElevation = 3.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            when (download) {
+                is ModelDownload.InProgress -> {
+                    val fraction = (download.fraction ?: 0f).coerceIn(0f, 1f)
+                    Text(
+                        strings.text("Downloading text recognition… {0}%", (fraction * 100).toInt()),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.fg,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), color = palette.accent, trackColor = palette.border)
+                    Spacer(Modifier.height(8.dp))
+                    Text(megabytes(download.totalBytes), style = MaterialTheme.typography.bodySmall, color = palette.muted)
+                }
+                is ModelDownload.Failed -> {
+                    val size = download.totalBytes
+                    Text(
+                        if (size != null) strings.text("Text recognition needs a one-time download of {0}. Check your connection and try again.", megabytes(size))
+                        else strings.text("Text recognition needs a one-time download. Check your connection and try again."),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.fg,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(onClick = onRetry) { Text(strings.text("Retry"), color = palette.accent) }
+                }
+            }
+        }
+    }
+}
+
+private fun megabytes(bytes: Long): String {
+    val tenths = (bytes * 10 + 524_288) / 1_048_576
+    return "${tenths / 10}.${tenths % 10} MB"
 }
 
 /** CAM-072: enabled for camera captures only; progress while writing; a saved state afterwards. */

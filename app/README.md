@@ -6,7 +6,7 @@ Kotlin Multiplatform + Compose Multiplatform. Targets: Android, and Web (Kotlin/
 |--------|----------|
 | `core` | shared engine: store, search, segmentation, lattice decoder, domain facade (`com.szdict.core.api`) |
 | `composeApp` | UI, state holders, Android platform layer (widget, shortcuts, share targets), Web platform layer (`wasmJsMain`) |
-| `recognition` | OCR with per-character alternatives and handwriting, run from the extracted graphs with LiteRT |
+| `recognition` | OCR with per-character alternatives and handwriting, run from the extracted graphs: LiteRT on Android, the TFLite Web runtime in a worker on Web |
 | `voice` | sherpa-onnx streaming Paraformer wrapper |
 
 ## One-time setup (large files are not in git)
@@ -14,7 +14,7 @@ Kotlin Multiplatform + Compose Multiplatform. Targets: Android, and Web (Kotlin/
 ```bash
 uv run pipeline/fetch.py && uv run pipeline/packs/build_packs.py && uv run pipeline/build.py   # datasets + packs -> pipeline/out
 app/tools/publish-animator.sh        # stroke-order library (Android, JVM, Wasm) -> app/local-maven (needs ../shenzhen_hanzi_animator_kmp)
-(cd app && ./gradlew :recognition:fetchModels)   # handwriting model (needs ../chinese-handwritting)
+(cd app && ./gradlew :recognition:fetchModels)   # handwriting model (needs ../chinese-handwritting) and the TFLite Web runtime
 app/tools/fetch-voice-model.sh       # sherpa-onnx library + voice model (~280 MB)
 ```
 
@@ -49,5 +49,9 @@ and kept in OPFS; a file whose tag in the manifest changed is downloaded again.
   decomposition, analysis and HSK in both modes) and logs `[selftest] …` lines to the console.
 - The distribution is static files; the host must answer every route of the route table
   (`/zh/…`, `/yue/…`, `/reading`, `/ocr`, `/settings`, `/privacy`) with `index.html`.
-- OCR and handwriting have no recogniser on Web yet: OCR shows its camera-unavailable state and the
-  handwriting sheet offers no candidates.
+- OCR and handwriting run the Android graphs in `recognition-worker.js` (TFLite Web runtime). The
+  model files are staged under `models/` with a `manifest.json` (sizes, SHA-256, files per set); the
+  worker downloads a set on first use (OCR 5.6 MB, handwriting 7.9 MB plus the shared 3.8 MB
+  runtime, before compression), verifies it and keeps it in Cache Storage.
+  `/?selftest=recognition&base=testdata/&ocr=a.png,b.png&ink=ink-fixtures.txt` runs both on files
+  served under `base` (the module's `androidInstrumentedTest/assets/testdata`) and logs the results.

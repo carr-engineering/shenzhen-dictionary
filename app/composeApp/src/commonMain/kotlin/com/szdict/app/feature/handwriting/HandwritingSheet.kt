@@ -65,6 +65,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
+import com.szdict.app.feature.ocr.ModelDownload
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.recognition.InkPoint
@@ -85,6 +86,7 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
     // HW-021: the soft keyboard is never shown together with the sheet, even one left over from before.
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(keyboard) { keyboard?.hide() }
+    LaunchedEffect(state) { state.prepare() }
 
     Surface(
         modifier = modifier
@@ -102,9 +104,17 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
                 val candidates = state.candidates
                 val rowState = rememberLazyListState()
                 LaunchedEffect(candidates) { rowState.scrollToItem(0) }
+                val download = state.modelDownload
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     when {
-                        state.failed -> Text(
+                        // ARCH-093 (Web): the model is fetched when the sheet first opens.
+                        download is ModelDownload.InProgress && candidates.isEmpty() -> Text(
+                            download.fraction?.let { strings.text("Downloading handwriting… {0}%", (it.coerceIn(0f, 1f) * 100).toInt()) }
+                                ?: strings.text("Loading handwriting…"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.muted,
+                        )
+                        state.failed || (download is ModelDownload.Failed && candidates.isEmpty()) -> Text(
                             strings.text("Handwriting is unavailable."),
                             style = MaterialTheme.typography.bodyMedium,
                             color = palette.muted,
@@ -143,7 +153,7 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
                     Icon(Icons.Rounded.Close, contentDescription = strings.text("Close handwriting"), tint = palette.muted)
                 }
             }
-            if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = palette.accent, trackColor = Color.Transparent)
+            if (state.busy || state.modelDownload is ModelDownload.InProgress) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = palette.accent, trackColor = Color.Transparent)
             else Spacer(Modifier.height(2.dp))
 
             WritingPad(state, Modifier.padding(horizontal = 12.dp).fillMaxWidth())

@@ -54,6 +54,18 @@ interface WorkingImage {
 }
 
 /**
+ * A recogniser model that is not installed with the app but fetched on first use — Web only
+ * (CAM-134, ARCH-093, GLB-035). Mobile platforms never report one.
+ */
+sealed interface ModelDownload {
+    /** Downloading ([fraction] in `0..1`), or loading the stored model ([fraction] null). */
+    data class InProgress(val fraction: Float?, val totalBytes: Long) : ModelDownload
+
+    /** Neither stored nor reachable; [totalBytes] is null when the size is not known either. */
+    data class Failed(val totalBytes: Long?) : ModelDownload
+}
+
+/**
  * Platform side of the OCR destination that needs no UI (CAM-110): recogniser, image decoding,
  * photo-library writer and the image clipboard. Camera, pickers and the drop target are
  * composables (`OcrPlatformUi.kt`). Registered in `AppEnv.services` under [KEY].
@@ -70,6 +82,27 @@ interface OcrPlatform {
 
     /** Reference to an image on the clipboard, read only on an explicit paste (CAM-132); null when there is none. */
     fun clipboardImage(): String?
+
+    /** State of a recogniser model fetched on first use (Compose-observable); null where it ships with the app, and once ready. */
+    val modelDownload: ModelDownload? get() = null
+
+    /** The destination was opened: fetch and load the recogniser model if that is still to do (CAM-134). */
+    fun prepareRecognizer() {}
+
+    /** Suspends until the recogniser can run; never part of the recognition timeout (CAM-051). */
+    suspend fun awaitRecognizer() {}
+
+    /** `Retry` after a failed model download (CAM-134). */
+    fun retryModelDownload() {}
+
+    /**
+     * True where pasted images arrive through a platform event ([setPasteListener]; Web: the
+     * document `paste` event) rather than by reading the clipboard on Ctrl/Cmd+V (CAM-132).
+     */
+    val pasteByEvent: Boolean get() = false
+
+    /** Receives each paste while the destination is shown: an image reference, or null when the paste holds no image. */
+    fun setPasteListener(listener: ((String?) -> Unit)?) {}
 
     /** Inline confirmation after a save (CAM-072). */
     val savedMessage: String get() = "Saved to Gallery"

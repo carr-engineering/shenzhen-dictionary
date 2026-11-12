@@ -255,8 +255,44 @@ val stageWebFont by tasks.registering(Sync::class) {
     into(webStaticRoots[4])
 }
 
+// Recognition models and their runtime for the recognition worker (ARCH-093, ARCH-197): the same
+// graph files as the Android assets plus the TFLite Web runtime, with `models/manifest.json` naming
+// each file's size and SHA-256 and the files of each set. The worker downloads a set on first use,
+// verifies it against the manifest and keeps it in Cache Storage (CAM-134). The ink model and the
+// runtime are not in git: `./gradlew :recognition:fetchModels` restores them.
+val stageWebModels by tasks.registering(Sync::class) {
+    val assets = project(":recognition").file("src/androidMain/assets/models")
+    val runtime = project(":recognition").file("web-runtime")
+    val required = listOf(assets.resolve("ink/chinese_lstm_4x192.tflite"), runtime.resolve("tflite_web_api_cc_simd.wasm"), runtime.resolve("tflite_web_api_cc_simd.js"))
+    from(assets) {
+        include("ocr/*.tflite", "ocr/*-labels.txt", "ink/*.tflite", "ink/labels.txt", "ink/script-classes.txt")
+        into("models")
+    }
+    from(runtime) {
+        include("tflite_web_api_cc_simd.js", "tflite_web_api_cc_simd.wasm")
+        into("models/runtime")
+    }
+    into(webStaticRoots[5])
+    preserve { include("models/manifest.json") }
+    doFirst {
+        required.filterNot { it.isFile }.let { missing ->
+            if (missing.isNotEmpty()) throw GradleException("Missing ${missing.joinToString { it.name }}: run ./gradlew :recognition:fetchModels")
+        }
+    }
+    doLast {
+        val dir = destinationDir.resolve("models")
+        val files = dir.walkTopDown().filter { it.isFile && it.name != "manifest.json" }.sortedBy { it.relativeTo(dir).invariantSeparatorsPath }.toList()
+        fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { b -> "%02x".format(b) }
+        val hashes = files.associate { it.relativeTo(dir).invariantSeparatorsPath to (it.length() to sha256(it.readBytes())) }
+        val version = sha256(hashes.entries.joinToString("\n") { "${it.key}:${it.value.second}" }.toByteArray()).take(16)
+        fun set(vararg folders: String) = hashes.keys.filter { path -> folders.any { path.startsWith("$it/") } }.joinToString(",") { "\"$it\"" }
+        val entries = hashes.entries.joinToString(",") { (path, value) -> "\"$path\":{\"size\":${value.first},\"sha256\":\"${value.second}\"}" }
+        dir.resolve("manifest.json").writeText("{\"version\":\"$version\",\"sets\":{\"ocr\":[${set("runtime", "ocr")}],\"ink\":[${set("runtime", "ink")}]},\"files\":{$entries}}")
+    }
+}
+
 val stageWebStatic by tasks.registering {
-    dependsOn(stageWebData, stageWebOpencc, stageWebStrokes, stageWebSqlite, stageWebFont)
+    dependsOn(stageWebData, stageWebOpencc, stageWebStrokes, stageWebSqlite, stageWebFont, stageWebModels)
 }
 tasks.matching { it.name == "wasmJsBrowserDevelopmentRun" || it.name == "wasmJsBrowserProductionRun" }.configureEach {
     dependsOn(stageWebStatic)

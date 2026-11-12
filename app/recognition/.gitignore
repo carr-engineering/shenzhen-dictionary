@@ -1,3 +1,5 @@
 # Model binaries over 1 MB are restored by tools/fetch_models.sh (./gradlew :recognition:fetchModels).
 src/androidMain/assets/models/ink/*.tflite
+# The TFLite Web runtime of the browser build, restored by the same script.
+web-runtime/
 build/

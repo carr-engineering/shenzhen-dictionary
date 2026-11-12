@@ -14,7 +14,7 @@ kotlin {
         instrumentedTestVariant.sourceSetTree.set(org.jetbrains.kotlin.gradle.plugin.KotlinSourceSetTree.test)
     }
 
-    // Web: the shared contract and pipeline only; the browser recognisers are added separately.
+    // Web: the same pipeline; the graphs run in a worker with the TFLite Web runtime (wasmJsMain).
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
     wasmJs { browser() }
 
@@ -72,6 +72,6 @@ tasks.withType<Test>().configureEach {
 // Restores the model binaries that are too large for git (see tools/fetch_models.sh).
 tasks.register<Exec>("fetchModels") {
     group = "recognition"
-    description = "Copies the large model binaries from the local reverse-engineering workspace into assets."
+    description = "Restores the large model binaries (and the TFLite Web runtime of the browser build) that are not in git."
     commandLine("sh", file("tools/fetch_models.sh").absolutePath)
 }

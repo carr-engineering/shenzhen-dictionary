@@ -279,6 +279,36 @@ class OcrStateHolder(
 
     fun clipboardHasImage(): Boolean = platform?.clipboardImage() != null
 
+    /** Web: images come with the browser's `paste` event, so Ctrl/Cmd+V is left to the browser (CAM-132). */
+    val pasteByEvent: Boolean get() = platform?.pasteByEvent == true
+
+    /** While the destination is shown, a platform paste event feeds the same path as [paste]. */
+    fun listenForPaste(listening: Boolean) {
+        platform?.setPasteListener(if (listening) ::onPasteEvent else null)
+    }
+
+    private fun onPasteEvent(uri: String?) {
+        if (session.routes.isNotEmpty()) return   // the paste was meant for the page covering the destination
+        if (uri == null) {
+            showNotice("No image on the clipboard.")
+            return
+        }
+        submit(ImageInput(ImageOrigin.PASTE, ImageRef.Uri(uri)))
+        announcement = "Image pasted"
+    }
+
+    // ---- recogniser model fetched on first use (Web, CAM-134) ----
+
+    val modelDownload: ModelDownload? get() = platform?.modelDownload
+
+    fun prepareRecognizer() {
+        platform?.prepareRecognizer()
+    }
+
+    fun retryModelDownload() {
+        platform?.retryModelDownload()
+    }
+
     /**
      * `Retake`, `Camera`, system Back and a re-tap of the destination (CAM-009, CAM-100): back to
      * the live feed, discarding the capture. Returns false when already on the input screen.
@@ -330,6 +360,8 @@ class OcrStateHolder(
 
     private suspend fun recognise(target: OcrCapture): OcrResult {
         val engine = recognizer ?: (platform?.createRecognizer() ?: error("Text recognition is unavailable")).also { recognizer = it }
+        // A model download is not recognition time (CAM-051): the image waits for it, however long it takes.
+        platform?.awaitRecognizer()
         return withTimeoutOrNull(recognitionTimeoutMs) {
             val image = withContext(workContext) { target.image.toOcrImage() }
             engine.recognize(image)

@@ -16,6 +16,9 @@ const CACHE_NAME = 'szdict-models';
 const RUNTIME_JS = 'runtime/tflite_web_api_cc_simd.js';
 const RUNTIME_WASM = 'runtime/tflite_web_api_cc_simd.wasm';
 
+// The runtime evaluates the quantised graphs with its XNNPACK kernels. Those round a few
+// requantisations differently from the NEON kernels LiteRT uses on Android, so logits can differ by
+// a quantisation step or two: the same text in practice, slightly different alternative scores.
 let M = null;            // the runtime's Emscripten module
 let ocr = null;          // { detector, lines: { script|hani|latn: { encoder, decoder, … } } }
 let ink = null;          // { graph, classes }

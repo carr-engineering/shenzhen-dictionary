@@ -40,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -99,6 +100,12 @@ fun OcrScreen(session: AppSession, modifier: Modifier = Modifier) {
     BackHandler(enabled = (holder.inReview || holder.galleryPending) && session.wordSheet == null && session.routes.isEmpty()) {
         holder.backToInput()
     }
+    // CAM-134: the first time the destination is opened starts the recogniser's one-time download (Web).
+    LaunchedEffect(holder) { holder.prepareRecognizer() }
+    DisposableEffect(holder) {
+        holder.listenForPaste(true)
+        onDispose { holder.listenForPaste(false) }
+    }
     // Keyboard focus anywhere inside the destination so Ctrl/Cmd+V pastes an image (CAM-132).
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
@@ -109,7 +116,7 @@ fun OcrScreen(session: AppSession, modifier: Modifier = Modifier) {
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.V && (event.isCtrlPressed || event.isMetaPressed)) {
+                if (!holder.pasteByEvent && event.type == KeyEventType.KeyDown && event.key == Key.V && (event.isCtrlPressed || event.isMetaPressed)) {
                     holder.paste()
                     true
                 } else false
@@ -215,8 +222,11 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
     var focusMark by remember { mutableStateOf<FocusMark?>(null) }
     var focusId by remember { mutableIntStateOf(0) }
     val openPasteMenu = {
-        pasteEnabled = holder.clipboardHasImage()
-        pasteMenu = true
+        // Where pastes arrive as events there is no clipboard to offer (CAM-132).
+        if (!holder.pasteByEvent) {
+            pasteEnabled = holder.clipboardHasImage()
+            pasteMenu = true
+        }
     }
     val capturing = handle.capturing || holder.decoding == ImageOrigin.CAMERA
 

@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import com.szdict.app.AppEnv
 import com.szdict.app.AppSession
+import com.szdict.app.feature.ocr.ModelDownload
 import com.szdict.core.api.DictMode
 import com.szdict.core.api.LatestOnly
 import com.szdict.core.api.ScoredText
@@ -25,6 +26,12 @@ import kotlinx.coroutines.launch
 fun interface HandwritingPlatform {
     /** A new recogniser; the model loads on its first use, off the UI thread (HW-035). */
     fun createRecognizer(): HandwritingRecognizer
+
+    /** Web: the model is fetched when the sheet first opens (ARCH-093); null where it ships with the app, and once ready. */
+    val modelDownload: ModelDownload? get() = null
+
+    /** The sheet was opened: fetch and load the model if that is still to do. */
+    fun prepare() {}
 
     companion object {
         const val KEY = "handwriting.platform"
@@ -72,6 +79,13 @@ class HandwritingState(
         private set
 
     val isEmpty: Boolean get() = strokes.isEmpty() && live.isEmpty()
+
+    /** Web: the model's first-use download or load in progress, or its failure (ARCH-093). */
+    val modelDownload: ModelDownload? get() = platform?.modelDownload
+
+    fun prepare() {
+        platform?.prepare()
+    }
 
     private var area: Pair<Float, Float> = 0f to 0f
     private var recognizer: HandwritingRecognizer? = null
