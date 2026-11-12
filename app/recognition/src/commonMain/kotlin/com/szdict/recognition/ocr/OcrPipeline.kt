@@ -30,19 +30,19 @@ internal enum class SequenceModel(val assetPrefix: String, val emissionOffset: D
 }
 
 /**
- * The neural graphs the pipeline needs. Implemented with LiteRT on Android; everything else in the
- * pipeline is plain Kotlin.
+ * The neural graphs the pipeline needs. Implemented with LiteRT on Android and, in the browser, by a
+ * worker running the TFLite Web runtime (hence suspending); everything else in the pipeline is plain Kotlin.
  */
 internal interface OcrNets {
     /** Runs the text detector on a [width] x [height] luminance image (both multiples of 32). */
-    fun detect(gray: ByteArray, width: Int, height: Int): DetectorOutput
+    suspend fun detect(gray: ByteArray, width: Int, height: Int): DetectorOutput
 
     /**
      * Runs a line model on a normalised line of height 24 and the given [width] (a multiple of 4),
      * passed column-major (`columns[x * 24 + y]`). [SequenceModel.SCRIPT] returns class
      * probabilities per frame; the recognisers return pre-softmax logits per frame.
      */
-    fun sequence(model: SequenceModel, columns: ByteArray, width: Int): SequenceOutput
+    suspend fun sequence(model: SequenceModel, columns: ByteArray, width: Int): SequenceOutput
 
     fun close()
 }
@@ -126,7 +126,7 @@ internal class OcrPipeline(
     private class Layout(val rows: List<Region>, val columns: List<Region>)
 
     /** @param checkpoint called between lines; throw from it to cancel. */
-    fun recognize(image: OcrImage, checkpoint: () -> Unit = {}): OcrResult {
+    suspend fun recognize(image: OcrImage, checkpoint: () -> Unit = {}): OcrResult {
         timings.clear()
         var page = timed("gray") { Gray.fromArgb(image) }
         val longest = max(page.w, page.h)
@@ -182,7 +182,7 @@ internal class OcrPipeline(
         const val SMALL_TEXT = 20.0
     }
 
-    private fun readRegions(page: Gray, regions: List<Region>, checkpoint: () -> Unit): List<Line> {
+    private suspend fun readRegions(page: Gray, regions: List<Region>, checkpoint: () -> Unit): List<Line> {
         val lines = ArrayList<Line>()
         for (region in regions) {
             checkpoint()
@@ -202,7 +202,7 @@ internal class OcrPipeline(
      * (glyphs turned a quarter turn, either way round). The recogniser reads vertical writing in
      * that form natively, so a column needs no glyph segmentation.
      */
-    private fun readRegion(page: Gray, region: Region): Line? {
+    private suspend fun readRegion(page: Gray, region: Region): Line? {
         var crop = timed("crop") { if (region.vertical) verticalCrop(page, region) else cropRegion(page, region) } ?: return null
         var script = SequenceModel.HANI
         var column = false
@@ -226,7 +226,7 @@ internal class OcrPipeline(
      * round, so a turned detection only counts as a column where the upright pass found no proper
      * lines; this is decided per region, which lets a column stand beside a block of horizontal text.
      */
-    private fun detectLayout(page: Gray): Layout {
+    private suspend fun detectLayout(page: Gray): Layout {
         val (merged, fine) = detectRegions(page)
         val upright = timed("split") { merged.flatMap { splitStacked(page, it) } }
         val turnedPage = page.rotate90()
@@ -289,7 +289,7 @@ internal class OcrPipeline(
         max(0.0, min(a.x1, b.x1) - max(a.x0, b.x0)) * max(0.0, min(a.y1, b.y1) - max(a.y0, b.y0))
 
     /** Reads turned-pass regions: natively on their side first, by glyph cells if that reads poorly. */
-    private fun readColumns(page: Gray, columns: List<Region>, checkpoint: () -> Unit): List<Line> {
+    private suspend fun readColumns(page: Gray, columns: List<Region>, checkpoint: () -> Unit): List<Line> {
         val lines = ArrayList<Line>()
         for (r in columns) {
             checkpoint()
@@ -329,7 +329,7 @@ internal class OcrPipeline(
      * the page at 1280 pixels at most; when it finds small text there (or only faint traces) on a
      * larger page, a second pass at the page's full resolution reads the lines too small for the first.
      */
-    private fun detectRegions(page: Gray, fine: Boolean? = null): Pair<List<Region>, Boolean> {
+    private suspend fun detectRegions(page: Gray, fine: Boolean? = null): Pair<List<Region>, Boolean> {
         val longest = max(page.w, page.h)
         val coarseSide = min(1280, max(640, longest))
         fun merge(proposals: List<Region>) = timed("merge") {
@@ -350,7 +350,7 @@ internal class OcrPipeline(
     }
 
     /** One detector pass with the page scaled to [side] pixels on its longer side. */
-    private fun propose(page: Gray, side: Int): List<Region> {
+    private suspend fun propose(page: Gray, side: Int): List<Region> {
         val w = page.w
         val h = page.h
         val scale = side.toDouble() / max(w, h)
@@ -509,7 +509,7 @@ internal class OcrPipeline(
     }
 
     /** Mean script/direction class probabilities over the line's interior frames. */
-    private fun classify(crop: Crop): FloatArray {
+    private suspend fun classify(crop: Crop): FloatArray {
         val strip = normalized(crop, 512)
         val out = nets.sequence(SequenceModel.SCRIPT, strip.columns, strip.width)
         val scores = FloatArray(max(43, out.classes))
@@ -524,7 +524,7 @@ internal class OcrPipeline(
         return scores
     }
 
-    private fun read(model: SequenceModel, crop: Crop, page: Gray, column: Boolean = false): Line? {
+    private suspend fun read(model: SequenceModel, crop: Crop, page: Gray, column: Boolean = false): Line? {
         val labels = if (model == SequenceModel.HANI) haniLabels else latnLabels
         val strip = normalized(crop, 2048)
         val out = timed("recognise") { nets.sequence(model, strip.columns, strip.width) }

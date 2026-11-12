@@ -45,7 +45,7 @@ internal class LiteRtOcrNets(assets: AssetManager, threads: Int) : OcrNets {
     private var detectorShape = intArrayOf(0, 0)
     private val lines = SequenceModel.entries.associateWith { LineModel(assets, it) }
 
-    override fun detect(gray: ByteArray, width: Int, height: Int): DetectorOutput {
+    override suspend fun detect(gray: ByteArray, width: Int, height: Int): DetectorOutput {
         if (detectorShape[0] != height || detectorShape[1] != width) {
             detector.resizeInput(0, intArrayOf(1, height, width, 1))
             detector.allocateTensors()
@@ -62,7 +62,7 @@ internal class LiteRtOcrNets(assets: AssetManager, threads: Int) : OcrNets {
         return DetectorOutput(data, shape[1], shape[2], q.scale, q.zeroPoint)
     }
 
-    override fun sequence(model: SequenceModel, columns: ByteArray, width: Int): SequenceOutput = lines.getValue(model).run(columns, width)
+    override suspend fun sequence(model: SequenceModel, columns: ByteArray, width: Int): SequenceOutput = lines.getValue(model).run(columns, width)
 
     override fun close() {
         detector.close()
@@ -145,7 +145,7 @@ internal class LiteRtInkNet(assets: AssetManager, threads: Int) : InkNet {
     private var frames = 0
     override val classes: Int = model.getOutputTensor(0).shape().last()
 
-    override fun infer(features: FloatArray, frames: Int): FloatArray {
+    override suspend fun infer(features: FloatArray, frames: Int): FloatArray {
         if (this.frames != frames) {
             model.resizeInput(0, intArrayOf(frames, 1, 10))
             model.allocateTensors()

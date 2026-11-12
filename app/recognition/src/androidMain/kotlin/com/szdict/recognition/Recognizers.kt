@@ -69,7 +69,7 @@ private class Guarded<T : Any>(private val load: () -> T, private val release: (
     @Volatile
     private var closed = false
 
-    suspend fun <R> use(block: (T) -> R): R = mutex.withLock {
+    suspend fun <R> use(block: suspend (T) -> R): R = mutex.withLock {
         check(!closed) { "Recognizer is closed" }
         try {
             block(value ?: load().also { value = it })

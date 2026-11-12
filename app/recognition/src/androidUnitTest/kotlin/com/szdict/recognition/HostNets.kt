@@ -30,7 +30,7 @@ internal class HostNets private constructor(private val process: Process) : OcrN
         return sb.toString().split(' ')
     }
 
-    override fun detect(gray: ByteArray, width: Int, height: Int): DetectorOutput {
+    override suspend fun detect(gray: ByteArray, width: Int, height: Int): DetectorOutput {
         output.write("detect $width $height\n".toByteArray())
         output.write(gray, 0, width * height)
         output.flush()
@@ -40,7 +40,7 @@ internal class HostNets private constructor(private val process: Process) : OcrN
         return DetectorOutput(data, h[0].toInt(), h[1].toInt(), h[2].toFloat(), h[3].toInt())
     }
 
-    override fun sequence(model: SequenceModel, columns: ByteArray, width: Int): SequenceOutput {
+    override suspend fun sequence(model: SequenceModel, columns: ByteArray, width: Int): SequenceOutput {
         output.write("seq ${model.assetPrefix} $width\n".toByteArray())
         output.write(columns, 0, width * 24)
         output.flush()
@@ -52,7 +52,7 @@ internal class HostNets private constructor(private val process: Process) : OcrN
 
     override val classes: Int = 12362
 
-    override fun infer(features: FloatArray, frames: Int): FloatArray {
+    override suspend fun infer(features: FloatArray, frames: Int): FloatArray {
         output.write("ink $frames\n".toByteArray())
         val buffer = ByteBuffer.allocate(frames * 40).order(ByteOrder.LITTLE_ENDIAN)
         buffer.asFloatBuffer().put(features, 0, frames * 10)

@@ -10,7 +10,7 @@ import com.szdict.recognition.ocr.isHan
 internal interface InkNet {
     val classes: Int
 
-    fun infer(features: FloatArray, frames: Int): FloatArray
+    suspend fun infer(features: FloatArray, frames: Int): FloatArray
 
     fun close()
 }
@@ -58,7 +58,7 @@ internal class InkPipeline(private val net: InkNet, private val labels: List<Str
         require(net.classes == labels.size + 1) { "Label table does not match the network output" }
     }
 
-    fun recognize(strokes: List<InkStroke>, limit: Int, model: InkModel = InkModel.SIMPLIFIED): List<InkCandidate> {
+    suspend fun recognize(strokes: List<InkStroke>, limit: Int, model: InkModel = InkModel.SIMPLIFIED): List<InkCandidate> {
         val usable = strokes.filter { it.points.isNotEmpty() }
         if (usable.isEmpty() || limit <= 0) return emptyList()
         require(usable.size <= MAX_STROKES) { "Too many strokes" }

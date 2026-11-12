@@ -1,5 +1,6 @@
 package com.szdict.recognition
 
+import kotlinx.coroutines.runBlocking
 import com.szdict.recognition.ink.InkPipeline
 import com.szdict.recognition.ocr.OcrPipeline
 import org.junit.Assume.assumeTrue
@@ -39,7 +40,7 @@ class HostPipelineTest {
                 if (!file.exists()) continue
                 val img = image(file)
                 val start = System.nanoTime()
-                val result = pipeline.recognize(img)
+                val result = runBlocking { pipeline.recognize(img) }
                 val ms = (System.nanoTime() - start) / 1e6
                 println("== ${case.file} (${img.width}x${img.height}) ${"%.0f".format(ms)} ms")
                 for (line in result.lines) {
@@ -75,7 +76,7 @@ class HostPipelineTest {
             for (file in dir!!.listFiles { f -> f.extension in setOf("png", "jpg", "jpeg") }!!.sortedBy { it.name }) {
                 val img = image(file)
                 val start = System.nanoTime()
-                val result = pipeline.recognize(img)
+                val result = runBlocking { pipeline.recognize(img) }
                 println("== ${file.name} (${img.width}x${img.height}) ${"%.0f".format((System.nanoTime() - start) / 1e6)} ms")
                 for (line in result.lines) {
                     val weak = line.chars.filter { it.confidence < .5f }.joinToString(" ") { c -> c.alternatives.take(4).joinToString("/") { it.text } }
@@ -119,7 +120,7 @@ class HostPipelineTest {
                 val truth = File(dir, file.nameWithoutExtension + ".txt").takeIf { it.exists() }?.readText() ?: continue
                 val expected = han(truth)
                 val start = System.nanoTime()
-                val result = pipeline.recognize(image(file))
+                val result = runBlocking { pipeline.recognize(image(file)) }
                 val ms = (System.nanoTime() - start) / 1e6
                 val chars = result.lines.flatMap { it.chars }
                 // Longest common subsequence with a match predicate; counts the matched ground-truth
@@ -204,7 +205,7 @@ class HostPipelineTest {
             val golden = TestData.inkGolden()
             for (case in golden.cases) {
                 val start = System.nanoTime()
-                val candidates = pipeline.recognize(case.strokes, 30)
+                val candidates = runBlocking { pipeline.recognize(case.strokes, 30) }
                 val ms = (System.nanoTime() - start) / 1e6
                 println("${case.expected} ${"%.1f".format(ms)} ms -> " + candidates.joinToString(" ") { "${it.text}:${"%.2f".format(it.score)}" })
                 assertEquals(case.referenceTop.first(), candidates.first().text, "first candidate for ${case.expected}")
