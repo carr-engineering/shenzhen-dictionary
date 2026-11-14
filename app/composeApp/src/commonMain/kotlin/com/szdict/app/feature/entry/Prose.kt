@@ -154,9 +154,13 @@ internal data class AltReadingRange(val start: Int, val end: Int, val alt: AltRe
 internal fun altReadingsLine(alts: List<AltReading>, lang: UiLang): Pair<String, List<AltReadingRange>> {
     val sb = StringBuilder()
     val ranges = ArrayList<AltReadingRange>()
+    var lastLabel: String? = null
     alts.forEachIndexed { index, alt ->
+        val label = alt.label.text(lang)
+        // One label per run of readings with the same label; the readings in it share only the dot.
         if (index > 0) sb.append(" • ")
-        sb.append(alt.label.text(lang)).append(' ')
+        if (label != lastLabel) sb.append(label).append(' ')
+        lastLabel = label
         val start = sb.length
         sb.append(alt.reading.display)
         ranges += AltReadingRange(start, sb.length, alt)

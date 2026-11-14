@@ -97,6 +97,15 @@ class ProseTest {
     }
 
     @Test
+    fun alsoPronouncedLabelOncePerRun() {
+        val label = label("also_pr", "Also pronounced", "又读")
+        val a = AltReading("also_pr", label, Reading("lā jī", "la1 ji1", listOf("la", "ji"), listOf(1, 1)), 0)
+        val b = AltReading("also_pr", label, Reading("lè sè", "le4 se4", listOf("le", "se"), listOf(4, 4)), 1)
+        val (line, _) = altReadingsLine(listOf(a, b), UiLang.EN)
+        assertEquals("Also pronounced lā jī • lè sè", line)
+    }
+
+    @Test
     fun redirectFallsBackToStoredText() {
         val plain = redirectProse(emptyList(), "variant of 逼格")
         assertEquals("variant of 逼格", plain.text)
