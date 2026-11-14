@@ -9,7 +9,8 @@
 Outputs (pipeline/out/packs/, gitignored):
     sentences.db        Mandarin example sentences, keyed by simplified headword
     sentences-yue.db    Cantonese example sentences, keyed by traditional headword
-    decomposition.db    IDS decomposition, radical/strokes, names, Make Me a Hanzi matches
+    decomposition.db    IDS decomposition, radical/strokes, names, Make Me a Hanzi matches,
+                        reverse component index (part_of)
     audio/              cmn-syl/, cmn-word/, yue-syl/ + catalog.json
     packs-report.json   counts and coverage of the run
 
@@ -889,6 +890,20 @@ def build_decomposition() -> dict:
         out_rows.append((cid, r["ids"][0] + "".join(parts) if parts else "", jdump(parts),
                          r["radical"], r["strokes"], r["name"], r["svg"], r.get("matches")))
     db.executemany("INSERT INTO decomp VALUES(?,?,?,?,?,?,?,?)", out_rows)
+
+    # Reverse index (PARTS tab "Appears in"): every leaf of a row's own IDS — operators skipped,
+    # inline nested sub-sequences flattened, `？` dropped — lists that row under the leaf.
+    db.execute("CREATE TABLE part_of(part TEXT PRIMARY KEY, chars TEXT NOT NULL) WITHOUT ROWID")
+    leaf_token = re.compile(r"&[^;]+;|.", re.S)
+    users: dict[str, set[str]] = defaultdict(set)
+    for cid, ids, *_rest in out_rows:
+        for tok in leaf_token.findall(ids):
+            if tok in ARITY or tok in (UNKNOWN, VARIATION) or tok == cid:
+                continue
+            users[tok].add(cid)
+    db.executemany("INSERT INTO part_of VALUES(?,?)",
+                   sorted((p, "".join(sorted(cs))) for p, cs in users.items()))
+
     stats = {
         "rows": len(out_rows),
         "dictionary_headword_chars": len(dict_chars),
@@ -905,6 +920,9 @@ def build_decomposition() -> dict:
         "unencoded_components": sum(1 for c in rows if c.startswith("&U-i")),
         "nested_subsequences_inline": sum(1 for c in rows if c.startswith("&U-s")),
         "unknown_part_refs": sum(r["parts"].count(UNKNOWN) for r in rows.values()),
+        "part_of_rows": len(users),
+        "part_of_pairs": sum(len(cs) for cs in users.values()),
+        "part_of_max_chars": max((len(cs) for cs in users.values()), default=0),
         "dictionary_chars_without_ids_source": sorted(
             c for c in dict_chars if c not in ids_src)[:200],
         "region_used": dict(sorted(region_used.items())),
@@ -917,6 +935,7 @@ def build_decomposition() -> dict:
         "pack": "decomposition",
         "source": "BabelStone IDS.TXT; Unicode Unihan/UCD; Make Me a Hanzi dictionary.txt (matches)",
         "rows": str(stats["rows"]), "rows_with_matches": str(stats["rows_with_matches"]),
+        "part_of_rows": str(stats["part_of_rows"]),
     })
     close_db(db)
     stats["bytes"] = path.stat().st_size

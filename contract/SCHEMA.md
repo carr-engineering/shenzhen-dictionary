@@ -14,7 +14,7 @@ on *meaning*, the spec wins. Change both sides in one commit and bump `schema_ve
 | `mandarin-widget.json`, `cantonese-widget.json` | widget / Word-of-the-Day projection (`DATA-130`) |
 | `fixture/…` | the same files built from the small fixture sources (`ARCH-151`) |
 | `packs/sentences.db`, `packs/sentences-yue.db` | example sentences |
-| `packs/decomposition.db` | IDS decomposition + Make Me a Hanzi matches |
+| `packs/decomposition.db` | IDS decomposition + Make Me a Hanzi matches + reverse component index (`part_of`) |
 | `packs/audio/…` + `packs/audio/catalog.json` | recorded audio, flat files |
 | `build-report.json` | counts, gates, unresolved references |
 
@@ -199,7 +199,7 @@ CREATE TABLE part_of(part TEXT PRIMARY KEY,  -- a component: a character or a sy
   WITHOUT ROWID;                           -- `ids` names `part` as a leaf (operators skipped, inline nested
                                            -- sub-sequences flattened, '？' never listed), as one string of
                                            -- code points in ascending order. Optional (added 2026-11, see
-                                           -- note 22): a pack without it has no reverse index.
+                                           -- note 23): a pack without it has no reverse index.
 
 -- packs/audio/catalog.json
 -- { "mandarin": {"syllables": "cmn-syl", "words": "cmn-word", "ext": "opus",
@@ -318,6 +318,14 @@ change it. The app reads what is described here.
     (still within 2.5 nats of the best whole-query word); with typed boundaries, further such sequences
     within 2.5 nats of it need only −11 nats per syllable (`ruan xing tiao zheng` → 软 行 调整, 软 性 调整…).
     A letter typed as a word of its own counts as spelled in a query of English words (`wo shi yi g`).
+23. **`part_of`** (decomposition pack, 2026-11): the reverse component index of the entry page's PARTS
+    tab ("Appears in"). Additive: the pack's `user_version` stays 1 and `decomp` is unchanged; a reader
+    treats a pack without the table as "no reverse index" and never scans `decomp` to build one
+    (`ARCH-023`). Keys are exact components (亻 and 人 are separate rows); a character that reaches a
+    component only through another encoded character is not listed under it (孬 = ⿱不好 is listed
+    under 好, not under 女). The pack's sha256 changes with the table, so `asset_packs` /
+    `decomposition_hashes` of a dataset built before the pack are stale until the next dataset build
+    (the app reads neither; the Web manifest hashes the pack when it is staged).
 
 ## Schema version 2 (2026-11) — what changed from version 1
 
