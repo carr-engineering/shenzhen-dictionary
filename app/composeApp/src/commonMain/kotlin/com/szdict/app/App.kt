@@ -138,7 +138,8 @@ fun App(session: AppSession) {
                 val fullScreenRoute = topRoute != null && (!twoPane || topRoute !is DetailRoute.Entry)
                 // Settings-family routes keep the primary navigation visible (SET-005); an entry covers it.
                 val coversNavigation = topRoute is DetailRoute.Entry && !twoPane
-                val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !coversNavigation
+                // The word sheet gets the bar's room too; the sheet reports its own height, so content stays clear of it.
+                val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !coversNavigation && session.wordSheet == null
 
                 // A route that covers the destination takes the focus away from it: no caret handle,
                 // keyboard or handwriting sheet of a covered field survives or comes back (GLB-059).
