@@ -1,12 +1,15 @@
 #!/bin/sh
-# Restores the recognition model assets from the local reverse-engineering workspace.
+# Restores the recognition model binaries that are not in git.
 #
-#   tools/fetch_models.sh            copy the ink model (too large for git) into assets, and the
+#   tools/fetch_models.sh            download the ink model (too large for git) into assets, and the
 #                                    TFLite Web runtime for the browser build into web-runtime/
 #   tools/fetch_models.sh --all      also regenerate the small OCR graphs and label tables that are
-#                                    committed (needs Python 3.12 with the workspace's LiteRT deps)
+#                                    committed, from the local workspace $CHINESE_HANDWRITING_DIR
+#                                    (needs Python 3.12 with the workspace's LiteRT deps)
 #
-# Source workspace: $CHINESE_HANDWRITING_DIR (default /Users/marc/Documents/code/chinese-handwritting).
+# The ink model is Google ML Kit Digital Ink Recognition's Chinese LSTM, downloaded from the same URL
+# the ML Kit SDK (com.google.mlkit:digital-ink-recognition 19.0.0) uses for the "zh-Hani-CN" model.
+# Both the archive and the extracted model are checked against SHA-256.
 set -eu
 SRC="${CHINESE_HANDWRITING_DIR:-/Users/marc/Documents/code/chinese-handwritting}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -18,20 +21,21 @@ check() { # file sha256
   [ "$actual" = "$2" ] || { echo "SHA-256 mismatch for $1: $actual" >&2; exit 1; }
 }
 
-cp "$SRC/native-ink/models/chinese_lstm_4x192.tflite" "$DST/ink/chinese_lstm_4x192.tflite"
+INK_URL="https://dl.google.com/handwriting/models/lstm.chinese.tflite_4_192.tflite.20181109.zip"
+INK_ZIP="$(mktemp -t ink-model.XXXXXX)"
+trap 'rm -f "$INK_ZIP"' EXIT
+curl -fsSL -o "$INK_ZIP" "$INK_URL"
+check "$INK_ZIP" 76d3c0c8307adfaaaad0715a7501d84500685bb83280e048899cc312a4c1453a
+unzip -p "$INK_ZIP" chinese_lstm_4x192.tflite > "$DST/ink/chinese_lstm_4x192.tflite"
 check "$DST/ink/chinese_lstm_4x192.tflite" b14fd839784b72c4872b0e923815baf1b42734326059145a63ef338a6d866f65
 echo "ink model restored"
 
 # The Web build runs the same graphs with the TFLite Web runtime (SIMD build) of
-# @tensorflow/tfjs-tflite 0.0.1-alpha.10: from the workspace's vendored copy, or from the npm CDN.
+# @tensorflow/tfjs-tflite 0.0.1-alpha.10, from the npm CDN.
 WEB="$HERE/../web-runtime"
 mkdir -p "$WEB"
 for name in tflite_web_api_cc_simd.js tflite_web_api_cc_simd.wasm; do
-  if [ -f "$SRC/web-ocr/vendor/$name" ]; then
-    cp "$SRC/web-ocr/vendor/$name" "$WEB/$name"
-  else
-    curl -fsSL -o "$WEB/$name" "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/$name"
-  fi
+  curl -fsSL -o "$WEB/$name" "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/$name"
 done
 check "$WEB/tflite_web_api_cc_simd.js" d5c71816525140d7a35b59a908d3b07d42741576630e647d246c19c6fa72d63d
 check "$WEB/tflite_web_api_cc_simd.wasm" 40f49cc2d458ec09bb43db160e9e55f4b3c790a4c1d1fa280f8a61796296cf8e
