@@ -38,6 +38,9 @@ allprojects {
 GRADLE
 
 cd "$ANIMATOR_DIR"
+# The bundled stroke packs are generated from a pinned corpus, not committed (the animator's
+# tools/DATA_PROVENANCE.md); this is a no-op when they are already current.
+if [ -x tools/prepare_bundled_data.sh ]; then tools/prepare_bundled_data.sh; fi
 # shellcheck disable=SC2086
 ./gradlew -I "$INIT" $TASKS "-PpublicationTestRepositoryUrl=file://$REPO" --no-configuration-cache
 echo "Published engineering.carr:shenzhen-hanzi-animator-* 0.1.0 to $REPO"

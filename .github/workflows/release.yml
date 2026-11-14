@@ -73,6 +73,15 @@ jobs:
         uses: gradle/actions/setup-gradle@v5
         with:
           cache-read-only: false
+      # The animator generates its stroke packs from a pinned corpus (Python 3.14, Node's Brotli).
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
       - if: steps.cache.outputs.cache-hit != 'true'
         run: ci/publish-deps.sh
 
