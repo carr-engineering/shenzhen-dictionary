@@ -80,7 +80,7 @@ character is **covered** when this set is non-empty.
 `TXT-021` `[MUST]` Candidate ordering:
 1. the **default** candidate first — the segment the segmenter actually chose for this position;
 2. then longer spans before shorter;
-3. then frequency rank ascending;
+3. then frequency rank ascending (HSK-capped, `SRCH-070`);
 4. then common readings before proper-noun readings at otherwise equal rank (the single tie rule of
    `GLB-013`);
 5. then start offset ascending;

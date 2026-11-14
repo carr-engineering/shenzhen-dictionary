@@ -52,7 +52,8 @@ class FakeDictionary(override val mode: DictMode = DictMode.MANDARIN) : Dictiona
         )
     }
     private val byId = entries.associateBy { it.id }
-    private val rank = compareBy<E>({ it.freq }, { it.simp.length }, { it.pinyin.first().isUpperCase() }, { it.id })
+    // As Ranking.compareRank: frequency rank capped by the lowest HSK level, then the frequency rank.
+    private val rank = compareBy<E>({ e -> e.hsk.minOrNull()?.let { minOf(e.freq, com.szdict.core.engine.Ranking.HSK_RANK_CAPS[minOf(it, 7)]) } ?: e.freq }, { it.freq }, { it.simp.length }, { it.pinyin.first().isUpperCase() }, { it.id })
 
     private fun hanziCount(s: String) = s.count { it in '㐀'..'鿿' }
     private fun head(e: E, script: Script) = if (script == Script.SIMPLIFIED) e.simp else e.trad

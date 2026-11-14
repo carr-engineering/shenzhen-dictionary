@@ -400,7 +400,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         // on the candidate's per-sense token lists (DATA-077), bounded to the best-ranked candidates.
         if (tokens.size > 1) {
             val pending = cands.filter { it.senses != null }
-                .sortedWith(compareBy({ projs[it.id]?.isUnihan ?: true }, { projs[it.id]?.freqRank ?: Int.MAX_VALUE }, { it.id }))
+                .sortedWith(compareBy({ projs[it.id]?.isUnihan ?: true }, { projs[it.id]?.let(Ranking::effectiveRank) ?: Int.MAX_VALUE }, { projs[it.id]?.freqRank ?: Int.MAX_VALUE }, { it.id }))
                 .take(PHRASE_CHECK)
             val entries = store.entries(pending.map { it.id })
             for (e in pending) {

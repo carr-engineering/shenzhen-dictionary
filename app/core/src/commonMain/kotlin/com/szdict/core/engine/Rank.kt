@@ -38,6 +38,27 @@ internal class Candidate(
 
 internal object Ranking {
     /**
+     * Frequency-rank caps per HSK level 1…7 (7 = band 7–9), index 0 unused: about the 40th percentile
+     * of the Mandarin frequency ranks of the level's entries, so a level's words mostly rank at its cap
+     * and the levels come out in order, while a word more frequent than the cap keeps its own rank.
+     */
+    val HSK_RANK_CAPS = intArrayOf(Int.MAX_VALUE, 300, 600, 1100, 1900, 3500, 6000, 11000)
+
+    /** The rank lists are ordered by: the frequency rank, capped by the entry's lowest HSK level. */
+    fun effectiveRank(p: Proj): Int {
+        val l = p.hskLevel
+        return if (l <= 0) p.freqRank else minOf(p.freqRank, HSK_RANK_CAPS[minOf(l, HSK_RANK_CAPS.size - 1)])
+    }
+
+    /** Effective rank, then the true frequency rank (SRCH-070 item 4). */
+    fun compareRank(pa: Proj, pb: Proj): Int {
+        val ea = effectiveRank(pa)
+        val eb = effectiveRank(pb)
+        if (ea != eb) return ea.compareTo(eb)
+        return pa.freqRank.compareTo(pb.freqRank)
+    }
+
+    /**
      * The canonical comparator (SRCH-070), preceded by the Unicode-only tier (SRCH-079). In
      * Cantonese mode on the Chinese side ([cantoFirst]) CC-Canto entries come first inside each
      * match class (SRCH-076).
@@ -51,7 +72,8 @@ internal object Ranking {
         if (a.alt != b.alt) return@Comparator if (a.alt) 1 else -1
         val c = a.cost.compareTo(b.cost)
         if (c != 0) return@Comparator c
-        if (pa.freqRank != pb.freqRank) return@Comparator pa.freqRank.compareTo(pb.freqRank)
+        val r = compareRank(pa, pb)
+        if (r != 0) return@Comparator r
         if (pa.charCount != pb.charCount) return@Comparator pa.charCount.compareTo(pb.charCount)
         if (pa.isProper != pb.isProper) return@Comparator if (pa.isProper) 1 else -1
         if (pa.readingRank != pb.readingRank) return@Comparator pa.readingRank.compareTo(pb.readingRank)
@@ -62,7 +84,8 @@ internal object Ranking {
     fun projComparator(cantoFirst: Boolean): Comparator<Proj> = Comparator { pa, pb ->
         if (pa.isUnihan != pb.isUnihan) return@Comparator if (pa.isUnihan) 1 else -1
         if (cantoFirst && pa.hasCanto != pb.hasCanto) return@Comparator if (pa.hasCanto) -1 else 1
-        if (pa.freqRank != pb.freqRank) return@Comparator pa.freqRank.compareTo(pb.freqRank)
+        val r = compareRank(pa, pb)
+        if (r != 0) return@Comparator r
         if (pa.charCount != pb.charCount) return@Comparator pa.charCount.compareTo(pb.charCount)
         if (pa.isProper != pb.isProper) return@Comparator if (pa.isProper) 1 else -1
         if (pa.readingRank != pb.readingRank) return@Comparator pa.readingRank.compareTo(pb.readingRank)

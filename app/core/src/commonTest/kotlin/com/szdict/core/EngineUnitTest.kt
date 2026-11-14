@@ -275,6 +275,21 @@ class RankingTest {
     }
 
     @Test
+    fun hskCappedFrequencyRank() {
+        fun hsk(id: Int, freq: Int, level: Int) = Proj(id, 0, freq, 2, -1, -1, hskLevel = level)
+        // HSK 1 at rank 2000 is capped to 300: before an HSK 3 word at 1000 (cap 1100) and a plain word at 800,
+        // but after a non-HSK word more frequent than its cap; equal effective ranks fall back to the plain rank.
+        val rows = listOf(proj(1, freq = 800), hsk(2, 2000, 1), hsk(3, 1000, 3), proj(4, freq = 150), hsk(5, 300, 1), hsk(6, 50_000, 7))
+        assertEquals(listOf(4, 5, 2, 1, 3, 6), rows.shuffled().sortedWith(Ranking.projComparator(false)).map { it.id })
+        assertEquals(listOf(4, 5, 2, 1, 3, 6), rows.map { Candidate(it, MatchClass.EXACT) }.shuffled().sortedWith(Ranking.comparator(false)).map { it.proj.id })
+        assertEquals(11000, Ranking.effectiveRank(hsk(6, 50_000, 7)))
+        // Match class still comes first.
+        assertEquals(listOf(1, 2), listOf(Candidate(hsk(2, 2000, 1), MatchClass.PREFIX), Candidate(proj(1, freq = 800), MatchClass.EXACT)).sortedWith(Ranking.comparator(false)).map { it.proj.id })
+        assertEquals(1, com.szdict.core.store.hskLevelOf("""[{"l":1,"pos":["数量"],"x":0},{"l":4,"pos":["副"],"x":1}]"""))
+        assertEquals(0, com.szdict.core.store.hskLevelOf(""))
+    }
+
+    @Test
     fun cantoneseSourceGroupInsideClass() {
         val list = listOf(Candidate(proj(1, freq = 1), MatchClass.EXACT), Candidate(proj(2, freq = 9, flags = 8), MatchClass.EXACT), Candidate(proj(3, flags = 8), MatchClass.PREFIX))
         assertEquals(listOf(2, 1, 3), list.sortedWith(Ranking.comparator(true)).map { it.proj.id })

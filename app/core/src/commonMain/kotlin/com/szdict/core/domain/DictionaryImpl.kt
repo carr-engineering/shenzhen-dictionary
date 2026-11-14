@@ -664,7 +664,9 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         }
         if (cands.isEmpty()) {
             // TXT-022: entries in which the character appears.
-            val ids = store.charPostings(listOf(ch), 50)[ch] ?: IntArray(0)
+            // char_idx is in plain frequency order: rank the whole list (SRCH-070, HSK-aware) before taking 50.
+            val all = store.charPostings(listOf(ch))[ch] ?: IntArray(0)
+            val ids = store.projections(all).values.sortedWith(Ranking.projComparator(cantonese)).take(50).map { it.id }
             val list = cards.build(ids.map { RowRef(it) }, script)
             return@guard if (list.isEmpty()) SpanCandidates(SpanKind.NONE, ch, at, emptyList(), prev, next)
             else SpanCandidates(SpanKind.APPEARS_IN, ch, at, list.map { SpanCandidate(at, ch.length, it, false) }, prev, next)
@@ -672,7 +674,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         // TXT-021 ordering; Unicode-only entries after dictionary entries at the same span.
         cands.sortWith(
             compareBy<Cand>({ !it.isDefault }, { -(it.span.end - it.span.start) }, { it.hit.proj.isUnihan }, { cantonese && !it.hit.proj.hasCanto },
-                { it.hit.proj.freqRank }, { it.hit.proj.isProper }, { it.span.start }, { it.hit.proj.id }),
+                { Ranking.effectiveRank(it.hit.proj) }, { it.hit.proj.freqRank }, { it.hit.proj.isProper }, { it.span.start }, { it.hit.proj.id }),
         )
         // TXT-024: merge variants keyed by (start, length, group).
         val seen = HashSet<String>()

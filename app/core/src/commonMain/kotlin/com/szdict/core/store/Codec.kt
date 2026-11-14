@@ -189,6 +189,8 @@ internal class Proj(
     val mergeTrad: Int,
     /** Unigram log-probability × 100 of the entry's word (`entry.ulp`, schema version 2), or [NO_ULP]. */
     val ulp: Int = NO_ULP,
+    /** The entry's lowest HSK level (the first level of `entry.hsk`; 7 = band 7–9), 0 = none. */
+    val hskLevel: Int = 0,
 ) {
     val isProper get() = flags and FLAG_PROPER != 0
     val isUnihan get() = flags and FLAG_UNIHAN != 0
@@ -223,7 +225,7 @@ internal class EntryRow(
     val ulp: Int = NO_ULP,
 ) {
     val body: Body by lazy { Codec.body(bodyBlob, bodyDict) }
-    val proj: Proj get() = Proj(id, flags, freqRank, charCount, mergeSimp, mergeTrad, ulp)
+    val proj: Proj get() = Proj(id, flags, freqRank, charCount, mergeSimp, mergeTrad, ulp, hskLevelOf(hskJson))
     val isProper get() = flags and FLAG_PROPER != 0
     val isUnihan get() = flags and FLAG_UNIHAN != 0
     val hasCanto get() = flags and FLAG_CANTO != 0
@@ -299,3 +301,19 @@ internal class Inventory(
     fun isAbbrevOf(abbrev: String, syllable: String): Boolean = abbrevs[abbrev]?.contains(syllable) == true
     fun syllableAt(idx: Int): String = syllables.getOrElse(idx) { "" }
 }
+
+/**
+ * The lowest HSK level of an `entry.hsk` value: its first `"l"` (main levels come first, ascending,
+ * and no extra level is below them — SCHEMA.md), 0 when empty. Mirrors [HSK_LEVEL_SQL].
+ */
+internal fun hskLevelOf(hskJson: String): Int {
+    val at = hskJson.indexOf("\"l\":")
+    if (at < 0) return 0
+    var i = at + 4
+    var v = 0
+    while (i < hskJson.length && hskJson[i] in '0'..'9') v = v * 10 + (hskJson[i++] - '0')
+    return v
+}
+
+/** SQL for [hskLevelOf] over `e.hsk` (a projection column; no schema change). */
+internal const val HSK_LEVEL_SQL = "CASE WHEN instr(e.hsk, '\"l\":') = 0 THEN 0 ELSE CAST(substr(e.hsk, instr(e.hsk, '\"l\":') + 4, 2) AS INTEGER) END"

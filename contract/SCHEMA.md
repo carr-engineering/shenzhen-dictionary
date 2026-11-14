@@ -85,6 +85,7 @@ CREATE TABLE reading(key TEXT, entry_id INTEGER, alt INTEGER,     -- key: space-
 
 CREATE TABLE substr_idx(key TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID;  -- id list (delta), DATA-074
 CREATE TABLE char_idx(ch TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID;     -- id list (plain), (freq_rank,id) order
+                                      -- (the app re-ranks a list it shows: SRCH-070 caps freq_rank by HSK level)
 CREATE TABLE en_token(token TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID;
 -- en_token postings: sorted by (entry_id, sense): repeated [varint entry_id delta (0 allowed for
 -- further senses of the same entry), varint (sense_index << 2 | flags)]; flags bit0 CC-Canto, bit1 Unihan.
@@ -342,7 +343,7 @@ Size pass (`PERF-070`): `mandarin.db` 61.1 → 34.6 MB, `cantonese.db` 87.5 → 
   the canonical reading differs).
 - `within` is gone: inside-words rows are computed on demand (`DATA-102`) — for all cards of a page
   with one batched headword lookup of their sub-spans (both scripts), ordered longest span first,
-  then start, then the canonical projection order (Unihan-only last, frequency rank, common before
+  then start, then the canonical projection order (Unihan-only last, HSK-capped frequency rank (`SRCH-070`), common before
   proper, reading rank, id).
 - `meta.schema_version` / `PRAGMA user_version` = 2. The app (`DictionaryFactory.SUPPORTED_SCHEMA_VERSION`
   = 2) still opens a version-1 file; `com.szdict.core.api` is unchanged.

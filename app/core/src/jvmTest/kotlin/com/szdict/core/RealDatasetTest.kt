@@ -221,6 +221,24 @@ class RealDatasetTest {
     }
 
     @Test
+    fun hskAwareOrdering() = real { dict ->
+        // SRCH-070 item 4: the frequency rank is capped by the entry's lowest HSK level.
+        val xing = dict.search("xing", s).chinese.sections.first { it.kind == SectionKind.MATCHES }.cards.map { it.headword }
+        assertEquals("行", xing.first())
+        assertTrue(xing.indexOf("姓") in 0 until xing.indexOf("性"), xing.toString()) // HSK 2 (rank 2473) before HSK 4 (1653)
+        assertEquals("学习", dict.search("study", s).english.sections.first().cards.first().headword)
+        val xue = dict.search("学", s).chinese.sections.first().groups[0].cards[0].id
+        val contains = dict.related(xue, RelatedKind.CONTAINING, s, 0, 6).cards
+        assertTrue(contains.all { 1 in it.hskLevels }, contains.map { it.headword }.toString())
+        val starts = dict.related(xue, RelatedKind.STARTING_WITH, s, 0, 20).cards.map { it.headword }
+        assertTrue(starts.indexOf("学期") in 0 until starts.indexOf("学会"), starts.toString()) // HSK 3 (7062) before HSK 6 (1549)
+        // A non-HSK word more frequent than the cap keeps its place: 什 (875) before 史 (1395) and 室 (HSK 3, 1717).
+        val shi = dict.search("shi", s).chinese.sections.first { it.kind == SectionKind.MATCHES }.cards.map { it.headword }
+        assertEquals(listOf("是", "事", "时"), shi.take(3))
+        assertTrue(shi.indexOf("什") < shi.indexOf("室"), shi.toString())
+    }
+
+    @Test
     fun toneFiltering() = real { dict ->
         val r = dict.search("hao3", s)
         val cards = r.chinese.sections.first { it.kind == SectionKind.MATCHES }.cards

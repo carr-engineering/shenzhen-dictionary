@@ -15,6 +15,16 @@ from .core import RSRC, UNRANKED, Dataset, default_blocks
 from .norm import en_tokens, matching_key
 from .roman import key_syllables, key_tones, reading_key
 
+# Frequency-rank caps per lowest HSK level (7 = band 7-9): the app's Ranking.HSK_RANK_CAPS (SRCH-070 item 4).
+HSK_RANK_CAPS = {1: 300, 2: 600, 3: 1100, 4: 1900, 5: 3500, 6: 6000, 7: 11000}
+
+
+def effective_rank(e: dict) -> int:
+    """freq_rank capped by the entry's lowest HSK level (`entry.hsk` only, not `hsk_via`)."""
+    if not e["hsk"]:
+        return e["freq_rank"]
+    return min(e["freq_rank"], HSK_RANK_CAPS[min(min(x["l"] for x in e["hsk"]), 7)])
+
 CASES = [
     # --- Mandarin
     {"id": "m-reading-toned", "mode": "mandarin", "type": "reading_exact", "query": "ni3hao3", "syllables": ["ni", "hao"], "tones": [3, 3]},
@@ -99,7 +109,7 @@ class Index:
 
     def order(self, ids, alt=None):
         E = self.ds.entries
-        return sorted(ids, key=lambda i: (E[i]["unihan"], (alt or {}).get(i, 0) > 0, E[i]["freq_rank"], len(E[i]["simp"]),
+        return sorted(ids, key=lambda i: (E[i]["unihan"], (alt or {}).get(i, 0) > 0, effective_rank(E[i]), E[i]["freq_rank"], len(E[i]["simp"]),
                                           E[i]["proper"], min(E[i].get("rrank", 0), 15), i))
 
 
@@ -166,7 +176,7 @@ def evaluate(case: dict, ix: Index):
                     if all(tk in s["tok"] for tk in toks):
                         hits[e["id"]] = 2 if e["unihan"] else 0
                         break
-        ids = sorted(hits, key=lambda i: (hits[i] != 1 if ds.id == "cantonese" else False, E[i]["unihan"], E[i]["freq_rank"],
+        ids = sorted(hits, key=lambda i: (hits[i] != 1 if ds.id == "cantonese" else False, E[i]["unihan"], effective_rank(E[i]), E[i]["freq_rank"],
                                           len(E[i]["simp"]), E[i]["proper"], min(E[i].get("rrank", 0), 15), i))
         return [dict(desc(E[i]), **({"flags": hits[i]} if case.get("flags") else {})) for i in ids][:top or 10]
     if t == "segmentation":
@@ -273,10 +283,10 @@ def run(datasets: dict, cfg, update: bool) -> tuple[bool, dict]:
 
 TYPES = {
     "headword_exact": "entries whose headword key (any kind) equals the SRCH-010 key of `query` (or the raw query when `raw`), "
-                      "ordered by (Unihan-only last, freq_rank, char_count, proper noun last, reading rank, id)",
+                      "ordered by (Unihan-only last, HSK-capped freq_rank, freq_rank, char_count, proper noun last, reading rank, id)",
     "reading_exact": "entries with a reading row for the toneless `syllables` (space-joined key) whose tones match `tones` "
                      "(0 = any): dictionary entries before Unihan-only ones (SRCH-079), then main-reading matches before alternative-reading "
-                     "matches (`alt` 1 also_pr, 2 taiwan_pr), then freq_rank, char_count, proper noun last, reading rank (flags bits 4-7), id",
+                     "matches (`alt` 1 also_pr, 2 taiwan_pr), then HSK-capped freq_rank, freq_rank, char_count, proper noun last, reading rank (flags bits 4-7), id",
     "reading_rows": "number of entries of the headword and how many of them have a reading row (0 for reading_source none)",
     "abbrev": "first postings of abbr_idx[`key` or `query`] in stored order, filtered to syllables starting with `initials`, one per entry",
     "combination": "best word sequence of the lattice decoder for a pure first-letter query (bigram model, DATA-153 scoring)",

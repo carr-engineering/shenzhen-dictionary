@@ -425,7 +425,13 @@ and, in Cantonese mode, within each source group (`SRCH-076`):
 3. token cost ascending (`SRCH-052`; 0 for candidates not found through romanisation);
 4. frequency rank ascending (lower is more common; entries with no frequency data use a sentinel of
    1000000). The rank comes from the active mode's dataset: the Mandarin frequency table (`DATA-110`)
-   in Mandarin mode, the custom Cantonese frequency table (`DATA-189`) in Cantonese mode;
+   in Mandarin mode, the custom Cantonese frequency table (`DATA-189`) in Cantonese mode. It is
+   compared **HSK-capped**: the effective rank is min(rank, cap of the entry's lowest HSK level in
+   `entry.hsk`) with caps 300, 600, 1100, 1900, 3500, 6000, 11000 for levels 1…6 and 7–9 (about the
+   40th percentile of the Mandarin ranks of each level's entries), ties by the plain rank — HSK words
+   generally first, by level, while a more frequent non-HSK word keeps its place. Every other
+   ordering in this specification by "frequency rank" (sub-spans, related words, word candidates)
+   uses the same effective rank; language-model scoring and handwriting re-ranking do not;
 5. headword length ascending (in code points);
 6. common reading before proper-noun reading, only when all earlier keys are equal (`GLB-013`);
 7. entry id ascending (final, stable tiebreak).

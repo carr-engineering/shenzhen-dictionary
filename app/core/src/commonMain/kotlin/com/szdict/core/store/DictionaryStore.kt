@@ -131,7 +131,7 @@ internal class DictionaryStore private constructor(
 
     /** Schema version 2 (SCHEMA.md "Schema version 2"): blob natural keys, `entry.ulp`, no `gloss` / `word_freq`. */
     private val v2: Boolean = (meta["schema_version"]?.toIntOrNull() ?: 1) >= 2
-    private val PROJ_COLS = "e.id, e.flags, e.freq_rank, e.char_count, e.merge_simp, e.merge_trad, " + if (v2) "e.ulp" else "NULL"
+    private val PROJ_COLS = "e.id, e.flags, e.freq_rank, e.char_count, e.merge_simp, e.merge_trad, " + (if (v2) "e.ulp" else "NULL") + ", $HSK_LEVEL_SQL"
     private val ENTRY_COLS = "e.id, e.trad, e.simp, e.reading_display, e.reading_canonical, e.reading_source, e.syllables, e.tones, " +
         "e.flags, e.freq_rank, e.char_count, e.natural_key, e.merge_simp, e.merge_trad, e.hsk, e.hsk_via, e.audio_key, e.body, " + if (v2) "e.ulp" else "NULL"
 
@@ -290,7 +290,7 @@ internal class DictionaryStore private constructor(
     private fun projOf(st: SQLiteStatement, o: Int): Proj = Proj(
         st.getLong(o).toInt(), st.getLong(o + 1).toInt(), st.getLong(o + 2).toInt(), st.getLong(o + 3).toInt(),
         if (st.isNull(o + 4)) -1 else st.getLong(o + 4).toInt(), if (st.isNull(o + 5)) -1 else st.getLong(o + 5).toInt(),
-        if (st.isNull(o + 6)) NO_ULP else st.getLong(o + 6).toInt(),
+        if (st.isNull(o + 6)) NO_ULP else st.getLong(o + 6).toInt(), st.getLong(o + 7).toInt(),
     )
 
     /** Ranking projections without definitions (DATA-078). */
@@ -318,10 +318,10 @@ internal class DictionaryStore private constructor(
                 { it.bindText(1, Codec.jsonIntArray(ids)) },
             ) {
                 val p = projOf(it, 0)
-                if (it.isNull(9) || it.isNull(10)) {
-                    val parsed = com.szdict.core.api.Romanisation.parseCanonical(it.getText(11))
-                    out[p.id] = Form(p, it.getText(7), it.getText(8), parsed.first.joinToString(" "), ByteArray(parsed.second.size) { i -> parsed.second[i].toByte() })
-                } else out[p.id] = Form(p, it.getText(7), it.getText(8), it.getText(9), it.getBlob(10))
+                if (it.isNull(10) || it.isNull(11)) {
+                    val parsed = com.szdict.core.api.Romanisation.parseCanonical(it.getText(12))
+                    out[p.id] = Form(p, it.getText(8), it.getText(9), parsed.first.joinToString(" "), ByteArray(parsed.second.size) { i -> parsed.second[i].toByte() })
+                } else out[p.id] = Form(p, it.getText(8), it.getText(9), it.getText(10), it.getBlob(11))
             }
         }
         return out
