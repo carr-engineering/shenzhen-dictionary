@@ -134,6 +134,30 @@ def test_decomposition_recurses_to_roots():
         walk(ch)
 
 
+def test_decomposition_prefers_encoded_sequences_with_the_radical():
+    """我 is ⿻⿱㇒扌{97} in IDS.TXT's regional sequence; its alternative 〾⿰⿱㇒扌戈 (the hand
+    written as 手) has every part encoded and holds the radical 戈, so it is the one stored."""
+    db = _db("decomposition.db")
+    wo = _decomp(db, "我")
+    assert json.loads(wo["parts"]) == ["手", "戈"] and wo["radical"] == "戈"
+    for ch, parts in {"会": ["𠆢", "云"], "在": ["才", "土"], "岛": ["鸟", "山"], "街": ["行", "圭"]}.items():
+        assert json.loads(_decomp(db, ch)["parts"]) == parts, ch
+    # No unencoded part where the preferred sequence was complete (好, 你 unchanged).
+    assert json.loads(_decomp(db, "你")["parts"]) == ["亻", "尔"]
+    # The reverse index follows the stored sequences.
+    for part in ("手", "戈"):
+        chars = db.execute("SELECT chars FROM part_of WHERE part = ?", (part,)).fetchone()[0]
+        assert "我" in chars
+    assert "我" not in (db.execute("SELECT chars FROM part_of WHERE part = '&U-i097;'").fetchone() or [""])[0]
+
+
+def test_decomposition_radical_forms():
+    db = _db("decomposition.db")
+    forms = set(db.execute("SELECT form, radical FROM radical_form"))
+    assert {("亻", "人"), ("扌", "手"), ("月", "肉"), ("阝", "邑"), ("阝", "阜"), ("耂", "老")} <= forms
+    assert not any(f == r for f, r in forms)
+
+
 def test_decomposition_matches_are_valid_paths():
     """A match path walks slots: through nested IDS inline, then into the part's own row."""
     db = _db("decomposition.db")

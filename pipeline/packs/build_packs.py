@@ -9,8 +9,9 @@
 Outputs (pipeline/out/packs/, gitignored):
     sentences.db        Mandarin example sentences, keyed by simplified headword
     sentences-yue.db    Cantonese example sentences, keyed by traditional headword
-    decomposition.db    IDS decomposition, radical/strokes, names, Make Me a Hanzi matches,
-                        reverse component index (part_of)
+    decomposition.db    IDS decomposition (one sequence per character, SCHEMA note 24),
+                        radical/strokes, names, Make Me a Hanzi matches, reverse component
+                        index (part_of), written forms of radicals (radical_form)
     audio/              cmn-syl/, cmn-word/, yue-syl/ + catalog.json
     packs-report.json   counts and coverage of the run
 
@@ -414,6 +415,13 @@ UNKNOWN = "？"
 TOKEN = re.compile(r"\{\d+\}|.", re.S)
 
 
+# Components IDS.TXT can only spell as a nested sequence that are, as written, a form of an encoded
+# character: the hand on the left of 我 (⿱㇒扌, 手 with its hook) is 手 (Pleco, Wenlin: 手 + 戈).
+NESTED_ALIASES = {"⿱㇒扌": "手"}
+# Glyphs that stand for two Kangxi radicals; Unihan gives each only one (月 74 moon, 阝 170 mound).
+SHARED_FORMS = {"月": "肉", "阝": "邑"}
+
+
 class IdsError(ValueError):
     pass
 
@@ -498,16 +506,23 @@ def is_stroke(ch: str) -> bool:
 
 
 def load_ids():
-    """char -> [(regions, ids text)], plus {nn} -> description."""
-    seqs, unencoded = {}, {}
+    """char -> [(regions, ids text)], {nn} -> description, {nn} -> encoded replacement fragment.
+
+    The fragment is the file's own "IDS fragment" column for an unencoded component (`{48}` →
+    `㐄`), an approximate encoded spelling; `？` or an empty column gives none.
+    """
+    seqs, unencoded, fragments = {}, {}, {}
     text = source("ids/IDS.TXT").read_text(encoding="utf-8-sig")
     for line in text.splitlines():
         if line.startswith("#"):
-            m = re.match(r"#\t\{(\d+)\}\t([^\t]*)", line)
+            m = re.match(r"#\t\{(\d+)\}\t([^\t]*)(?:\t([^\t]*))?", line)
             if m:
                 desc = re.sub(r"\s*\([0-9A-F]{4,5}\s*\S?\s*\)\s*$", "", m.group(2)).strip()
                 if desc:
                     unencoded[int(m.group(1))] = desc
+                frag = (m.group(3) or "").strip()
+                if frag and UNKNOWN not in frag:
+                    fragments[int(m.group(1))] = frag
             continue
         cols = line.split("\t")
         if len(cols) < 3 or not cols[0].startswith("U+"):
@@ -520,7 +535,7 @@ def load_ids():
                 entries.append((regions, m.group(1)))
         if entries:
             seqs[cols[1]] = entries
-    return seqs, unencoded
+    return seqs, unencoded, fragments
 
 
 def headword_chars():
@@ -537,7 +552,14 @@ def build_decomposition() -> dict:
     rs, strokes, has_def = load_unihan()
     radicals = load_radicals()
     equiv = load_equivalents()
-    ids_src, unencoded_desc = load_ids()
+    ids_src, unencoded_desc, fragments = load_ids()
+    mmah_decomp: dict[str, str] = {}
+    with open(source("mmah/dictionary.txt"), encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                rec = json.loads(line)
+                if rec.get("decomposition"):
+                    mmah_decomp[rec["character"]] = rec["decomposition"]
 
     def norm(ch: str) -> str:
         """Radical forms -> equivalent unified ideograph; compatibility ideographs -> unified."""
@@ -581,6 +603,52 @@ def build_decomposition() -> dict:
             return RADICAL_NAMES[int(key.rstrip("'")) - 1]
         return None
 
+    # ---- radical forms: which Kangxi radical(s) a glyph is written for ----------------------
+    # The radical's ideograph and Kangxi code point, the CJK Radicals Supplement forms (by their
+    # Unicode names: CJK RADICAL MEAT → KANGXI RADICAL MEAT) and their unified equivalents,
+    # ideographs that Unihan files under a radical with no residual strokes (亻 9.0, 扌 64.0,
+    # 王 96.-1) and the shared forms (月 for 肉, 阝 for 邑).
+    kangxi_by_name = {}
+    for key, (rad, uni) in radicals.items():
+        if "'" not in key and rad:
+            try:
+                kangxi_by_name[unicodedata.name(rad).removeprefix("KANGXI RADICAL ")] = uni
+            except ValueError:
+                pass
+    forms_of: dict[str, set[str]] = defaultdict(set)
+
+    def add_form(form: str, uni: str) -> None:
+        if form != uni:
+            forms_of[form].add(uni)
+        eq = norm(form)
+        k, r = radical_key(eq)
+        if eq != form and eq != uni and (k is None or (r is not None and r <= 0)):
+            forms_of[eq].add(uni)
+
+    for key, (rad, uni) in radicals.items():
+        if rad:
+            add_form(rad, uni)
+    for cp in range(0x2E80, 0x2F00):
+        try:
+            name = unicodedata.name(chr(cp))
+        except ValueError:
+            continue
+        base = re.sub(r" (?:ONE|TWO|THREE|FOUR)$", "",
+                      re.sub(r"^CJK RADICAL (?:[CJ]-)?(?:SIMPLIFIED )?", "", name))
+        if base in kangxi_by_name:
+            add_form(chr(cp), kangxi_by_name[base])
+    for ch in rs:
+        key, resid = radical_key(ch)
+        if key and resid is not None and resid <= 0:
+            uni = radical_char(key)
+            if uni and uni != ch:
+                forms_of[ch].add(uni)
+    for form, uni in SHARED_FORMS.items():
+        forms_of[form].add(uni)
+
+    def is_form(glyph: str, rad: str) -> bool:
+        return glyph == rad or norm(glyph) == rad or rad in forms_of.get(glyph, ())
+
     def is_primitive(ch: str) -> bool:
         """Root rule (DATA-191): strokes, radical forms, the 214 radicals and their forms."""
         if is_stroke(ch) or is_radical_form(ch) or ch in radical_number_of_form:
@@ -592,28 +660,120 @@ def build_decomposition() -> dict:
     malformed = []
     parsed_cache: dict[tuple[str, str], object] = {}
 
-    def choose(ch: str, pref: str):
-        """The IDS tree of `ch` for the preferred region, falling back to the default."""
-        entries = ids_src.get(ch)
-        if not entries:
-            return None
-        order = ("G",) if pref == "G" else ("T", "H")
+    def parsed(ch: str, seq: str):
+        key = (ch, seq)
+        if key not in parsed_cache:
+            try:
+                parsed_cache[key] = parse_ids(seq)
+            except IdsError as exc:
+                parsed_cache[key] = None
+                malformed.append(f"{ch} {seq} ({exc})")
+        return parsed_cache[key]
+
+    def candidates(ch: str, pref: str):
+        """(source, tree) in order of preference: IDS.TXT for the preferred region, its other
+        sequences in file order, Make Me a Hanzi's `decomposition`, then the IDS sequences with
+        their unencoded components spelt by the file's replacement fragments."""
+        entries = ids_src.get(ch) or []
         pick = None
-        for region in order:
+        for region in (("G",) if pref == "G" else ("T", "H")):
             pick = next((e for e in entries if region in e[0]), None)
             if pick:
                 break
-        for cand in ([pick] if pick else []) + entries:
-            key = (ch, cand[1])
-            if key not in parsed_cache:
-                try:
-                    parsed_cache[key] = parse_ids(cand[1])
-                except IdsError as exc:
-                    parsed_cache[key] = None
-                    malformed.append(f"{ch} {cand[1]} ({exc})")
-            if parsed_cache[key] is not None:
-                return parsed_cache[key]
-        return None
+        seqs = ([pick] if pick else []) + [e for e in entries if e is not pick]
+        out = [("ids" if i == 0 and pick else "ids-other", parsed(ch, seq)) for i, (_r, seq) in enumerate(seqs)]
+        if ch in mmah_decomp:
+            out.append(("mmah", parsed(ch, mmah_decomp[ch])))
+        for _r, seq in seqs:
+            sub = re.sub(r"\{(\d+)\}", lambda m: fragments.get(int(m.group(1)), m.group(0)), seq)
+            if sub != seq:
+                out.append(("fragment", parsed(ch, sub)))
+        return [(src, t) for src, t in out if t is not None]
+
+    def is_unencoded(leaf: str) -> bool:
+        return (leaf == UNKNOWN or bool(re.fullmatch(r"\{\d+\}", leaf))
+                or (len(leaf) == 1 and 0xE000 <= ord(leaf) <= 0xF8FF))
+
+    def shown_leaves(tree) -> list[str]:
+        """The parts a reader sees for a tree: its slots, a nested sequence that is an encoded
+        character as that character, any other nested sequence as its own slots (inline group)."""
+        out = []
+        for kid in tree[1]:
+            if isinstance(kid, str):
+                out.append(kid)
+            elif tree_text(kid) in reverse:
+                out.append(reverse[tree_text(kid)])
+            else:
+                out.extend(shown_leaves(kid))
+        return out
+
+    radical_cache: dict[tuple[str, str], bool] = {}
+
+    def holds_radical(glyph: str, rad: str, depth: int) -> bool:
+        """Is `glyph` the radical (or a form of it), or does its own preferred sequence hold it
+        somewhere below? (A reader finds 口 in 同 = ⿵冂𠮛 by opening 𠮛.)"""
+        if is_form(glyph, rad):
+            return True
+        if depth > 6 or is_unencoded(glyph) or is_primitive(glyph):
+            return False
+        key = (glyph, rad)
+        if key not in radical_cache:
+            radical_cache[key] = False
+            base = norm(glyph)
+            k, _r = radical_key(base)
+            tree, _src = choose(base if base in ids_src or base in mmah_decomp else glyph, "G",
+                                radical_char(k) if k else None)
+            radical_cache[key] = (not isinstance(tree, str) and tree is not None
+                                  and any(holds_radical(leaf, rad, depth + 1) for leaf in shown_leaves(tree)))
+        return radical_cache[key]
+
+    def rank(tree, ch: str, rad):
+        """(tier, unencoded leaves, unknown leaves, inline groups): tier 0 = every part encoded and the radical
+        among them or inside one of them, 1 = every part encoded, 2 = some part unencoded or unknown. None: unusable
+        (the character is its own part)."""
+        leaves = shown_leaves(tree)
+        if ch in leaves or norm(ch) in leaves:
+            return None
+        unencoded = sum(1 for leaf in leaves if is_unencoded(leaf))
+        has_radical = rad is None or rad == ch or any(holds_radical(leaf, rad, 0) for leaf in leaves)
+        groups = sum(1 for k in tree[1] if not isinstance(k, str) and tree_text(k) not in reverse)
+        unknown = leaves.count(UNKNOWN)
+        if unencoded:  # a described unencoded component ({25}) beats an unknown one (？)
+            return (2, unencoded, unknown, 0)
+        return (0 if has_radical else 1, 0, 0, groups)
+
+    chosen_cache: dict[tuple[str, str], tuple] = {}
+
+    def choose(ch: str, pref: str, rad):
+        key = (ch, pref)
+        if key not in chosen_cache:
+            chosen_cache[key] = (None, None)  # a cycle reads as "no sequence"
+            chosen_cache[key] = choose_uncached(ch, pref, rad)
+        return chosen_cache[key]
+
+    def choose_uncached(ch: str, pref: str, rad):
+        """The IDS tree of `ch` (DATA-191, one sequence per character). The preferred region's
+        sequence unless it falls short — an unencoded or unknown part, or the character's radical
+        neither a part nor inside one — then the best candidate by rank (tier, unencoded parts,
+        unknown parts, inline groups), then order. A preferred sequence that is the character itself keeps it a root."""
+        cands = candidates(ch, pref)
+        if not cands:
+            return None, None
+        if isinstance(cands[0][1], str):
+            return cands[0][1], cands[0][0]
+        scored = []
+        for i, (src, tree) in enumerate(cands):
+            if isinstance(tree, str):
+                continue
+            r = rank(tree, ch, rad)
+            if r is not None:
+                scored.append((r, i, src, tree))
+        if not scored:
+            return None, None
+        if scored[0][1] == 0 and scored[0][0][0] == 0:
+            return scored[0][3], scored[0][2]
+        best = min(scored, key=lambda x: (x[0], x[1]))
+        return best[3], best[2]
 
     simp_chars, trad_chars = headword_chars()
     dict_chars = simp_chars | trad_chars
@@ -621,7 +781,7 @@ def build_decomposition() -> dict:
     # A nested sub-sequence is replaced by the encoded character with exactly that sequence
     # when there is a well-supported one (a dictionary character or a BMP ideograph, lowest
     # code point); otherwise it stays nested in the parent's IDS.
-    reverse: dict[str, str] = {}
+    reverse: dict[str, str] = dict(NESTED_ALIASES)
     for ch in sorted(ids_src):
         if ord(ch) > 0xFFFF and ch not in dict_chars:
             continue
@@ -631,6 +791,7 @@ def build_decomposition() -> dict:
 
     rows: dict[str, dict] = {}
     region_used = defaultdict(int)
+    source_used = defaultdict(int)
     anonymous = 0
 
     def synthetic_for(tree) -> str:
@@ -673,19 +834,23 @@ def build_decomposition() -> dict:
         rows[ch] = row
         if is_primitive(ch):
             return
-        tree = choose(base if base in ids_src else ch, pref)
+        tree, src = choose(base if base in ids_src or base in mmah_decomp else ch, pref, row["radical"])
         if tree is None or isinstance(tree, str):
             return  # no sequence, or the sequence is the character itself / an alias: root
         region = next((r for r in (("G",) if pref == "G" else ("T", "H"))
-                       if any(r in e[0] for e in ids_src.get(ch) or ids_src[base])), "default")
+                       if any(r in e[0] for e in ids_src.get(ch) or ids_src.get(base) or [])), "default")
         region_used[region] += 1
         parts = [part_id(k, pref, queue) for k in tree[1]]
         if ch in parts or base in parts:
             return
+        source_used[src] += 1
+        if src != "ids":
+            chosen_alt[ch] = (src, tree_text(tree))
         row["ids"] = tree[0] + "".join(parts)
         row["parts"] = parts
 
     unihan_only = {c for c in has_def if c not in dict_chars}
+    chosen_alt: dict[str, tuple[str, str]] = {}
     queue: list = []
     # Region (ENT-124, one sequence per character here): G for characters of simplified
     # headwords and everything reached from them; T (then H) for traditional-only characters.
@@ -904,6 +1069,13 @@ def build_decomposition() -> dict:
     db.executemany("INSERT INTO part_of VALUES(?,?)",
                    sorted((p, "".join(sorted(cs))) for p, cs in users.items()))
 
+    # Written forms of Kangxi radicals (PARTS tab radical marks, SCHEMA note 24): every row glyph
+    # that stands for a radical other than itself (亻 → 人, 月 → 月's 74 and 肉, 阝 → 阜 and 邑).
+    db.execute("CREATE TABLE radical_form(form TEXT NOT NULL, radical TEXT NOT NULL, "
+               "PRIMARY KEY(form, radical)) WITHOUT ROWID")
+    form_rows = sorted({(f, r) for f in rows if not f.startswith("&") for r in forms_of.get(f, ())})
+    db.executemany("INSERT INTO radical_form VALUES(?,?)", form_rows)
+
     stats = {
         "rows": len(out_rows),
         "dictionary_headword_chars": len(dict_chars),
@@ -926,6 +1098,11 @@ def build_decomposition() -> dict:
         "dictionary_chars_without_ids_source": sorted(
             c for c in dict_chars if c not in ids_src)[:200],
         "region_used": dict(sorted(region_used.items())),
+        "sequence_source": dict(sorted(source_used.items())),
+        "dictionary_chars_alternative_sequence": sum(1 for c in dict_chars if c in chosen_alt),
+        "alternative_sequence_examples": {c: f"{v[0]} {v[1]}" for c, v in sorted(
+            ((c, v) for c, v in chosen_alt.items() if c in simp_chars), key=lambda x: x[0])[:60]},
+        "radical_form_rows": len(form_rows),
         "cycles_broken": cycles,
         "max_depth": max_depth,
         "malformed_sequences": sorted(set(malformed))[:100],
@@ -933,7 +1110,8 @@ def build_decomposition() -> dict:
     }
     write_meta(db, {
         "pack": "decomposition",
-        "source": "BabelStone IDS.TXT; Unicode Unihan/UCD; Make Me a Hanzi dictionary.txt (matches)",
+        "source": "BabelStone IDS.TXT; Unicode Unihan/UCD; Make Me a Hanzi dictionary.txt "
+                  "(matches, alternative sequences)",
         "rows": str(stats["rows"]), "rows_with_matches": str(stats["rows_with_matches"]),
         "part_of_rows": str(stats["part_of_rows"]),
     })

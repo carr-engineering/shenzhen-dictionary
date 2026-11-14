@@ -188,7 +188,8 @@ CREATE TABLE word_sentences(word TEXT PRIMARY KEY, ids BLOB) WITHOUT ROWID;  -- 
 
 -- packs/decomposition.db
 CREATE TABLE decomp(ch TEXT PRIMARY KEY,   -- a character or a synthetic component id like '&U-i001;'
-  ids TEXT,                                -- IDS string of the immediate decomposition, '' for a root
+  ids TEXT,                                -- IDS string of the immediate decomposition, '' for a root;
+                                           -- one sequence per character, chosen per note 24
   parts TEXT,                              -- JSON array of immediate parts (chars / synthetic ids), in IDS order
   radical TEXT, strokes INTEGER,           -- Kangxi radical char and total stroke count (nullable)
   name TEXT,                               -- curated radical/component name (en), nullable
@@ -201,6 +202,10 @@ CREATE TABLE part_of(part TEXT PRIMARY KEY,  -- a component: a character or a sy
                                            -- sub-sequences flattened, '？' never listed), as one string of
                                            -- code points in ascending order. Optional (added 2026-11, see
                                            -- note 23): a pack without it has no reverse index.
+CREATE TABLE radical_form(form TEXT NOT NULL,  -- a row glyph written for a Kangxi radical other than
+  radical TEXT NOT NULL,                   -- itself: 亻→人, 扌→手, 耂→老, 月→肉, 阝→阜 and 阝→邑
+  PRIMARY KEY(form, radical)) WITHOUT ROWID;  -- (radical = the unified ideograph, as `decomp.radical`).
+                                           -- Optional (added 2026-11, note 24).
 
 -- packs/audio/catalog.json
 -- { "mandarin": {"syllables": "cmn-syl", "words": "cmn-word", "ext": "opus",
@@ -327,6 +332,23 @@ change it. The app reads what is described here.
     under 好, not under 女). The pack's sha256 changes with the table, so `asset_packs` /
     `decomposition_hashes` of a dataset built before the pack are stale until the next dataset build
     (the app reads neither; the Web manifest hashes the pack when it is staged).
+
+24. **Sequence choice and `radical_form`** (decomposition pack, 2026-11). A character's `ids` is
+    BabelStone IDS.TXT's sequence for the preferred region (G for characters of simplified
+    headwords and what they reach, T then H for traditional-only ones) unless that sequence falls
+    short: a part that is unencoded (`{97}` → `&U-i097;`) or unknown (`？`), or the character's
+    radical (`kRSUnicode`, first value) neither a part nor inside one. Then the candidates — the
+    preferred sequence, the character's other IDS.TXT sequences in file order, Make Me a Hanzi's
+    `decomposition`, and the IDS.TXT sequences with unencoded components spelt by the file's own
+    replacement fragments — are ranked: every part encoded and the radical among or inside the parts,
+    then every part encoded, then fewest unencoded parts and fewest unknown parts; ties go to fewer
+    inline nested groups, then to the order above. 我 = ⿰手戈 (IDS.TXT's alternative ⿰⿱㇒扌戈, the
+    nested ⿱㇒扌 being 手 as written in 我), 会 = ⿱𠆢云, 街 = ⿻行圭. `part_of` is built from the
+    stored sequences. `radical_form` lists the forms a reader should take as a radical when marking
+    a character's radical among its parts (都 = ⿰者阝 with radical 邑); it comes from CJKRadicals.txt,
+    the CJK Radicals Supplement (by name), Unihan forms with no residual strokes (`kRSUnicode` x.0,
+    x.-n) and the shared forms 月 (肉) and 阝 (邑). Additive like note 23: `user_version` stays 1 and a
+    reader treats a pack without the table as "no extra forms".
 
 ## Schema version 2 (2026-11) — what changed from version 1
 
