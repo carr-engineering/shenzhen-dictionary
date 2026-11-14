@@ -37,23 +37,36 @@ internal class PartsIndex(
         fun collect(n: DecompNode) { glyphs.add(n.glyph); n.children.forEach(::collect) }
         trees.forEach { t -> t.root?.let(::collect) }
         val rows = store.decompositions(glyphs) ?: throw missing
-        return trees.map { t ->
+        val forms = store.radicalForms(glyphs)
+        val marked = trees.map { t ->
             val root = t.root
             if (!t.available || root == null) CharacterParts(t.character, false, rows[t.character]?.radical, null)
-            else CharacterParts(t.character, true, rows[t.character]?.radical, mark(root, rows, rows[t.character]?.radical))
+            else CharacterParts(t.character, true, rows[t.character]?.radical, mark(root, rows, forms, rows[t.character]?.radical))
+        }
+        // A radical none of the listed parts stands for is shown as a part of its own (SCHEMA note 24).
+        val unlisted = marked.filter { c -> c.radical != null && c.root != null && c.root.children.isNotEmpty() && !listsRadical(c.root) }
+            .mapTo(HashSet()) { it.character }
+        if (unlisted.isEmpty()) return marked
+        val radicals = marked.filter { it.character in unlisted }.mapNotNull { it.radical }.distinct()
+        val radicalTrees = decomposer.decompose(radicals, script, null).associateBy { it.character }
+        return marked.map { c ->
+            val node = c.radical?.takeIf { c.character in unlisted }?.let { radicalTrees[it]?.root }
+            if (node == null) c
+            else c.copy(radicalPart = PartNode(node.copy(children = emptyList()), isRadical = true, isParentRadical = true, isGroup = false, children = emptyList()))
         }
     }
 
     /** [parentRadical]: the Kangxi radical of the nearest encoded character above [n]. */
-    private fun mark(n: DecompNode, rows: Map<String, DecompRow>, parentRadical: String?): PartNode {
+    private fun mark(n: DecompNode, rows: Map<String, DecompRow>, forms: Map<String, Set<String>>, parentRadical: String?): PartNode {
         val row = rows[n.glyph]
         val group = isGroup(n)
         val radical = !group && isRadical(n.glyph, row)
         val ofParent = n.path.isNotEmpty() && !group && parentRadical != null &&
-            (n.glyph == parentRadical || n.mapsTo == parentRadical || (radical && row?.radical == parentRadical))
+            (n.glyph == parentRadical || n.mapsTo == parentRadical || (radical && row?.radical == parentRadical) ||
+                forms[n.glyph]?.contains(parentRadical) == true)
         // A group is no character: its parts still belong to the character above it.
         val childRadical = if (group) parentRadical else row?.radical
-        return PartNode(n, radical, ofParent, group, n.children.map { mark(it, rows, childRadical) })
+        return PartNode(n, radical, ofParent, group, n.children.map { mark(it, rows, forms, childRadical) })
     }
 
     // ---- Appears in ----
@@ -101,6 +114,10 @@ internal class PartsIndex(
         private const val MEMO_SIZE = 24
 
         /** The inline nested IDS of a group starts with an operator (⿰…⿻, ㇯). */
+        /** Does a part the tab lists — a child of [root] or a part of an inline group — stand for the radical? */
+        fun listsRadical(root: PartNode): Boolean =
+            root.children.any { it.isParentRadical || (it.isGroup && listsRadical(it)) }
+
         fun isGroup(n: DecompNode): Boolean = n.glyph.cps().let { it.size > 1 && Ids.isOperator(it[0]) }
 
         /**

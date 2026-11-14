@@ -790,6 +790,24 @@ internal class DictionaryStore private constructor(
         return out
     }
 
+    /** `radical_form` rows of [glyphs] (SCHEMA note 24): glyph → the radicals it is written for; empty without the table. */
+    suspend fun radicalForms(glyphs: Collection<String>): Map<String, Set<String>> {
+        val db = pack(decompPath, decompDb) { decompDb = it } ?: return emptyMap()
+        if (glyphs.isEmpty()) return emptyMap()
+        return withContext(io) {
+            db.use { c ->
+                var table = false
+                c.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'radical_form'", {}) { table = true }
+                if (!table) return@use emptyMap()
+                val out = HashMap<String, MutableSet<String>>()
+                c.query("SELECT form, radical FROM radical_form WHERE form IN (SELECT value FROM json_each(?))", { it.bindText(1, Codec.jsonArray(glyphs)) }) {
+                    out.getOrPut(it.getText(0)) { HashSet(2) }.add(it.getText(1))
+                }
+                out
+            }
+        }
+    }
+
     /** `part_of.chars` of [component] (SCHEMA note 23), `""` without a row; null when the pack or the table is absent. */
     suspend fun partOf(component: String): String? {
         val db = pack(decompPath, decompDb) { decompDb = it } ?: return null

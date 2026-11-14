@@ -126,6 +126,16 @@ class PartsTest {
     }
 
     @Test
+    fun unlistedRadicalIsAPartOfItsOwn() = with(build()) { dict ->
+        // 孬 = ⿱不好, radical 子: 子 is inside 好, not one of the listed parts. (No radical_form table here.)
+        val nao = dict.characterParts(listOf("孬", "好"), s)
+        val rad = assertNotNull(nao[0].radicalPart)
+        assertEquals("子", rad.node.glyph)
+        assertTrue(rad.isParentRadical && rad.node.card != null)
+        assertNull(nao[1].radicalPart, "女 is listed in 好")
+    }
+
+    @Test
     fun inlineGroupsKeepTheirCharactersRadical() = with(build()) { dict ->
         val ying = assertNotNull(dict.characterParts(listOf("赢"), s).single().root)
         assertEquals(listOf("吂", "⿲月贝凡"), ying.glyphs())
@@ -206,6 +216,40 @@ class PartsTest {
         fun leaves(n: PartNode): List<PartNode> = if (n.children.isEmpty()) listOf(n) else n.children.flatMap(::leaves)
         assertTrue(dong.children[1].partCount >= 2)
         assertTrue(leaves(dong).all { it.node.isRoot })
+    }
+
+    /** Characters whose regional IDS had an unencoded part or no radical (SCHEMA note 24). */
+    @Test
+    fun realSequencesWithEncodedPartsAndTheRadical() = real { dict ->
+        suspend fun parts(c: String) = dict.characterParts(listOf(c), s).single()
+        val wo = parts("我")
+        val root = assertNotNull(wo.root)
+        assertEquals(listOf("手", "戈"), root.glyphs())
+        assertEquals("戈", wo.radical)
+        assertTrue(root.children[1].isParentRadical && !root.children[0].isParentRadical)
+        assertNull(wo.radicalPart, "戈 is listed")
+        assertTrue(root.children.all { it.node.kind == PartKind.CHARACTER && it.node.card != null })
+        // Each now encoded throughout, its radical marked among the parts.
+        for ((c, expected, radicalAt) in listOf(
+            Triple("会", listOf("𠆢", "云"), 0), Triple("岛", listOf("鸟", "山"), 1), Triple("在", listOf("才", "土"), 1),
+            Triple("街", listOf("行", "圭"), 0),
+        )) {
+            val r = assertNotNull(parts(c).root, c)
+            assertEquals(expected, r.glyphs(), c)
+            assertTrue(r.children.none { it.node.kind == PartKind.UNENCODED || it.node.kind == PartKind.UNKNOWN }, c)
+            assertTrue(r.children[radicalAt].isParentRadical, "$c: radical at $radicalAt")
+        }
+        // Shared forms: 阝 written for 邑 in 都, 月 for 肉 in 脸.
+        assertTrue(assertNotNull(parts("都").root).children[1].isParentRadical, "阝 in 都")
+        assertTrue(assertNotNull(parts("脸").root).children[0].isParentRadical, "月 in 脸")
+        // 年 = ⿱𠂉㐄 does not list its radical 干: the tab names it as a part of its own.
+        val nian = parts("年")
+        assertEquals(listOf("𠂉", "㐄"), assertNotNull(nian.root).glyphs())
+        val rad = assertNotNull(nian.radicalPart)
+        assertEquals("干", rad.node.glyph)
+        assertTrue(rad.isParentRadical && rad.children.isEmpty() && rad.node.card != null)
+        // Appears in follows the stored sequences.
+        assertTrue("我" in dict.appearsIn("戈", s, 0, 400).items.map { it.character })
     }
 
     @Test

@@ -31,6 +31,12 @@ data class CharacterParts(
     /** Kangxi radical of the character (`decomp.radical`), null when unknown. */
     val radical: String?,
     val root: PartNode?,
+    /**
+     * The radical as a part of its own, when none of the parts the tab lists ([root]'s children and
+     * the parts of its inline groups) is the radical or a form of it (年 = ⿱𠂉㐄, radical 干): the
+     * tab still names it. Null when a listed part is the radical, or the character has no parts.
+     */
+    val radicalPart: PartNode? = null,
 )
 
 /** A character built directly from the component; [card] null = no dictionary entry (not tappable). */
