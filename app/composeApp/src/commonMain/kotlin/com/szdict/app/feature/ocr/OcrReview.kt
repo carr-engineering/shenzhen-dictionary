@@ -103,6 +103,7 @@ import com.szdict.app.feature.conversion.ScriptConversionButton
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.PassageText
+import com.szdict.app.ui.kit.passageTextStyle
 import com.szdict.app.ui.kit.PronunciationToggle
 import com.szdict.app.ui.kit.SegmentedPillRow
 import com.szdict.app.ui.theme.LocalDictionaryPalette
@@ -533,12 +534,12 @@ private fun OcrTextList(session: AppSession, holder: OcrStateHolder, topPadding:
                             passage = passage,
                             selectedOffset = holder.selectedOffsetIn(index),
                             onTap = { holder.tapText(index, it) },
-                            style = MaterialTheme.typography.titleLarge,
+                            style = passageTextStyle(),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     } else {
                         // CAM-055: a line that could not be analysed is plain muted text.
-                        Text(text, style = MaterialTheme.typography.titleLarge, color = palette.muted, modifier = Modifier.fillMaxWidth())
+                        Text(text, style = passageTextStyle(), color = palette.muted, modifier = Modifier.fillMaxWidth())
                     }
                     Spacer(Modifier.height(10.dp))
                     SentenceActions(holder, line = index, playing = playing != null && playing == holder.playbackKey(index))
@@ -613,21 +614,24 @@ internal fun AlternativesRow(holder: OcrStateHolder) {
         enter = fadeIn(tween(140)) + expandVertically(tween(160)),
         exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
     ) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                strings.text("Could also be"),
-                style = MaterialTheme.typography.labelMedium,
-                color = palette.muted,
-                maxLines = 1,
-            )
-            Spacer(Modifier.width(10.dp))
-            LazyRow(
-                state = rowState,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp, end = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                itemsIndexed(shown, key = { _, choice -> choice.text }) { index, choice ->
+        LazyRow(
+            state = rowState,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 16.dp, top = 4.dp, bottom = 8.dp, end = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The label scrolls away with the chips.
+            item(key = "label") {
+                Text(
+                    strings.text("Could also be"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.muted,
+                    maxLines = 1,
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+            }
+            itemsIndexed(shown, key = { _, choice -> choice.text }) { index, choice ->
                     val label = strings.text("Alternative {0}, {1} of {2}", choice.text, index + 1, shown.size) +
                         if (choice.recognised) ", " + strings.text("recognized") else ""
                     Surface(
@@ -653,7 +657,6 @@ internal fun AlternativesRow(holder: OcrStateHolder) {
                         }
                     }
                 }
-            }
         }
     }
 }
