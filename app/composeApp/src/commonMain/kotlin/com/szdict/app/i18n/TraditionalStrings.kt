@@ -446,4 +446,16 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Undo" to "復原",
     "Undo stroke" to "復原一筆",
     "recognized" to "辨識結果",
+    // PARTS tab
+    "PARTS" to "部件",
+    "Made of" to "組成部件",
+    "Appears in" to "含此部件的字",
+    "+ {0} more parts within" to "+ 其中還有 {0} 個部件",
+    "Show {0} parts within {1}" to "顯示「{1}」中的 {0} 個部件",
+    "No parts data for this character" to "此字暫無部件資料",
+    "No smaller parts: {0} is indivisible" to "{0}不可再拆分",
+    "Not a part of any other character" to "未用作其他字的部件",
+    "Jump to {0}" to "跳到「{0}」",
+    "Radical" to "部首",
+    "Group of parts, {0}" to "部件組合，{0}",
 )

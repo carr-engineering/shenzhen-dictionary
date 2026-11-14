@@ -476,4 +476,16 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Undo" to "撤销",
     "Undo stroke" to "撤销一笔",
     "recognized" to "识别结果",
+    // PARTS tab
+    "PARTS" to "部件",
+    "Made of" to "组成部件",
+    "Appears in" to "含此部件的字",
+    "+ {0} more parts within" to "+ 其中还有 {0} 个部件",
+    "Show {0} parts within {1}" to "显示「{1}」中的 {0} 个部件",
+    "No parts data for this character" to "此字暂无部件数据",
+    "No smaller parts: {0} is indivisible" to "{0}不可再拆分",
+    "Not a part of any other character" to "未用作其他字的部件",
+    "Jump to {0}" to "跳到「{0}」",
+    "Radical" to "部首",
+    "Group of parts, {0}" to "部件组合，{0}",
 )

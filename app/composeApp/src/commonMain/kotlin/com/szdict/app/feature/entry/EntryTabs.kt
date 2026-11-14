@@ -5,11 +5,15 @@ internal enum class EntryTab(val label: String) {
     DICT("DICT"),
     STROKES("STROKES"),
     WORDS("WORDS"),
+    PARTS("PARTS"),
 }
 
-/** `DICT` and `WORDS` always; `STROKES` only when a character of the headword has stroke data (ENT-030). */
-internal fun entryTabs(hasStrokes: Boolean): List<EntryTab> =
-    EntryTab.entries.filter { it != EntryTab.STROKES || hasStrokes }
+/**
+ * `DICT` and `WORDS` always; `STROKES` only when a character of the headword has stroke data (ENT-030);
+ * `PARTS` only when the headword has Hanzi to decompose.
+ */
+internal fun entryTabs(hasStrokes: Boolean, hasParts: Boolean = false): List<EntryTab> =
+    EntryTab.entries.filter { (it != EntryTab.STROKES || hasStrokes) && (it != EntryTab.PARTS || hasParts) }
 
 /** The saved route tab, falling back to `DICT` when it is unknown or no longer available (ENT-034). */
 internal fun restoredTab(tabs: List<EntryTab>, saved: String?): EntryTab =

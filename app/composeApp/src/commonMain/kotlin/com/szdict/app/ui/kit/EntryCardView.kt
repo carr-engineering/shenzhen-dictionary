@@ -297,54 +297,20 @@ class InsideWordsState(
 private fun InsideWordsFooter(word: String, count: Int, state: InsideWordsState, maxDefinitionLines: Int) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    val spoken = strings.text("Show {0} words within {1}", count, word)
-    val stateText = if (state.expanded) strings.text("Expanded") else strings.text("Collapsed")
-    Column(Modifier.fillMaxWidth()) {
-        HorizontalDivider(color = palette.border)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(role = Role.Button, onClick = state.onToggle)
-                .clearAndSetSemantics {
-                    contentDescription = spoken
-                    stateDescription = stateText
-                }
-                .heightIn(min = 40.dp)
-                .padding(start = 13.dp, end = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                strings.text("+ {0} more words within", count),
-                style = MaterialTheme.typography.labelLarge,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = palette.accent,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                if (state.expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                contentDescription = null,
-                tint = palette.accent,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        AnimatedVisibility(
-            visible = state.expanded,
-            enter = expandVertically(tween(200), expandFrom = Alignment.Top) + fadeIn(tween(160)),
-            exit = shrinkVertically(tween(160), shrinkTowards = Alignment.Top) + fadeOut(tween(110)),
-        ) {
-            var rows by remember { mutableStateOf<List<InsideWord>?>(null) }
-            LaunchedEffect(Unit) { rows = runCatching { state.load() }.getOrDefault(emptyList()) }
-            // Flush rows on the recessed tone, each its own entry (SRCH-131).
-            Column(Modifier.fillMaxWidth().background(palette.highlightPaper)) {
-                rows.orEmpty().forEach { row ->
-                    HorizontalDivider(color = palette.border)
-                    Box(Modifier.fillMaxWidth().clickable { state.onOpen(row.card) }) {
-                        EntryCardContent(row.card, true, state.audio(row.card), maxDefinitionLines, true, palette.highlightPaper)
-                    }
-                }
+    ExpandableFooter(
+        label = strings.text("+ {0} more words within", count),
+        spoken = strings.text("Show {0} words within {1}", count, word),
+        expanded = state.expanded,
+        onToggle = state.onToggle,
+    ) {
+        var rows by remember { mutableStateOf<List<InsideWord>?>(null) }
+        LaunchedEffect(Unit) { rows = runCatching { state.load() }.getOrDefault(emptyList()) }
+        // Each row its own entry (SRCH-131).
+        val rowsColor = expandedRowsColor()
+        rows.orEmpty().forEach { row ->
+            HorizontalDivider(color = palette.border)
+            Box(Modifier.fillMaxWidth().clickable { state.onOpen(row.card) }) {
+                EntryCardContent(row.card, true, state.audio(row.card), maxDefinitionLines, true, rowsColor)
             }
         }
     }

@@ -300,7 +300,8 @@ private fun EntryReady(
     val strokeCharacters = remember(strokes, detail.characters) {
         detail.characters.filter { (strokes?.get(it)?.strokeCount ?: 0) > 0 }
     }
-    val tabs = remember(strokeCharacters.isNotEmpty()) { entryTabs(strokeCharacters.isNotEmpty()) }
+    val hasParts = detail.characters.isNotEmpty()
+    val tabs = remember(strokeCharacters.isNotEmpty(), hasParts) { entryTabs(strokeCharacters.isNotEmpty(), hasParts) }
 
     // ---- definition references (ENT-054, ENT-095: only the latest lookup survives) ----
     var lookupStatus by remember(route.key) { mutableStateOf<String?>(null) }
@@ -363,6 +364,7 @@ private fun EntryReady(
     val dictList = rememberLazyListState()
     val strokesList = rememberLazyListState()
     val wordsList = rememberLazyListState()
+    val partsList = rememberLazyListState()
     val titleVisible by remember { derivedStateOf { headerState.collapseFraction > 0.95f } }
 
     EntryFrame(title = detail.card.headword, frame = frame, titleVisible = titleVisible) {
@@ -411,6 +413,16 @@ private fun EntryReady(
                                 }
                             }
                             EntryTab.WORDS -> TabPage(wordsList) { wordsTabItems(derived, actions, strings) }
+                            EntryTab.PARTS -> {
+                                val parts = PartsStates.of(derived) {
+                                    PartsTabState(
+                                        characters = detail.characters,
+                                        loadParts = { session.dictionary(route.mode).characterParts(it, script, detail.id) },
+                                        loadAppears = { c, offset, limit -> session.dictionary(route.mode).appearsIn(c, script, offset, limit) },
+                                    )
+                                }
+                                TabPage(partsList) { partsTabItems(parts, actions, partsList) }
+                            }
                             null -> Box(Modifier.fillMaxSize())
                         }
                     }
