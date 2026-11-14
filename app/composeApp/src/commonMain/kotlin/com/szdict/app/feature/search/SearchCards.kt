@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.LocalDisplayPrefs
 import com.szdict.app.ui.kit.PassageText
+import com.szdict.app.ui.kit.passageTextStyle
 import com.szdict.app.ui.kit.TonedHanziText
 import com.szdict.app.ui.kit.TonedReadingText
 import com.szdict.app.ui.theme.LocalDictionaryPalette
@@ -87,7 +88,7 @@ internal fun PassageCard(
                 color = palette.muted,
             )
             Spacer(Modifier.height(6.dp))
-            PassageText(passage, selectedOffset, onTap, Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall)
+            PassageText(passage, selectedOffset, onTap, Modifier.fillMaxWidth(), style = passageTextStyle())
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 SentenceActions(passage.text.isNotBlank(), speaking, onSpeak, onTranslate, onCopy)
