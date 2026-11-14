@@ -306,11 +306,10 @@ private fun InsideWordsFooter(word: String, count: Int, state: InsideWordsState,
         var rows by remember { mutableStateOf<List<InsideWord>?>(null) }
         LaunchedEffect(Unit) { rows = runCatching { state.load() }.getOrDefault(emptyList()) }
         // Each row its own entry (SRCH-131).
-        val rowsColor = expandedRowsColor()
         rows.orEmpty().forEach { row ->
             HorizontalDivider(color = palette.border)
             Box(Modifier.fillMaxWidth().clickable { state.onOpen(row.card) }) {
-                EntryCardContent(row.card, true, state.audio(row.card), maxDefinitionLines, true, rowsColor)
+                EntryCardContent(row.card, true, state.audio(row.card), maxDefinitionLines, true)
             }
         }
     }

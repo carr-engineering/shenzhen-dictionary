@@ -6,7 +6,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -39,7 +38,8 @@ import com.szdict.app.ui.theme.LocalDictionaryPalette
 /**
  * The expander strip at the foot of a card (ENT-073): a hairline, then [label] (`+ 3 more words
  * within`) and a chevron as one tap target that only toggles; [content] opens beneath it, inside
- * the card, on the expanded-rows tone. Shared by the inside-words footer and the PARTS tab.
+ * the card, on the card's own background (rows are told apart by hairlines only). Shared by the
+ * inside-words footer and the PARTS tab.
  */
 @Composable
 fun ExpandableFooter(
@@ -88,12 +88,8 @@ fun ExpandableFooter(
             enter = expandVertically(tween(200), expandFrom = Alignment.Top) + fadeIn(tween(160)),
             exit = shrinkVertically(tween(160), shrinkTowards = Alignment.Top) + fadeOut(tween(110)),
         ) {
-            // Flush rows on the recessed tone (SRCH-131).
-            Column(Modifier.fillMaxWidth().background(expandedRowsColor()), content = content)
+            // Flush rows on the card's own background, separated by hairlines (SRCH-131).
+            Column(Modifier.fillMaxWidth(), content = content)
         }
     }
 }
-
-/** Background of the rows an [ExpandableFooter] opens; rows drawn on it pass it as their badge background. */
-@Composable
-fun expandedRowsColor() = LocalDictionaryPalette.current.highlightPaper

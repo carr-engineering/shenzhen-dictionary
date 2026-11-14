@@ -20,8 +20,6 @@ data class DictionaryPalette(
     val accent: Color,
     val accentSoft: Color,
     val hlBg: Color,
-    /** Highlight-yellow paper tint behind the expanded "words within" rows. */
-    val highlightPaper: Color,
     val indigoGray: Color,
     val onAccent: Color,
     /** tones[0]..tones[4] = Mandarin tones 1..5 (5 = neutral). */
@@ -55,7 +53,6 @@ data class DictionaryPalette(
 val LightDictionaryPalette = DictionaryPalette(
     bg = Color(0xFFFAF7F1),
     bgSoft = Color(0xFFF2EEE5),
-    highlightPaper = Color(0xFFFAF4E1),
     panel = Color(0xFFFFFDF8),
     fg = Color(0xFF221F1A),
     muted = Color(0xFF6F695E),
@@ -97,7 +94,6 @@ val LightDictionaryPalette = DictionaryPalette(
 val DarkDictionaryPalette = DictionaryPalette(
     bg = Color(0xFF17140F),
     bgSoft = Color(0xFF242019),
-    highlightPaper = Color(0xFF2B2616),
     panel = Color(0xFF1E1A14),
     fg = Color(0xFFEAE4D8),
     muted = Color(0xFFA69E8F),
