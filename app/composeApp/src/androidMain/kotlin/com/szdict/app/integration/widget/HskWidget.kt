@@ -195,7 +195,6 @@ private fun WordContent(row: WidgetRow, settings: Settings, colors: WidgetColors
     val expanded = size.height >= ExpandedWidgetSize.height
     val traditional = settings.script == Script.TRADITIONAL
     val primary = (if (traditional) row.trad else row.simp).ifEmpty { row.simp.ifEmpty { row.trad } }
-    val alternate = if (traditional) row.simp else row.trad
     val syllables = remember(mode, row.reading) { WidgetReading.syllables(mode, row.reading) }
     // SET-064: the entry route of the widget's mode, carrying the natural key — never the entry id.
     val openEntry = Intent(Intent.ACTION_VIEW, Uri.parse(WidgetPick.url(mode, row)))
@@ -210,9 +209,6 @@ private fun WordContent(row: WidgetRow, settings: Settings, colors: WidgetColors
             Column(GlanceModifier.defaultWeight()) {
                 val headTones = syllables.map { it.tone }.takeIf { settings.toneColors && it.size == primary.codePointCount(0, primary.length) }
                 TonedParts(codePoints(primary), headTones, colors, colors.fg, if (compact) 24 else 29, FontWeight.Medium, gap = 0)
-                if (alternate.isNotEmpty() && alternate != primary) {
-                    Text(alternate, style = TextStyle(color = colors.muted, fontSize = if (compact) 13.sp else 15.sp), maxLines = 1)
-                }
                 Spacer(GlanceModifier.height(2.dp))
                 if (syllables.isEmpty()) {
                     if (mode == DictMode.CANTONESE) {
