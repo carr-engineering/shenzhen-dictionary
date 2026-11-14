@@ -84,7 +84,7 @@ fun EntryCardView(
     compact: Boolean = false,
     containerColor: Color = Color.Unspecified,
     audio: CardAudio? = null,
-    maxDefinitionLines: Int = 3,
+    maxDefinitionLines: Int = DEFAULT_DEFINITION_LINES,
     showHsk: Boolean = true,
     inside: InsideWordsState? = null,
 ) {
@@ -98,7 +98,7 @@ fun EntryCardView(
                 Box(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
                     EntryCardContent(card, compact, audio, maxDefinitionLines, showHsk)
                 }
-                InsideWordsFooter(card.headword, card.insideCount, inside)
+                InsideWordsFooter(card.headword, card.insideCount, inside, maxDefinitionLines)
             }
         }
     } else {
@@ -133,13 +133,13 @@ fun EntryCardGroup(
         Column {
             cards.forEachIndexed { index, card ->
                 Box(Modifier.fillMaxWidth().clickable { onClick(card) }) {
-                    EntryCardContent(card, false, audio(card), 3, true)
+                    EntryCardContent(card, false, audio(card), DEFAULT_DEFINITION_LINES, true)
                 }
                 if (index < cards.lastIndex) HorizontalDivider(color = palette.border, modifier = Modifier.padding(horizontal = 13.dp))
             }
             val last = cards.last()
             if (inside != null && last.insideCount > 0 && last.hanziCount >= 2) {
-                InsideWordsFooter(last.headword, last.insideCount, inside)
+                InsideWordsFooter(last.headword, last.insideCount, inside, DEFAULT_DEFINITION_LINES)
             }
         }
     }
@@ -147,7 +147,7 @@ fun EntryCardGroup(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio?, maxDefinitionLines: Int, showHsk: Boolean) {
+private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio?, maxDefinitionLines: Int, showHsk: Boolean, badgeBackground: Color = Color.Unspecified) {
     val palette = LocalDictionaryPalette.current
     val prefs = LocalDisplayPrefs.current
     val strings = appStrings()
@@ -209,7 +209,7 @@ private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio
             Text(it.text(strings.lang), style = MaterialTheme.typography.labelSmall, color = palette.muted, modifier = Modifier.padding(bottom = 3.dp))
         }
         val definitions = card.mandarinRow?.definitions ?: card.definitions
-        NumberedDefinitions(definitions, maxDefinitionLines)
+        NumberedDefinitions(definitions, maxDefinitionLines, badgeBackground = badgeBackground)
         if (definitions.isEmpty() && card.notes.isNotEmpty()) {
             Text(
                 card.notes.joinToString(" • ") { "${it.label.text(strings.lang)} ${it.text}".trim() },
@@ -223,9 +223,12 @@ private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio
     }
 }
 
+/** Definition line limit of cards on the page; the word sheet passes [Int.MAX_VALUE] (no limit). */
+const val DEFAULT_DEFINITION_LINES = 4
+
 /** All definitions as one numbered paragraph, clamped with a `+N` badge (SRCH-094, SRCH-095). */
 @Composable
-fun NumberedDefinitions(definitions: List<String>, maxLines: Int, modifier: Modifier = Modifier) {
+fun NumberedDefinitions(definitions: List<String>, maxLines: Int, modifier: Modifier = Modifier, badgeBackground: Color = Color.Unspecified) {
     if (definitions.isEmpty()) return
     val palette = LocalDictionaryPalette.current
     val starts = remember(definitions) { IntArray(definitions.size) }
@@ -253,7 +256,7 @@ fun NumberedDefinitions(definitions: List<String>, maxLines: Int, modifier: Modi
         )
         if (hidden > 0) {
             Text("+$hidden", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.accent,
-                modifier = Modifier.align(Alignment.BottomEnd).background(palette.panel).padding(start = 4.dp))
+                modifier = Modifier.align(Alignment.BottomEnd).background(if (badgeBackground == Color.Unspecified) palette.panel else badgeBackground).padding(start = 4.dp))
         }
     }
 }
@@ -291,7 +294,7 @@ class InsideWordsState(
  * and a chevron as one tap target that only toggles; the rows open beneath it, inside the card.
  */
 @Composable
-private fun InsideWordsFooter(word: String, count: Int, state: InsideWordsState) {
+private fun InsideWordsFooter(word: String, count: Int, state: InsideWordsState, maxDefinitionLines: Int) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val spoken = strings.text("Show {0} words within {1}", count, word)
@@ -335,11 +338,11 @@ private fun InsideWordsFooter(word: String, count: Int, state: InsideWordsState)
             var rows by remember { mutableStateOf<List<InsideWord>?>(null) }
             LaunchedEffect(Unit) { rows = runCatching { state.load() }.getOrDefault(emptyList()) }
             // Flush rows on the recessed tone, each its own entry (SRCH-131).
-            Column(Modifier.fillMaxWidth().background(palette.bgSoft)) {
+            Column(Modifier.fillMaxWidth().background(palette.highlightPaper)) {
                 rows.orEmpty().forEach { row ->
                     HorizontalDivider(color = palette.border)
                     Box(Modifier.fillMaxWidth().clickable { state.onOpen(row.card) }) {
-                        EntryCardContent(row.card, true, state.audio(row.card), 3, true)
+                        EntryCardContent(row.card, true, state.audio(row.card), maxDefinitionLines, true, palette.highlightPaper)
                     }
                 }
             }

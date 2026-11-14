@@ -212,6 +212,7 @@ fun WordSheet(
                         card = card,
                         onClick = { if (!loading) session.openEntry(card.id, request.mode, nested = request.nested) },
                         compact = true,
+                        maxDefinitionLines = Int.MAX_VALUE,
                         audio = CardAudio(playing == card.id) { session.play(card.id, card.audio, request.mode) },
                     )
                 }
