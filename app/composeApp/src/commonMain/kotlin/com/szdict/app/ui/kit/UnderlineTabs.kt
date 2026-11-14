@@ -52,7 +52,10 @@ fun UnderlineTabs(
                 ) {
                     Text(
                         text = appStrings().text(label).uppercase(),
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        // One line: four tabs share a 360 dp phone width.
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                        maxLines = 1,
+                        softWrap = false,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 1.sp,

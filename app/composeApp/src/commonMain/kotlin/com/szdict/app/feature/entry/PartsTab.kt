@@ -41,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -109,14 +110,20 @@ private fun PartsNav(state: PartsTabState, list: LazyListState) {
     }
     val (character, section) = requested ?: shown
     var request by remember { mutableIntStateOf(0) }
+    var jumping by remember { mutableStateOf(false) }
+    // A block near the end cannot reach the top: its chip stays selected until the user scrolls.
+    LaunchedEffect(list) {
+        snapshotFlow { list.isScrollInProgress }.collect { scrolling -> if (scrolling && !jumping) requested = null }
+    }
     fun go(target: Pair<Int, PartsSection>) {
         val token = ++request
         requested = target
+        jumping = true
         scope.launch {
             try {
                 list.animateScrollToItem(PartsLayout.itemIndex(target.first, target.second, hasNav = true), -navHeight)
             } finally {
-                if (request == token) requested = null
+                if (request == token) jumping = false
             }
         }
     }
@@ -146,7 +153,7 @@ private fun PartsNav(state: PartsTabState, list: LazyListState) {
                 }
             }
             item(key = "appears-in") {
-                val count = state.appears[state.characters.getOrNull(character)]?.takeIf { it.loaded }?.total
+                val count = state.appears[state.characters.getOrNull(character)]?.takeIf { it.loaded && it.total > 0 }?.total
                 PartsChip(selected = section == PartsSection.APPEARS_IN, description = null, onClick = { go(character to PartsSection.APPEARS_IN) }) {
                     Text(strings.text("Appears in"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
                         color = if (section == PartsSection.APPEARS_IN) palette.accent else palette.muted, maxLines = 1)
@@ -204,7 +211,8 @@ private fun CharacterHeading(state: PartsTabState, index: Int, character: String
                     card.definitions.firstOrNull()?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
                 val facts = buildList {
-                    root?.node?.operator?.let { add("$it " + strings.text(operatorName(it))) }
+                    // In words: the IDS operators (⿰…) are not in every bundled font.
+                    root?.node?.operator?.let { add(strings.text(operatorName(it))) }
                     parts?.radical?.let { add(strings.text("radical {0}", it)) }
                     root?.node?.strokeCount?.let { add(strings.text("{0} strokes", it)) }
                 }
@@ -398,12 +406,9 @@ private fun AppearsTile(item: AppearsInItem, modifier: Modifier, actions: EntryA
     val palette = LocalDictionaryPalette.current
     val prefs = LocalDisplayPrefs.current
     val card = item.card
-    Surface(
-        modifier = modifier.then(if (card != null) Modifier.clickable(role = Role.Button) { actions.openEntry(card.id) } else Modifier),
-        shape = RoundedCornerShape(10.dp),
-        color = if (card != null) palette.panel else palette.bgSoft,
-        border = BorderStroke(1.dp, palette.border),
-    ) {
+    val shape = RoundedCornerShape(10.dp)
+    val border = BorderStroke(1.dp, palette.border)
+    val content: @Composable () -> Unit = {
         Column(Modifier.padding(horizontal = 8.dp, vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             if (card != null) TonedHanziText(item.character, card.reading, prefs.toneColors && card.toneColourable, MaterialTheme.typography.headlineSmall, color = palette.fg)
             else Text(item.character, style = MaterialTheme.typography.headlineSmall, color = palette.muted)
@@ -421,6 +426,8 @@ private fun AppearsTile(item: AppearsInItem, modifier: Modifier, actions: EntryA
             )
         }
     }
+    if (card != null) Surface(onClick = { actions.openEntry(card.id) }, modifier = modifier, shape = shape, color = palette.panel, border = border, content = content)
+    else Surface(modifier = modifier, shape = shape, color = palette.bgSoft, border = border, content = content)
 }
 
 // ---- Small pieces ----
