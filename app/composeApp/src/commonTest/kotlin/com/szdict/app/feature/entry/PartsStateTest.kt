@@ -121,6 +121,32 @@ class PartsStateTest {
     }
 
     @Test
+    fun oneChipPerCharacterAndSectionWithSomethingToShow() {
+        val m = PartsSection.MADE_OF
+        val a = PartsSection.APPEARS_IN
+        // 你好: both characters have parts and are used elsewhere.
+        val both = PartsLayout.chips(listOf(true, true), listOf(true, true))
+        assertEquals(listOf(PartsChip(0, m), PartsChip(0, a), PartsChip(1, m), PartsChip(1, a)), both)
+        // An indivisible character has no "Made of" chip, one used nowhere no "Appears in" chip.
+        assertEquals(listOf(PartsChip(0, a), PartsChip(1, m)), PartsLayout.chips(listOf(false, true), listOf(true, false)))
+        // 一 alone: a single chip, which the row does not show.
+        assertEquals(1, PartsLayout.chips(listOf(false), listOf(true)).size)
+        // The block at the top selects its chip; a heading counts as its "Made of".
+        assertEquals(0, PartsLayout.selectedChip(both, 0 to PartsSection.HEAD))
+        assertEquals(1, PartsLayout.selectedChip(both, 0 to a))
+        assertEquals(2, PartsLayout.selectedChip(both, 1 to PartsSection.HEAD))
+        assertEquals(3, PartsLayout.selectedChip(both, 1 to a))
+        // Without a chip of its own the block keeps the one before it (or the first).
+        val sparse = listOf(PartsChip(0, a), PartsChip(1, a))
+        assertEquals(0, PartsLayout.selectedChip(sparse, 0 to m))
+        assertEquals(0, PartsLayout.selectedChip(sparse, 1 to m))
+        assertEquals(1, PartsLayout.selectedChip(sparse, 1 to a))
+        // "Made of" jumps to the character's heading, "Appears in" to its section.
+        assertEquals(PartsLayout.itemIndex(1, PartsSection.HEAD, true), PartsLayout.chipTarget(PartsChip(1, m)))
+        assertEquals(PartsLayout.itemIndex(1, a, true), PartsLayout.chipTarget(PartsChip(1, a)))
+    }
+
+    @Test
     fun partsTabNeedsHanzi() {
         assertEquals(listOf(EntryTab.DICT, EntryTab.WORDS, EntryTab.PARTS), entryTabs(hasStrokes = false, hasParts = true))
         assertEquals(listOf(EntryTab.DICT, EntryTab.STROKES, EntryTab.WORDS, EntryTab.PARTS), entryTabs(hasStrokes = true, hasParts = true))

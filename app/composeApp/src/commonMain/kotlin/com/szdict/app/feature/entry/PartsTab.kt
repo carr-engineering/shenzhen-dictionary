@@ -3,6 +3,7 @@ package com.szdict.app.feature.entry
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,11 +21,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -60,7 +63,11 @@ import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.ExpandableFooter
 import com.szdict.app.ui.kit.ExpanderToggle
 import com.szdict.app.ui.kit.LocalDisplayPrefs
+import com.szdict.app.ui.kit.ChipBarHorizontalPadding
+import com.szdict.app.ui.kit.ChipBarVerticalPadding
+import com.szdict.app.ui.kit.FollowSelectedChip
 import com.szdict.app.ui.kit.NavChip
+import com.szdict.app.ui.kit.TranslucentChipBar
 import com.szdict.app.ui.kit.SectionLabel
 import com.szdict.app.ui.kit.TonedHanziText
 import com.szdict.app.ui.kit.TonedReadingText
@@ -92,65 +99,80 @@ private val sidePadding = Modifier.padding(horizontal = 16.dp)
 private fun PartsTabState.partsOf(character: String): CharacterParts? =
     (made as? PartsLoad.Ready)?.characters?.firstOrNull { it.character == character }
 
-// ---- Chip navigation (sticky, the shared NavChip of the HSK and WORDS chip rows) ----
+// ---- Chip navigation (sticky and translucent: the HSK selector's bar and chips) ----
 
 @Composable
 private fun PartsNav(state: PartsTabState, list: LazyListState) {
     val strings = appStrings()
-    val palette = LocalDictionaryPalette.current
-    val scope = rememberCoroutineScope()
-    var navHeight by remember { mutableIntStateOf(0) }
-    val multi = state.characters.size > 1
-    // The block under the chip row decides the selected chips; a tapped chip stays selected while it scrolls.
-    var requested by remember { mutableStateOf<Pair<Int, PartsSection>?>(null) }
-    val shown by remember(state) {
+    // Which sections are worth a chip needs every character's parts and "Appears in" total.
+    LaunchedEffect(state) {
+        launch { state.ensureParts() }
+        state.characters.forEach { c -> launch { state.ensureAppears(c) } }
+    }
+    val chips by remember(state) {
         derivedStateOf {
-            val first = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 && it.offset + it.size > navHeight + 1 }?.index ?: 1
-            PartsLayout.at(first, state.characters.size, hasNav = true)
+            val made = state.made
+            val known = made !is PartsLoad.Loading && state.characters.all { c -> state.appears[c]?.let { it.loaded || it.unavailable } ?: true }
+            if (!known) emptyList()
+            else PartsLayout.chips(
+                hasMadeOf = state.characters.map { c -> state.partsOf(c)?.root?.children?.isNotEmpty() == true },
+                hasAppearsIn = state.characters.map { c -> state.appears[c]?.let { it.loaded && it.total > 0 } == true },
+            )
         }
     }
-    val (character, section) = requested ?: shown
+    // One chip would have nowhere to jump to: no row at all. The sticky item keeps a hairline-thin
+    // size so the list stays anchored on it, not on the heading below, when the row appears.
+    if (chips.size < 2) {
+        Spacer(Modifier.fillMaxWidth().height(1.dp))
+        return
+    }
+    val scope = rememberCoroutineScope()
+    val chipRow = rememberLazyListState()
+    var navHeight by remember { mutableIntStateOf(0) }
+    val multi = state.characters.size > 1
+    // The block under the chip row decides the selected chip; a tapped chip stays selected while it scrolls.
+    var requested by remember { mutableStateOf<Int?>(null) }
+    val shown by remember(state, chips) {
+        derivedStateOf {
+            val first = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 && it.offset + it.size > navHeight + 1 }?.index ?: 1
+            PartsLayout.selectedChip(chips, PartsLayout.at(first, state.characters.size, hasNav = true))
+        }
+    }
+    val selected = (requested ?: shown).coerceIn(0, chips.lastIndex)
+    val scrolledUnder by remember { derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0 } }
     var request by remember { mutableIntStateOf(0) }
     var jumping by remember { mutableStateOf(false) }
     // A block near the end cannot reach the top: its chip stays selected until the user scrolls.
     LaunchedEffect(list) {
         snapshotFlow { list.isScrollInProgress }.collect { scrolling -> if (scrolling && !jumping) requested = null }
     }
-    fun go(target: Pair<Int, PartsSection>) {
-        val token = ++request
-        requested = target
-        jumping = true
-        scope.launch {
-            try {
-                list.animateScrollToItem(PartsLayout.itemIndex(target.first, target.second, hasNav = true), -navHeight)
-            } finally {
-                if (request == token) jumping = false
-            }
-        }
-    }
-    Surface(Modifier.fillMaxWidth().onSizeChanged { navHeight = it.height }, color = palette.bg) {
+    FollowSelectedChip(chipRow, selected = selected, chipCount = chips.size)
+    TranslucentChipBar(scrolledUnder = scrolledUnder, onBarHeight = { navHeight = it }) {
         LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            state = chipRow,
+            modifier = Modifier.fillMaxWidth().padding(vertical = ChipBarVerticalPadding),
+            contentPadding = PaddingValues(horizontal = ChipBarHorizontalPadding),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (multi) {
-                state.characters.forEachIndexed { index, c ->
-                    item(key = "char-$index") {
-                        NavChip(label = c, count = null, selected = index == character, onClick = { go(index to PartsSection.HEAD) })
+            items(chips.size, key = { "chip-${chips[it].character}-${chips[it].section}" }) { i ->
+                val chip = chips[i]
+                val appears = chip.section == PartsSection.APPEARS_IN
+                val section = strings.text(if (appears) "Appears in" else "Made of")
+                val label = if (multi) "${state.characters[chip.character]} · $section" else section
+                val count = if (appears) state.appears[state.characters[chip.character]]?.total else null
+                NavChip(label = label, count = count, selected = i == selected, onClick = {
+                    val token = ++request
+                    requested = i
+                    jumping = true
+                    scope.launch {
+                        try {
+                            list.animateScrollToItem(PartsLayout.chipTarget(chip), -navHeight)
+                        } finally {
+                            if (request == token) jumping = false
+                        }
                     }
-                }
-                item(key = "divider") { Box(Modifier.width(1.dp).height(24.dp).background(palette.border)) }
-            }
-            item(key = "made-of") {
-                NavChip(label = strings.text("Made of"), count = null, selected = section != PartsSection.APPEARS_IN,
-                    onClick = { go(character to PartsSection.MADE_OF) })
-            }
-            item(key = "appears-in") {
-                val count = state.appears[state.characters.getOrNull(character)]?.takeIf { it.loaded && it.total > 0 }?.total
-                NavChip(label = strings.text("Appears in"), count = count, selected = section == PartsSection.APPEARS_IN,
-                    onClick = { go(character to PartsSection.APPEARS_IN) })
+                })
             }
         }
     }
@@ -174,7 +196,7 @@ private fun CharacterHeading(state: PartsTabState, index: Int, character: String
             Column(Modifier.weight(1f)) {
                 if (state.characters.size > 1 && card != null) {
                     if (!card.noReading && !card.reading.isEmpty) TonedReadingText(card.reading, prefs.toneColors, MaterialTheme.typography.bodyLarge, color = palette.accent)
-                    card.definitions.firstOrNull()?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    card.definitions.firstOrNull()?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.muted) }
                 }
                 val facts = buildList {
                     // In words: the IDS operators (⿰…) are not in every bundled font.
@@ -201,23 +223,34 @@ private fun MadeOf(state: PartsTabState, character: String, actions: EntryAction
             PartsLoad.Loading -> repeat(2) { SkeletonCard() }
             PartsLoad.Unavailable -> Note(strings.text("Not available"))
             is PartsLoad.Ready -> {
-                val root = load.characters.firstOrNull { it.character == character }?.takeIf { it.available }?.root
+                val parts = load.characters.firstOrNull { it.character == character }?.takeIf { it.available }
+                val root = parts?.root
                 when {
                     root == null -> Note(strings.text("No parts data for this character"))
                     root.children.isEmpty() -> Note(strings.text("No smaller parts: {0} is indivisible", character))
-                    else -> root.children.forEach { part ->
-                        Surface(
-                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            shape = MaterialTheme.shapes.medium,
-                            color = palette.panel,
-                            border = BorderStroke(1.dp, palette.border),
-                        ) {
-                            Column { PartWithParts(state, character, part, depth = 0, actions) }
+                    else -> {
+                        root.children.forEach { part -> PartCard { PartWithParts(state, character, part, depth = 0, actions) } }
+                        // The radical when no listed part stands for it (年 = 𠂉 + 㐄, radical 干): named apart, quietly.
+                        parts.radicalPart?.let { radical ->
+                            PartCard(quiet = true) { PartRow(radical, depth = 0, actions, note = strings.text("Radical of {0}, not one of the parts listed", character)) }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PartCard(quiet: Boolean = false, content: @Composable () -> Unit) {
+    val palette = LocalDictionaryPalette.current
+    Surface(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = if (quiet) palette.bg else palette.panel,
+        border = BorderStroke(1.dp, palette.border),
+    ) {
+        Column { content() }
     }
 }
 
@@ -257,7 +290,7 @@ private fun isTappable(part: PartNode): Boolean =
 /** Glyph, reading, short meaning and marks of one part; opens the part's entry when it has one. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PartRow(part: PartNode, depth: Int, actions: EntryActions) {
+private fun PartRow(part: PartNode, depth: Int, actions: EntryActions, note: String? = null) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val prefs = LocalDisplayPrefs.current
@@ -278,7 +311,7 @@ private fun PartRow(part: PartNode, depth: Int, actions: EntryActions) {
         Box(Modifier.widthIn(min = if (depth == 0) 44.dp else 36.dp), contentAlignment = Alignment.Center) {
             when {
                 part.isGroup -> Text(partLabel(part), style = MaterialTheme.typography.titleMedium, color = palette.fg)
-                node.kind == PartKind.UNKNOWN || node.kind == PartKind.UNENCODED -> Text(displayGlyph(node), style = glyphStyle, color = palette.muted)
+                node.kind == PartKind.UNKNOWN || node.kind == PartKind.UNENCODED -> ComponentPlaceholder(depth)
                 card != null -> TonedHanziText(node.glyph, card.reading, prefs.toneColors && card.toneColourable && node.mapsTo == null, glyphStyle, color = palette.fg)
                 else -> Text(node.glyph, style = glyphStyle, color = palette.fg, textAlign = TextAlign.Center)
             }
@@ -293,13 +326,19 @@ private fun PartRow(part: PartNode, depth: Int, actions: EntryActions) {
                 node.position?.let { Text(positionLabel(it, strings), style = MaterialTheme.typography.labelSmall, color = palette.muted) }
                 PartTags(part)
             }
-            val gloss = when {
-                part.isGroup -> node.operator?.let { strings.text(operatorName(it)) }?.let { strings.text("Group of parts, {0}", it) }
-                node.kind == PartKind.UNENCODED -> strings.text("Unencoded component")
-                node.kind == PartKind.UNKNOWN -> strings.text("Unknown part")
-                else -> card?.definitions?.firstOrNull()
+            if (node.kind == PartKind.UNENCODED) {
+                // What the sources say the piece is ("bottom of 年"), then what it is not: no error look.
+                node.radicalName?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.fg) }
+                Text(strings.text("Component without a character of its own"), style = MaterialTheme.typography.bodySmall, color = palette.muted)
+            } else {
+                val gloss = when {
+                    part.isGroup -> node.operator?.let { strings.text(operatorName(it)) }?.let { strings.text("Group of parts, {0}", it) }
+                    node.kind == PartKind.UNKNOWN -> strings.text("Unknown part")
+                    else -> card?.definitions?.firstOrNull()
+                }
+                gloss?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.muted) }
             }
-            gloss?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.muted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = palette.muted) }
         }
     }
 }
@@ -309,7 +348,8 @@ private fun PartRow(part: PartNode, depth: Int, actions: EntryActions) {
 private fun PartTags(part: PartNode) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    val name = part.node.radicalName?.takeIf { it.isNotBlank() }
+    // An unencoded component's name is its description, shown as its gloss.
+    val name = part.node.radicalName?.takeIf { it.isNotBlank() && part.node.kind != PartKind.UNENCODED }
     val text = when {
         part.isRadical || part.isParentRadical -> name?.let { strings.text("radical {0}", it) } ?: strings.text("Radical")
         else -> name
@@ -320,8 +360,6 @@ private fun PartTags(part: PartNode) {
         style = MaterialTheme.typography.labelSmall,
         fontWeight = if (strong) FontWeight.SemiBold else null,
         color = if (strong) palette.accent else palette.muted,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
         modifier = Modifier
             .background(if (strong) palette.accentSoft else palette.bgSoft, RoundedCornerShape(4.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp),
@@ -345,11 +383,17 @@ private fun AppearsIn(state: PartsTabState, character: String, actions: EntryAct
             section.total == 0 -> Note(strings.text("Not a part of any other character"))
             else -> {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    // Two columns on a phone, more as the pane widens; glosses wrap in full and the
+                    // tiles of a row share its height.
                     val gap = 8.dp
-                    val columns = maxOf(3, ((maxWidth + gap) / (96.dp + gap)).toInt())
-                    val tile = (maxWidth - gap * (columns - 1)) / columns
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(gap), verticalArrangement = Arrangement.spacedBy(gap)) {
-                        section.items.forEach { AppearsTile(it, Modifier.width(tile), actions) }
+                    val columns = maxOf(2, ((maxWidth + gap) / (APPEARS_TILE_MIN + gap)).toInt())
+                    Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                        section.items.chunked(columns).forEach { row ->
+                            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                                row.forEach { AppearsTile(it, Modifier.weight(1f).fillMaxHeight(), actions) }
+                                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
                     }
                 }
                 if (section.hasMore) {
@@ -366,7 +410,12 @@ private fun AppearsIn(state: PartsTabState, character: String, actions: EntryAct
     }
 }
 
-/** One character built from the part: glyph, reading and gloss; inert (muted) without an entry. */
+private val APPEARS_TILE_MIN = 168.dp
+
+/**
+ * One character built from the part: the glyph with its reading beside it, then the gloss wrapped
+ * to as many lines as it needs; inert (muted, on the recessed tone) without an entry.
+ */
 @Composable
 private fun AppearsTile(item: AppearsInItem, modifier: Modifier, actions: EntryActions) {
     val palette = LocalDictionaryPalette.current
@@ -375,21 +424,15 @@ private fun AppearsTile(item: AppearsInItem, modifier: Modifier, actions: EntryA
     val shape = RoundedCornerShape(10.dp)
     val border = BorderStroke(1.dp, palette.border)
     val content: @Composable () -> Unit = {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (card != null) TonedHanziText(item.character, card.reading, prefs.toneColors && card.toneColourable, MaterialTheme.typography.headlineSmall, color = palette.fg)
-            else Text(item.character, style = MaterialTheme.typography.headlineSmall, color = palette.muted)
-            if (card != null && !card.noReading && !card.reading.isEmpty) {
-                TonedReadingText(card.reading, prefs.toneColors, MaterialTheme.typography.bodySmall, color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (card != null) TonedHanziText(item.character, card.reading, prefs.toneColors && card.toneColourable, MaterialTheme.typography.headlineSmall, color = palette.fg)
+                else Text(item.character, style = MaterialTheme.typography.headlineSmall, color = palette.muted)
+                if (card != null && !card.noReading && !card.reading.isEmpty) {
+                    TonedReadingText(card.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium, color = palette.accent)
+                }
             }
-            Text(
-                card?.definitions?.firstOrNull() ?: "—",
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 11.sp,
-                color = palette.muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
+            card?.definitions?.firstOrNull()?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = palette.muted) }
         }
     }
     if (card != null) Surface(onClick = { actions.openEntry(card.id) }, modifier = modifier, shape = shape, color = palette.panel, border = border, content = content)
@@ -397,6 +440,19 @@ private fun AppearsTile(item: AppearsInItem, modifier: Modifier, actions: EntryA
 }
 
 // ---- Small pieces ----
+
+/** Stand-in glyph of a component with no code point: a quiet rounded square, not a question mark. */
+@Composable
+private fun ComponentPlaceholder(depth: Int) {
+    val palette = LocalDictionaryPalette.current
+    val size = if (depth == 0) 30.dp else 24.dp
+    Box(
+        Modifier
+            .size(size)
+            .background(palette.bgSoft, RoundedCornerShape(6.dp))
+            .border(BorderStroke(1.dp, palette.border), RoundedCornerShape(6.dp)),
+    )
+}
 
 @Composable
 private fun Note(text: String) {

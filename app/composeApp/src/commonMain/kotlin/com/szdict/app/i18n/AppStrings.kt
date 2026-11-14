@@ -488,4 +488,6 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Jump to {0}" to "跳到「{0}」",
     "Radical" to "部首",
     "Group of parts, {0}" to "部件组合，{0}",
+    "Component without a character of its own" to "没有单独编码的部件",
+    "Radical of {0}, not one of the parts listed" to "「{0}」的部首，不在所列部件中",
 )

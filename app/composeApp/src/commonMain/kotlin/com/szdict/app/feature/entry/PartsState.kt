@@ -63,14 +63,19 @@ internal class PartsTabState(
         private set
 
     /** Reads the trees once; failures leave the tab usable with an "unavailable" note (GLB-035). */
+    private var partsLoading = false
+
     suspend fun ensureParts() {
-        if (made !is PartsLoad.Loading) return
+        if (made !is PartsLoad.Loading || partsLoading) return
+        partsLoading = true
         made = try {
             PartsLoad.Ready(loadParts(characters))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             PartsLoad.Unavailable
+        } finally {
+            partsLoading = false
         }
     }
 
@@ -148,4 +153,30 @@ internal object PartsLayout {
     }
 
     fun key(characterIndex: Int, section: PartsSection): String = "parts-${section.name.lowercase()}-$characterIndex"
+
+    /**
+     * The chip row: one chip per (character, section) worth jumping to — "Made of" for a character
+     * with parts, "Appears in" for one used in other characters — in reading order. Fewer than two
+     * chips means no row at all.
+     */
+    fun chips(hasMadeOf: List<Boolean>, hasAppearsIn: List<Boolean>): List<PartsChip> = buildList {
+        for (i in hasMadeOf.indices) {
+            if (hasMadeOf[i]) add(PartsChip(i, PartsSection.MADE_OF))
+            if (hasAppearsIn.getOrElse(i) { false }) add(PartsChip(i, PartsSection.APPEARS_IN))
+        }
+    }
+
+    /** The chip of the block at the top of the list (a heading counts as its "Made of"): the last chip at or before it. */
+    fun selectedChip(chips: List<PartsChip>, at: Pair<Int, PartsSection>): Int {
+        fun order(c: Int, s: PartsSection) = c * 2 + if (s == PartsSection.APPEARS_IN) 1 else 0
+        val here = order(at.first, at.second)
+        return chips.indexOfLast { order(it.character, it.section) <= here }.coerceAtLeast(0)
+    }
+
+    /** List item a chip scrolls to: a "Made of" chip brings its character's heading under the row. */
+    fun chipTarget(chip: PartsChip): Int =
+        itemIndex(chip.character, if (chip.section == PartsSection.APPEARS_IN) PartsSection.APPEARS_IN else PartsSection.HEAD, hasNav = true)
 }
+
+/** One chip of the PARTS chip row ([PartsLayout.chips]). */
+internal data class PartsChip(val character: Int, val section: PartsSection)
