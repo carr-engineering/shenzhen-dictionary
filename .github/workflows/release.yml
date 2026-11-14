@@ -1,0 +1,276 @@
+# Every push to main is a release (decision of 2026-11-15, see docs/08-engineering.md REL-004):
+# version YYYY.MM.DD-X (REL-001), the Web app deployed to https://szdict.com, and a GitHub Release
+# with the signed direct APK, the Web distribution and SHA256SUMS. iOS is not built yet.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Runs one at a time so release numbers stay sequential; a newer push waits for the running release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DEPLOY_TARGET: szdict-deploy@45.115.38.102
+  SITE: https://szdict.com
+  # Gradle property pointing the app at the opencc-kmp publication made by ci/publish-deps.sh.
+  OPENCC_REPOSITORY: ${{ github.workspace }}/.ci/opencc-maven
+  # Upload certificate of the Play listing engineering.carr.szdict (REL-041).
+  UPLOAD_CERT_SHA256: 10b00ce96a64be7f601ee782a0f3dd2d3a51aeaad58e70c85c41e8b8f4df77ee
+
+jobs:
+  prepare:
+    name: Version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      code: ${{ steps.version.outputs.code }}
+      release: ${{ steps.version.outputs.release }}
+      previous: ${{ steps.version.outputs.previous }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: version
+        name: Next version (REL-001, REL-002)
+        run: |
+          day="$(date -u +%Y.%m.%d)"
+          last="$(git tag -l "$day-*" | sed "s/^$day-//" | grep -E '^[0-9]+$' | sort -n | tail -n 1 || true)"
+          x=$(( ${last:-0} + 1 ))
+          [ "$x" -le 99 ] || { echo "::error::more than 99 releases on $day (REL-001)"; exit 1; }
+          previous="$(git tag -l '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-*' | sort -V | tail -n 1)"
+          {
+            echo "version=$day-$x"
+            echo "code=$(( $(date -u +%Y%m%d) * 100 + x ))"
+            echo "release=$day-$x-${GITHUB_SHA::7}"
+            echo "previous=$previous"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  deps:
+    name: Sibling libraries
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/local-maven
+            .ci/opencc-maven
+          key: deps-${{ hashFiles('ci/deps.lock', 'ci/publish-deps.sh', 'app/tools/publish-animator.sh') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: false
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: ci/publish-deps.sh
+
+  web:
+    name: Web
+    needs: [prepare, deps]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/local-maven
+            .ci/opencc-maven
+          key: deps-${{ hashFiles('ci/deps.lock', 'ci/publish-deps.sh', 'app/tools/publish-animator.sh') }}
+          fail-on-cache-miss: true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: ci/fetch-build-inputs.sh
+      - name: Build
+        working-directory: app
+        run: >-
+          ./gradlew :composeApp:wasmJsBrowserDistribution
+          -PappVersionName=${{ needs.prepare.outputs.version }}
+          -Popencc.repository="$OPENCC_REPOSITORY"
+      - name: Package
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          dist=app/composeApp/build/dist/wasmJs/productionExecutable
+          printf '{"version":"%s","commit":"%s"}\n' "$VERSION" "$GITHUB_SHA" > "$dist/version.json"
+          mkdir -p out
+          # The release asset: the distribution as built. The deployed copy adds .br/.gz siblings.
+          tar -C "$dist" -czf "out/szdict-web-$VERSION.tar.gz" .
+          node app/tools/web-precompress.mjs "$dist"
+          tar -C "$dist" -cf out/site.tar .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: out/
+          compression-level: 0
+          retention-days: 7
+
+  android:
+    name: Android
+    needs: [prepare, deps]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/node_modules /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v5
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/local-maven
+            .ci/opencc-maven
+          key: deps-${{ hashFiles('ci/deps.lock', 'ci/publish-deps.sh', 'app/tools/publish-animator.sh') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache@v4
+        with:
+          path: app/voice/.cache
+          key: voice-${{ hashFiles('app/tools/fetch-voice-model.sh') }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v5
+      - run: ci/fetch-build-inputs.sh
+      - run: VOICE_TARGETS=android app/tools/fetch-voice-model.sh
+      - name: Build
+        working-directory: app
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          [ -n "$ANDROID_KEYSTORE_BASE64" ] || { echo "::error::the ANDROID_KEYSTORE_* secrets are not set"; exit 1; }
+          export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/upload-keystore.p12"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE_FILE"
+          ./gradlew :composeApp:assembleRelease -PrequireVoiceModel \
+            -PappVersionName=${{ needs.prepare.outputs.version }} \
+            -PappVersionCode=${{ needs.prepare.outputs.code }} \
+            -Popencc.repository="$OPENCC_REPOSITORY"
+          rm -f "$ANDROID_KEYSTORE_FILE"
+      - name: Check signature and package
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CODE: ${{ needs.prepare.outputs.code }}
+        run: |
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
+          apk=app/composeApp/build/outputs/apk/release/composeApp-release.apk
+          "$tools/apksigner" verify --print-certs "$apk" | tee certs.txt
+          grep -qi "certificate SHA-256 digest: $UPLOAD_CERT_SHA256" certs.txt || { echo "::error::APK is not signed with the upload key"; exit 1; }
+          "$tools/aapt2" dump badging "$apk" | head -n 1 | tee badging.txt
+          grep -q "name='engineering.carr.szdict' versionCode='$CODE' versionName='$VERSION'" badging.txt || { echo "::error::unexpected package or version"; exit 1; }
+          mkdir -p out && mv "$apk" "out/szdict-$VERSION.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: out/
+          compression-level: 0
+          retention-days: 7
+
+  test:
+    name: Tests
+    needs: deps
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/local-maven
+            .ci/opencc-maven
+          key: deps-${{ hashFiles('ci/deps.lock', 'ci/publish-deps.sh', 'app/tools/publish-animator.sh') }}
+          fail-on-cache-miss: true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v5
+      - run: ci/fetch-build-inputs.sh
+      - working-directory: app
+        run: >-
+          ./gradlew :core:jvmTest :composeApp:testDebugUnitTest :recognition:testDebugUnitTest
+          -Popencc.repository="$OPENCC_REPOSITORY"
+
+  deploy:
+    name: Deploy szdict.com
+    needs: [prepare, web, test]
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+      url: https://szdict.com
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: web
+          path: out
+      - name: Upload and activate
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          RELEASE: ${{ needs.prepare.outputs.release }}
+        run: |
+          [ -n "$DEPLOY_SSH_KEY" ] || { echo "::error::the DEPLOY_* secrets are not set"; exit 1; }
+          mkdir -p site && tar -xf out/site.tar -C site
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh_cmd="ssh -i $HOME/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes"
+          # The server only accepts these through its forced command (/usr/local/bin/szdict-deploy):
+          # `current`, rsync into releases/ and `activate <release>`.
+          current="$($ssh_cmd "$DEPLOY_TARGET" current)"
+          echo "live before: $current"
+          # Unchanged files are hard-linked from the live release, so only changes are transferred.
+          rsync -a --checksum --delete --chmod=D755,F644 --link-dest="/$current" --stats \
+            -e "$ssh_cmd" site/ "$DEPLOY_TARGET:$RELEASE/" | grep -E 'files transferred|Total transferred file size'
+          $ssh_cmd "$DEPLOY_TARGET" activate "$RELEASE"
+          rm -f ~/.ssh/deploy
+      - name: Verify
+        run: ci/verify-site.sh "$SITE" site
+
+  release:
+    name: GitHub Release
+    needs: [prepare, android, deploy]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          path: out
+          merge-multiple: true
+      - name: Tag and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PREVIOUS: ${{ needs.prepare.outputs.previous }}
+        run: |
+          cd out
+          rm -f site.tar
+          sha256sum "szdict-$VERSION.apk" "szdict-web-$VERSION.tar.gz" > SHA256SUMS
+          cat SHA256SUMS
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION" "$GITHUB_SHA"
+          git push origin "refs/tags/$VERSION"
+          notes=()
+          [ -n "$PREVIOUS" ] && notes=(--notes-start-tag "$PREVIOUS")
+          gh release create "$VERSION" --verify-tag --title "$VERSION" --generate-notes "${notes[@]}" \
+            "szdict-$VERSION.apk" "szdict-web-$VERSION.tar.gz" SHA256SUMS

@@ -26,8 +26,9 @@ done
 
 # The browser stroke resources are reachable through two source sets of the Wasm target; an init
 # script (not a change to the animator repository) lets the resource copy keep one of each.
-INIT="$(mktemp -t publish-animator-init).gradle"
-trap 'rm -f "$INIT"' EXIT
+INIT_DIR="$(mktemp -d)"
+INIT="$INIT_DIR/publish-animator-init.gradle"
+trap 'rm -rf "$INIT_DIR"' EXIT
 cat > "$INIT" <<'GRADLE'
 allprojects {
     tasks.withType(org.gradle.language.jvm.tasks.ProcessResources).configureEach {

@@ -1292,6 +1292,15 @@ either way. **Web:** the build embeds the full version string.
 `REL-004` `[MUST]` **Git tag** = the full version (`2026.10.24-1`), annotated and signed, on the exact
 commit built. Pushing such a tag is the only release trigger (`REL-040`).
 
+> **Decision 2026-11-15 (supersedes the trigger in `REL-004`/`REL-040` until revisited):** every push
+> to `main` is a release. `.github/workflows/release.yml` computes the next `YYYY.MM.DD-X`, builds the
+> signed direct APK and the Web build, deploys szdict.com, and only then creates the annotated tag
+> (unsigned, made by the workflow) and the GitHub Release. iOS, the AAB/Play upload, the Worker and the
+> dataset build are not part of it yet; the dataset is a pinned snapshot (`ci/build-inputs.lock`).
+> Android signing uses the Play **upload key** of `engineering.carr.szdict`: the existing listing uses
+> Google-managed app signing, so `REL-041`'s single key is not available for it. See `app/README.md`
+> ("Release and deploy").
+
 ---
 
 ### 2. Branching (public repository)

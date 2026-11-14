@@ -14,7 +14,14 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Everything the Web build serves next to the app shell (never committed): one root per stageWeb* task.
 val webStaticDir = layout.buildDirectory.dir("web/static")
-val appVersionName = "2026.11.11-1"
+// REL-001: one version YYYY.MM.DD-X for every platform. The release workflow passes -PappVersionName
+// (.github/workflows/release.yml); local builds use the literal.
+val appVersionName = providers.gradleProperty("appVersionName").orNull ?: "2026.11.11-1"
+// REL-002: versionCode = YYYYMMDD × 100 + X, unless -PappVersionCode overrides it.
+val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toInt()
+    ?: requireNotNull(Regex("""(\d{4})\.(\d{2})\.(\d{2})-(\d{1,2})""").matchEntire(appVersionName)) {
+        "appVersionName must be YYYY.MM.DD-X (REL-001), was $appVersionName"
+    }.destructured.let { (y, m, d, x) -> "$y$m$d".toInt() * 100 + x.toInt() }
 val webStaticRoots = listOf("data", "opencc", "strokes", "sqlite3", "fonts", "models", "pwa", "cjk").map { name -> webStaticDir.map { it.dir(name) } }
 
 plugins {
@@ -140,10 +147,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.szdict.app"
+        // The package of the existing Play Store listing, so releases update it; the Kotlin namespace stays com.szdict.app.
+        applicationId = "engineering.carr.szdict"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
+        versionCode = appVersionCode
         versionName = appVersionName
         ndk { abiFilters += listOf("arm64-v8a") }
     }
@@ -160,12 +168,26 @@ android {
         localeFilters += listOf("en", "b+zh+Hans", "b+zh+Hant")
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    // REL-041: the release workflow signs with the Play upload key, supplied through the environment.
+    // Without ANDROID_KEYSTORE_FILE, release builds stay signed with the debug key (local builds).
+    signingConfigs {
+        val keystore = System.getenv("ANDROID_KEYSTORE_FILE")
+        if (!keystore.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(keystore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 }
