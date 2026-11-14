@@ -412,7 +412,7 @@ private fun EntryReady(
                                     StrokesTab(strokeCharacters.mapNotNull { strokes?.get(it) }, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                                 }
                             }
-                            EntryTab.WORDS -> TabPage(wordsList) { wordsTabItems(derived, actions, strings) }
+                            EntryTab.WORDS -> TabPage(wordsList) { wordsTabItems(derived, actions, strings, wordsList) }
                             EntryTab.PARTS -> {
                                 val parts = PartsStates.of(derived) {
                                     PartsTabState(

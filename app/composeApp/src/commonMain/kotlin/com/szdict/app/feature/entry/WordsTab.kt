@@ -1,29 +1,44 @@
 package com.szdict.app.feature.entry
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import com.szdict.app.i18n.AppStrings
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.CardAudio
 import com.szdict.app.ui.kit.EntryCardView
 import com.szdict.app.ui.kit.ExpanderToggle
+import com.szdict.app.ui.kit.FollowSelectedChip
 import com.szdict.app.ui.kit.InsideWordsState
+import com.szdict.app.ui.kit.NavChip
 import com.szdict.app.ui.kit.SectionLabel
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.EntryCard
@@ -45,13 +60,41 @@ internal fun relatedRowHasInsideWords(kind: RelatedKind, card: EntryCard): Boole
     kind != RelatedKind.WITHIN && card.hanziCount >= 2 && card.insideCount > 0
 
 /**
- * WORDS tab (ENT-060…065): paged sections of compact cards, emitted as individual lazy items so
- * long `Containing` lists stay cheap. Empty sections are omitted by the engine (ENT-100, ENT-101).
+ * Lazy-list index of each section's label in [wordsTabItems]: an optional sticky chip row, the top
+ * spacer, then per section a gap (not before the first), the label, its rows and a `Show more` item.
  */
-internal fun LazyListScope.wordsTabItems(derived: EntryDerived, actions: EntryActions, strings: AppStrings) {
+internal fun wordsLabelIndices(rowCounts: List<Int>, hasMore: List<Boolean>, nav: Boolean): IntArray {
+    var n = if (nav) 2 else 1
+    return IntArray(rowCounts.size) { i ->
+        if (i > 0) n++
+        val label = n
+        n += 1 + rowCounts[i] + if (hasMore[i]) 1 else 0
+        label
+    }
+}
+
+/** The section shown under the chip row: the last one whose label is at or before [firstIndex]. */
+internal fun wordsSectionAt(labels: IntArray, firstIndex: Int): Int {
+    var shown = 0
+    for (i in labels.indices) if (labels[i] <= firstIndex) shown = i
+    return shown
+}
+
+/**
+ * WORDS tab (ENT-060…066): paged sections of compact cards, emitted as individual lazy items so
+ * long `Containing` lists stay cheap. Empty sections are omitted by the engine (ENT-100, ENT-101).
+ * With two or more sections a sticky chip row (the HSK level chips' component) jumps between them.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+internal fun LazyListScope.wordsTabItems(derived: EntryDerived, actions: EntryActions, strings: AppStrings, list: LazyListState? = null) {
     val rowPadding = Modifier.padding(horizontal = 16.dp)
-    item(key = "words-top-spacer") { Spacer(Modifier.height(12.dp)) }
     val sections = derived.related
+    val nav = list != null && sections.size >= 2
+    if (nav) {
+        val labels = wordsLabelIndices(sections.map { it.cards.size }, sections.map { it.hasMore }, nav = true)
+        stickyHeader(key = "words-nav") { WordsNav(sections, labels, list!!, strings) }
+    }
+    item(key = "words-top-spacer") { Spacer(Modifier.height(12.dp)) }
     if (sections.isEmpty()) {
         item(key = "words-empty") {
             Text(strings.text("No related words."), color = LocalDictionaryPalette.current.muted, style = MaterialTheme.typography.bodyLarge, modifier = rowPadding)
@@ -80,6 +123,53 @@ internal fun LazyListScope.wordsTabItems(derived: EntryDerived, actions: EntryAc
                         onToggle = { loadMore(section, derived, actions) },
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * ENT-066 chip row: one chip per section with its count. The section under the row is selected and
+ * its chip kept in view as the list scrolls; a tapped chip stays selected while the list scrolls to it.
+ */
+@Composable
+private fun WordsNav(sections: List<RelatedSection>, labels: IntArray, list: LazyListState, strings: AppStrings) {
+    val palette = LocalDictionaryPalette.current
+    val scope = rememberCoroutineScope()
+    val chipRow = rememberLazyListState()
+    var navHeight by remember { mutableIntStateOf(0) }
+    var requested by remember { mutableStateOf<Int?>(null) }
+    var request by remember { mutableIntStateOf(0) }
+    val shown by remember(labels) {
+        derivedStateOf {
+            val first = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 && it.offset + it.size > navHeight + 1 }?.index ?: 0
+            wordsSectionAt(labels, first)
+        }
+    }
+    val selected = requested ?: shown
+    FollowSelectedChip(chipRow, selected = selected, chipCount = sections.size)
+    Surface(Modifier.fillMaxWidth().onSizeChanged { navHeight = it.height }, color = palette.bg) {
+        LazyRow(
+            state = chipRow,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items(sections.size, key = { "words-chip-${sections[it].kind}" }) { i ->
+                val section = sections[i]
+                NavChip(relatedTitle(section.kind, section.word, strings), section.total, selected = i == selected, onClick = {
+                    val token = ++request
+                    requested = i
+                    scope.launch {
+                        try {
+                            // The label lands just under the sticky row.
+                            list.animateScrollToItem(labels[i], -navHeight)
+                        } finally {
+                            if (request == token) requested = null
+                        }
+                    }
+                })
             }
         }
     }

@@ -76,7 +76,9 @@ import com.szdict.app.DetailRoute
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.CardAudio
 import com.szdict.app.ui.kit.EntryCardView
+import com.szdict.app.ui.kit.FollowSelectedChip
 import com.szdict.app.ui.kit.HskBadge
+import com.szdict.app.ui.kit.NavChip
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.SegmentedPillRow
 import com.szdict.app.ui.kit.hskLevelLabel
@@ -265,15 +267,7 @@ private fun HskHeader(
     val chipRow = rememberLazyListState()
     val leading = if (linkMode != null) 2 else 1
     // Keep the selected chip in view as the grid scrolls through the levels.
-    LaunchedEffect(selectedLevel, levels?.size) {
-        val index = levels?.indexOfFirst { it.level == selectedLevel } ?: -1
-        if (index > 0 && chipRow.layoutInfo.visibleItemsInfo.none { it.index == index + leading && it.offset >= 0 &&
-                it.offset + it.size <= chipRow.layoutInfo.viewportEndOffset }) {
-            chipRow.animateScrollToItem(index + leading)
-        } else if (index == 0) {
-            chipRow.animateScrollToItem(0)
-        }
-    }
+    FollowSelectedChip(chipRow, selected = levels?.indexOfFirst { it.level == selectedLevel } ?: -1, leading = leading, chipCount = levels?.size ?: 0)
     Column(modifier.fillMaxWidth()) {
         Surface(
             modifier = Modifier.fillMaxWidth().onSizeChanged { onHeight(it.height) },
@@ -333,26 +327,7 @@ private fun HskHeader(
 @Composable
 private fun LevelChip(level: HskLevelCount, selected: Boolean, onClick: () -> Unit) {
     val palette = LocalDictionaryPalette.current
-    val color = palette.hsk(level.level)
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        Surface(
-            onClick = onClick,
-            shape = RoundedCornerShape(12.dp),
-            color = if (selected) palette.hskTint(level.level) else palette.panel,
-            border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) color else palette.border),
-            modifier = Modifier.semantics { role = Role.Tab },
-        ) {
-            Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(hskLevelLabel(level.level), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
-                    color = color, maxLines = 1)
-                Text(level.count.toString(), style = MaterialTheme.typography.labelSmall, color = palette.muted, maxLines = 1)
-            }
-        }
-    }
+    NavChip(hskLevelLabel(level.level), level.count, selected, onClick, color = palette.hsk(level.level), selectedFill = palette.hskTint(level.level))
 }
 
 /** Shape-matched loading placeholder (HSK-063): cards of varied heights, not scrollable. */

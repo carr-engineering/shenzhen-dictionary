@@ -599,6 +599,12 @@ fetch a first page (25 per section is recommended) and load more on scroll.
 for that entry (recording or TTS, `MED-001`). The reference implementation hard-coded the WORDS-tab
 buttons to enabled.
 
+`ENT-066` `[MUST]` With two or more sections, a sticky row of navigation chips (the HSK level chips'
+component, `HSK-012`) tops the tab: one chip per section, labelled like the section with its count,
+horizontally scrollable at narrow widths. Tapping a chip scrolls the list to that section's label;
+the chip of the section under the row is selected and kept in view as the list scrolls. Rows inside
+each section follow the ranked order (`SRCH-070`).
+
 ---
 
 ### 6. STROKES tab
