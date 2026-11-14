@@ -514,12 +514,23 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
      */
     suspend fun combinations(parse: RomanParse, script: Script, wholeIds: IntArray, englishWords: Boolean = false): List<ComboOut> {
         if (parse.paths.none { it.tokens.size >= 2 } || !store.lmReady()) return emptyList()
-        // A query made of common English words is combined only through its full-syllable readings:
-        // `hello` as he·l·lo or `ban` as ba·n… is not what was typed (SCHEMA note 19).
-        fun spelled(p: RomanPath) = !englishWords || p.tokens.all { it.kind == TokKind.FULL }
-        if (parse.paths.none { it.tokens.size >= 2 && spelled(it) }) return emptyList()
-        val inv = store.inventory()
         val end = parse.letters.length
+        // Syllable boundaries the user typed (spaces, apostrophes, tone digits).
+        val typed = parse.breaks.toHashSet()
+        fun wholeWord(t: Tok) = (t.start == 0 || t.start in typed) && (t.end == end || t.end in typed)
+        // A query made of common English words is combined only through its full-syllable readings —
+        // `hello` as he·l·lo or `ban` as ba·n… is not what was typed (SCHEMA note 19) — or through a
+        // letter typed as a word of its own (`wo shi yi g`).
+        fun spelled(p: RomanPath) = !englishWords || p.tokens.all { it.kind == TokKind.FULL || wholeWord(it) }
+        if (parse.paths.none { it.tokens.size >= 2 && spelled(it) }) return emptyList()
+        // The syllables the query reads as: the typed boundaries or, unspaced, those of its only
+        // shortest full-syllable reading (`ruanxingtiaozheng`); null when neither exists.
+        val syllableEnds: Set<Int>? = if (typed.isNotEmpty()) typed else {
+            val full = parse.paths.filter { p -> p.tokens.size >= 2 && p.tokens.all { it.kind == TokKind.FULL } }
+            val fewest = full.minOfOrNull { it.tokens.size }
+            full.singleOrNull { it.tokens.size == fewest }?.tokens?.dropLast(1)?.mapTo(HashSet()) { it.end }
+        }
+        val inv = store.inventory()
         val spans = LinkedHashMap<String, Span>()
         for (path in parse.paths) {
             val toks = path.tokens
@@ -601,8 +612,22 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         // Plausible sequences only: within COMBO_MARGIN of the best sequence and of the best single
         // word spelling the whole query — a far less likely split of 朋友 (碰 + 有) is noise, not a
         // suggestion — and not a string of rare words forced onto the letters (`tofu` as 他 哦 副).
+        //
+        // The floor is for letters the user did not split. When the query reads as syllables (typed
+        // apart, or with one shortest full-syllable reading), the best sequence of words on those
+        // syllables is always offered — `ruan xing tiao zheng` is 软 行 调整 although 软 is not a
+        // frequent word — unless a single word spells the whole query far more likely; with typed
+        // boundaries, further sequences on them within the margin are held to a lower floor only.
         val bar = maxOf(paths[0].score, wholeBest) - COMBO_MARGIN
-        val top = paths.take(K_BEST * 4).filter { p -> p.score >= bar && p.score >= COMBO_FLOOR_PER_SYLLABLE * p.edges.sumOf { it.units } }
+        fun onSyllables(p: LatticePath) = syllableEnds != null && p.edges.all { nodes[it.to] == end || nodes[it.to] in syllableEnds }
+        val firstOnSyllables = paths.firstOrNull(::onSyllables)
+        val syllableBar = firstOnSyllables?.let { maxOf(it.score, wholeBest) - COMBO_MARGIN } ?: Double.POSITIVE_INFINITY
+        val pool = paths.take(K_BEST * 4).let { if (firstOnSyllables == null || firstOnSyllables in it) it else it + firstOnSyllables }
+        val top = pool.filter { p ->
+            val units = p.edges.sumOf { it.units }
+            (p.score >= bar && p.score >= COMBO_FLOOR_PER_SYLLABLE * units) ||
+                (p.score >= syllableBar && (p === firstOnSyllables || (typed.isNotEmpty() && onSyllables(p) && p.score >= COMBO_FLOOR_TYPED_PER_SYLLABLE * units)))
+        }
         if (top.isEmpty()) return emptyList()
         val forms = store.forms((top.flatMap { p -> p.edges.map { it.payload } } + wholeIds.take(400)).toSet().toIntArray())
         fun head(id: Int): String = forms[id]?.let { if (script == Script.SIMPLIFIED) it.simp else it.trad } ?: ""
@@ -630,6 +655,8 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         const val COMBO_MARGIN = 2.5
         /** Lowest average log-probability per syllable of an offered combination. */
         const val COMBO_FLOOR_PER_SYLLABLE = -6.5
+        /** The same for further sequences on syllables the user typed apart (the best one has none). */
+        const val COMBO_FLOOR_TYPED_PER_SYLLABLE = -11.0
         const val PHRASE_CHECK = 600
     }
 }

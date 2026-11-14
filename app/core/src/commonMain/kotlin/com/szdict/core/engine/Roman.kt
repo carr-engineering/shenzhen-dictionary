@@ -24,8 +24,11 @@ internal class RomanPath(val tokens: List<Tok>, val cost: Double) {
     override fun toString(): String = tokens.joinToString(" ", "[", "]")
 }
 
-/** The kept paths of a romanised query (SRCH-051), best first. */
-internal class RomanParse(val letters: String, val paths: List<RomanPath>) {
+/**
+ * The kept paths of a romanised query (SRCH-051), best first. [breaks]: the letter offsets strictly
+ * inside the query where the user marked a syllable boundary (space, apostrophe, tone digit), ascending.
+ */
+internal class RomanParse(val letters: String, val paths: List<RomanPath>, val breaks: IntArray = IntArray(0)) {
     val hasTone: Boolean = paths.any { it.hasTone }
 }
 
@@ -173,7 +176,8 @@ internal object RomanParser {
             }
         }
         val finals = (best[n][P] + best[n][A] + best[n][LF]).sortedWith(order).take(MAX_PATHS)
-        return RomanParse(letters, finals.map { RomanPath(it.tokens(), it.cost) })
+        val breaks = (1 until n).filter { hard[it] }.toIntArray()
+        return RomanParse(letters, finals.map { RomanPath(it.tokens(), it.cost) }, breaks)
     }
 }
 

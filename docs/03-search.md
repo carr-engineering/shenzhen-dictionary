@@ -376,7 +376,8 @@ recombination on (node, last word) and a beam cutoff (`TXT-026`). When the datas
 unchanged.
 
 `SRCH-063` `[MUST]` **Output.** The top **5** distinct sequences of two or more words that cover the
-whole query, in descending score. Sequences are distinct by their displayed headwords under the active
+whole query, in descending score, among the plausible ones (`contract/SCHEMA.md` note 22); a query
+typed as separate syllables (`ruan xing tiao zheng`) always gets its best sequence on those syllables. Sequences are distinct by their displayed headwords under the active
 script. A sequence whose concatenated text equals the headword of an entry already matching the whole
 query (`EXACT` or `EXACT_TONELESS`) is dropped — it is already in the list (`nh` does not repeat 你好
 as 你 + 好). Whole-query single-word matches stay in the normal ranked list; combinations never enter

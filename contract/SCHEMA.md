@@ -194,6 +194,12 @@ CREATE TABLE decomp(ch TEXT PRIMARY KEY,   -- a character or a synthetic compone
   svg TEXT,                                -- SVG path data for unencoded components (1024 em box), nullable
   matches TEXT)                            -- JSON: per stroke, the path into `parts` ([0], [1,0] …) or null;
   WITHOUT ROWID;                           -- NULL when Make Me a Hanzi has no usable matches (DATA-197)
+CREATE TABLE part_of(part TEXT PRIMARY KEY,  -- a component: a character or a synthetic id ('&U-i001;')
+  chars TEXT NOT NULL)                     -- the rows built directly from it: every `decomp.ch` whose own
+  WITHOUT ROWID;                           -- `ids` names `part` as a leaf (operators skipped, inline nested
+                                           -- sub-sequences flattened, '？' never listed), as one string of
+                                           -- code points in ascending order. Optional (added 2026-11, see
+                                           -- note 22): a pack without it has no reverse index.
 
 -- packs/audio/catalog.json
 -- { "mandarin": {"syllables": "cmn-syl", "words": "cmn-word", "ext": "opus",
@@ -306,7 +312,12 @@ change it. The app reads what is described here.
     display string may have fewer space-separated parts than `tones` has elements.
 22. **Combinations** (`SRCH-063`): besides the top-5 rule, a sequence is offered only when its score is
     within 2.5 nats of the best sequence and of the best single word spelling the whole query, and
-    is at least −6.5 nats per syllable.
+    is at least −6.5 nats per syllable. When the query reads as syllables — boundaries typed (space,
+    apostrophe, tone digit) or, unspaced, a single shortest full-syllable reading — the best sequence
+    whose word boundaries fall on those syllable boundaries is offered without the per-syllable floor
+    (still within 2.5 nats of the best whole-query word); with typed boundaries, further such sequences
+    within 2.5 nats of it need only −11 nats per syllable (`ruan xing tiao zheng` → 软 行 调整, 软 性 调整…).
+    A letter typed as a word of its own counts as spelled in a query of English words (`wo shi yi g`).
 
 ## Schema version 2 (2026-11) — what changed from version 1
 

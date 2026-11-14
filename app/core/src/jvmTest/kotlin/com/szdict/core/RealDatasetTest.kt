@@ -171,7 +171,26 @@ class RealDatasetTest {
     fun plausibleCombinations() = real { dict ->
         suspend fun combos(q: String) = dict.search(q, s).chinese.sections.firstOrNull { it.kind == SectionKind.COMBINATIONS }?.combinations.orEmpty().map { c -> c.words.joinToString(" ") { it.headword } }
         // A whole-query word leaves no room for unlikely splits of it (朋友 is not 碰 有, 你好 is not 呢 好).
-        for (q in listOf("pengyou", "nihao", "xiexie", "zhongguo", "xuexi", "dian", "ren", "hello", "tofu")) assertEquals(emptyList(), combos(q), q)
+        for (q in listOf("pengyou", "peng you", "nihao", "ni hao", "xiexie", "zhongguo", "xuexi", "dian", "ren", "hello", "tofu")) assertEquals(emptyList(), combos(q), q)
+        // Syllables typed apart always get their best sequence, although 软 alone is below the floor of
+        // unsplit letters; further sequences on those syllables are held to a lower floor.
+        val rxtz = combos("ruan xing tiao zheng")
+        assertEquals("软 行 调整", rxtz.first())
+        assertTrue("软 性 调整" in rxtz, rxtz.toString())
+        assertTrue(combos("ruan xing").let { it.first() == "软 行" && "软 性" in it }, combos("ruan xing").toString())
+        assertEquals("软 行 条", combos("ruan xing tiao").first())
+        assertEquals(listOf("软 调整"), combos("ruan tiao zheng"))
+        assertEquals("行 调整", combos("xing tiao zheng").first())
+        assertEquals(listOf("弹性 调整"), combos("tan xing tiao zheng"))
+        // Unspaced with a single shortest syllable reading: the best sequence only.
+        assertEquals(listOf("软 行 调整"), combos("ruanxingtiaozheng"))
+        // A trailing partial or abbreviated syllable typed as its own word behaves like the unspaced
+        // form, also when every word is an English word (`wo`, `shi`, `yi`, `g`; SCHEMA note 19).
+        assertEquals(combos("woshiyig"), combos("wo shi yi g"))
+        assertEquals("我 是 一 个", combos("wo shi yi g").first())
+        assertEquals("我 是 一", combos("wo shi y").first())
+        assertEquals("我 是 一 个", combos("wo shi yi ge").first())
+        assertEquals("你好 吗", combos("ni hao m").first())
         assertEquals("我 喜欢 你", combos("wxhn").first())
         assertEquals(listOf("我 爱 你"), combos("woaini"))
         assertEquals(listOf("今天 天气 很 好"), combos("jintiantianqihenhao"))
@@ -189,6 +208,14 @@ class RealDatasetTest {
         assertEquals("我 好 鍾意 你", combos("ngohouzungjinei").first())
         assertEquals("我 好 容易 你", combos("ngohoujungjinei").first()) // `jung` is 容 in Jyutping; 鍾 is zung
         assertEquals("我 都", combos("nd").first())
+        // Typed-apart syllables and a trailing letter (SRCH-063 floor exemption), as in Mandarin.
+        assertEquals(combos("ngohaijatg"), combos("ngo hai jat g"))
+        assertEquals("我 係 一個", combos("ngo hai jat g").first())
+        assertTrue(combos("ngo hai j").let { it.isNotEmpty() && it.all { c -> c.startsWith("我 係 ") } }, combos("ngo hai j").toString())
+        assertEquals("完成 調整", combos("jyun sing tiu zing").first())
+        assertTrue(combos("jyun tiu zing").let { it.isNotEmpty() && it.first().endsWith(" 調整") }, combos("jyun tiu zing").toString())
+        assertEquals("聲 調整", combos("sing tiu zing").first())
+        assertEquals(emptyList(), combos("jyun sing")) // 完成 spells the whole query
         assertEquals(SearchSide.CHINESE, dict.search("nd", t).forcedSide)
         assertEquals(SearchSide.CHINESE, dict.search("nh", t).forcedSide)
     }
@@ -379,6 +406,7 @@ class RealDatasetTest {
         time("search neihou", 20) { dict.search("neihou", t) }
         time("search nh", 20) { dict.search("nh", t) }
         time("search ngo5 zung1 ji3 nei5", 20) { dict.search("ngo5 zung1 ji3 nei5", t) }
+        time("search ngo hai jat g", 20) { dict.search("ngo hai jat g", t) }
         time("search walk", 20) { dict.search("walk", t) }
         time("search 行", 20) { dict.search("行", t) }
         val passage = "我哋今日去邊度食飯呀佢話唔知你鍾唔鍾意食點心我聽日想去睇戲".repeat(4).take(100)
@@ -400,6 +428,8 @@ class RealDatasetTest {
         println("TIMING search nihao (first call): ${ms(System.nanoTime() - cold)}")
         time("search nihao", 20) { dict.search("nihao", s) }
         time("search nh (abbr + combinations)", 20) { dict.search("nh", s) }
+        time("search ruan xing tiao zheng (combinations)", 20) { dict.search("ruan xing tiao zheng", s) }
+        time("search wo shi yi g (combinations)", 20) { dict.search("wo shi yi g", s) }
         time("search x", 10) { dict.search("x", s) }
         time("search 你好", 20) { dict.search("你好", s) }
         time("search graduate student", 20) { dict.search("graduate student", s) }
