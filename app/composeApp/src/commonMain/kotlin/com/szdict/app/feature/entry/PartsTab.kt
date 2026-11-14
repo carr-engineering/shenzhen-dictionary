@@ -60,6 +60,7 @@ import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.ExpandableFooter
 import com.szdict.app.ui.kit.ExpanderToggle
 import com.szdict.app.ui.kit.LocalDisplayPrefs
+import com.szdict.app.ui.kit.NavChip
 import com.szdict.app.ui.kit.SectionLabel
 import com.szdict.app.ui.kit.TonedHanziText
 import com.szdict.app.ui.kit.TonedReadingText
@@ -91,7 +92,7 @@ private val sidePadding = Modifier.padding(horizontal = 16.dp)
 private fun PartsTabState.partsOf(character: String): CharacterParts? =
     (made as? PartsLoad.Ready)?.characters?.firstOrNull { it.character == character }
 
-// ---- Chip navigation (sticky, like the HSK level chips) ----
+// ---- Chip navigation (sticky, the shared NavChip of the HSK and WORDS chip rows) ----
 
 @Composable
 private fun PartsNav(state: PartsTabState, list: LazyListState) {
@@ -137,55 +138,20 @@ private fun PartsNav(state: PartsTabState, list: LazyListState) {
             if (multi) {
                 state.characters.forEachIndexed { index, c ->
                     item(key = "char-$index") {
-                        PartsChip(
-                            selected = index == character,
-                            description = strings.text("Jump to {0}", c),
-                            onClick = { go(index to PartsSection.HEAD) },
-                        ) { Text(c, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (index == character) palette.accent else palette.fg) }
+                        NavChip(label = c, count = null, selected = index == character, onClick = { go(index to PartsSection.HEAD) })
                     }
                 }
                 item(key = "divider") { Box(Modifier.width(1.dp).height(24.dp).background(palette.border)) }
             }
             item(key = "made-of") {
-                PartsChip(selected = section != PartsSection.APPEARS_IN, description = null, onClick = { go(character to PartsSection.MADE_OF) }) {
-                    Text(strings.text("Made of"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
-                        color = if (section != PartsSection.APPEARS_IN) palette.accent else palette.muted, maxLines = 1)
-                }
+                NavChip(label = strings.text("Made of"), count = null, selected = section != PartsSection.APPEARS_IN,
+                    onClick = { go(character to PartsSection.MADE_OF) })
             }
             item(key = "appears-in") {
                 val count = state.appears[state.characters.getOrNull(character)]?.takeIf { it.loaded && it.total > 0 }?.total
-                PartsChip(selected = section == PartsSection.APPEARS_IN, description = null, onClick = { go(character to PartsSection.APPEARS_IN) }) {
-                    Text(strings.text("Appears in"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
-                        color = if (section == PartsSection.APPEARS_IN) palette.accent else palette.muted, maxLines = 1)
-                    count?.let { Text(it.toString(), style = MaterialTheme.typography.labelSmall, color = palette.muted, maxLines = 1) }
-                }
+                NavChip(label = strings.text("Appears in"), count = count, selected = section == PartsSection.APPEARS_IN,
+                    onClick = { go(character to PartsSection.APPEARS_IN) })
             }
-        }
-    }
-}
-
-/** The HSK level chip's shape and states (HskScreen `LevelChip`), in the accent colour. */
-@Composable
-private fun PartsChip(selected: Boolean, description: String?, onClick: () -> Unit, content: @Composable RowScope.() -> Unit) {
-    val palette = LocalDictionaryPalette.current
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        Surface(
-            onClick = onClick,
-            shape = RoundedCornerShape(12.dp),
-            color = if (selected) palette.accentSoft else palette.panel,
-            border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) palette.accent else palette.border),
-            modifier = Modifier.height(36.dp).semantics {
-                role = Role.Tab
-                this.selected = selected
-                description?.let { contentDescription = it }
-            },
-        ) {
-            Row(
-                Modifier.padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                content = content,
-            )
         }
     }
 }
