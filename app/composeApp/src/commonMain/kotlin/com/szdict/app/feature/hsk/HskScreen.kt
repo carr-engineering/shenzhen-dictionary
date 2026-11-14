@@ -79,6 +79,9 @@ import com.szdict.app.ui.kit.EntryCardView
 import com.szdict.app.ui.kit.FollowSelectedChip
 import com.szdict.app.ui.kit.HskBadge
 import com.szdict.app.ui.kit.NavChip
+import com.szdict.app.ui.kit.ChipBarHorizontalPadding
+import com.szdict.app.ui.kit.ChipBarVerticalPadding
+import com.szdict.app.ui.kit.TranslucentChipBar
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.SegmentedPillRow
 import com.szdict.app.ui.kit.hskLevelLabel
@@ -263,64 +266,51 @@ private fun HskHeader(
 ) {
     val palette = LocalDictionaryPalette.current
     val strings = appStrings()
-    val shadowAlpha by animateFloatAsState(if (canScrollUp) 1f else 0f)
     val chipRow = rememberLazyListState()
     val leading = if (linkMode != null) 2 else 1
     // Keep the selected chip in view as the grid scrolls through the levels.
     FollowSelectedChip(chipRow, selected = levels?.indexOfFirst { it.level == selectedLevel } ?: -1, leading = leading, chipCount = levels?.size ?: 0)
-    Column(modifier.fillMaxWidth()) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().onSizeChanged { onHeight(it.height) },
-            color = palette.bg.copy(alpha = 0.88f),
-            shadowElevation = 0.dp,
-            tonalElevation = 0.dp,
-        ) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                LazyRow(
-                    state = chipRow,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    item(key = "section") {
-                        SegmentedPillRow(
-                            options = listOf(strings.text("Words"), strings.text("Characters")),
-                            selectedIndex = section.ordinal,
-                            onSelect = { onSection(HskSection.entries[it]) },
+    TranslucentChipBar(scrolledUnder = canScrollUp, modifier = modifier, onBarHeight = onHeight) {
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(vertical = ChipBarVerticalPadding), verticalAlignment = Alignment.CenterVertically) {
+            LazyRow(
+                state = chipRow,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = ChipBarHorizontalPadding),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                item(key = "section") {
+                    SegmentedPillRow(
+                        options = listOf(strings.text("Words"), strings.text("Characters")),
+                        selectedIndex = section.ordinal,
+                        onSelect = { onSection(HskSection.entries[it]) },
+                    )
+                }
+                if (linkMode != null) {
+                    // GLB-110: a link-mode screen indicates that it differs from the persisted mode.
+                    item(key = "mode") {
+                        Text(
+                            if (linkMode == DictMode.CANTONESE) "粵語" else "中文",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.accent,
+                            modifier = Modifier.background(palette.accentSoft, CircleShape).padding(horizontal = 10.dp, vertical = 6.dp),
                         )
                     }
-                    if (linkMode != null) {
-                        // GLB-110: a link-mode screen indicates that it differs from the persisted mode.
-                        item(key = "mode") {
-                            Text(
-                                if (linkMode == DictMode.CANTONESE) "粵語" else "中文",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = palette.accent,
-                                modifier = Modifier.background(palette.accentSoft, CircleShape).padding(horizontal = 10.dp, vertical = 6.dp),
-                            )
-                        }
+                }
+                if (levels == null) {
+                    // HSK-063: three grey chip placeholders while the first load runs.
+                    items(3, key = { "placeholder-$it" }) {
+                        Surface(Modifier.width(92.dp).height(36.dp), shape = RoundedCornerShape(12.dp), color = palette.bgSoft,
+                            border = BorderStroke(1.dp, palette.border)) {}
                     }
-                    if (levels == null) {
-                        // HSK-063: three grey chip placeholders while the first load runs.
-                        items(3, key = { "placeholder-$it" }) {
-                            Surface(Modifier.width(92.dp).height(36.dp), shape = RoundedCornerShape(12.dp), color = palette.bgSoft,
-                                border = BorderStroke(1.dp, palette.border)) {}
-                        }
-                    } else {
-                        items(levels, key = { "level-${it.level}" }) { level ->
-                            LevelChip(level, selected = level.level == selectedLevel, onClick = { onLevel(level.level) })
-                        }
+                } else {
+                    items(levels, key = { "level-${it.level}" }) { level ->
+                        LevelChip(level, selected = level.level == selectedLevel, onClick = { onLevel(level.level) })
                     }
                 }
             }
         }
-        Box(
-            Modifier.fillMaxWidth().height(8.dp).background(
-                Brush.verticalGradient(listOf(palette.border.copy(alpha = 0.52f * shadowAlpha), palette.border.copy(alpha = 0f)))
-            )
-        )
     }
 }
 

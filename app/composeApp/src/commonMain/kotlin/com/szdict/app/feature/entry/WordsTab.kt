@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import com.szdict.app.i18n.AppStrings
 import com.szdict.app.i18n.appStrings
@@ -40,6 +38,9 @@ import com.szdict.app.ui.kit.FollowSelectedChip
 import com.szdict.app.ui.kit.InsideWordsState
 import com.szdict.app.ui.kit.NavChip
 import com.szdict.app.ui.kit.SectionLabel
+import com.szdict.app.ui.kit.ChipBarHorizontalPadding
+import com.szdict.app.ui.kit.ChipBarVerticalPadding
+import com.szdict.app.ui.kit.TranslucentChipBar
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.EntryCard
 import com.szdict.core.api.RelatedKind
@@ -83,18 +84,20 @@ internal fun wordsSectionAt(labels: IntArray, firstIndex: Int): Int {
 /**
  * WORDS tab (ENT-060…066): paged sections of compact cards, emitted as individual lazy items so
  * long `Containing` lists stay cheap. Empty sections are omitted by the engine (ENT-100, ENT-101).
- * With two or more sections a sticky chip row (the HSK level chips' component) jumps between them.
+ * With two or more non-empty sections a sticky, translucent chip row (the HSK selector's bar and
+ * chips) jumps between them; with one there is nothing to jump to and no row.
  */
 @OptIn(ExperimentalFoundationApi::class)
 internal fun LazyListScope.wordsTabItems(derived: EntryDerived, actions: EntryActions, strings: AppStrings, list: LazyListState? = null) {
     val rowPadding = Modifier.padding(horizontal = 16.dp)
     val sections = derived.related
-    val nav = list != null && sections.size >= 2
+    val nav = list != null && sections.count { it.total > 0 || it.cards.isNotEmpty() } >= 2
     if (nav) {
         val labels = wordsLabelIndices(sections.map { it.cards.size }, sections.map { it.hasMore }, nav = true)
         stickyHeader(key = "words-nav") { WordsNav(sections, labels, list!!, strings) }
     }
-    item(key = "words-top-spacer") { Spacer(Modifier.height(12.dp)) }
+    // The chip bar's shadow strip already spaces the first label from the row.
+    item(key = "words-top-spacer") { Spacer(Modifier.height(if (nav) 4.dp else 12.dp)) }
     if (sections.isEmpty()) {
         item(key = "words-empty") {
             Text(strings.text("No related words."), color = LocalDictionaryPalette.current.muted, style = MaterialTheme.typography.bodyLarge, modifier = rowPadding)
@@ -134,7 +137,6 @@ internal fun LazyListScope.wordsTabItems(derived: EntryDerived, actions: EntryAc
  */
 @Composable
 private fun WordsNav(sections: List<RelatedSection>, labels: IntArray, list: LazyListState, strings: AppStrings) {
-    val palette = LocalDictionaryPalette.current
     val scope = rememberCoroutineScope()
     val chipRow = rememberLazyListState()
     var navHeight by remember { mutableIntStateOf(0) }
@@ -147,12 +149,13 @@ private fun WordsNav(sections: List<RelatedSection>, labels: IntArray, list: Laz
         }
     }
     val selected = requested ?: shown
+    val scrolledUnder by remember { derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0 } }
     FollowSelectedChip(chipRow, selected = selected, chipCount = sections.size)
-    Surface(Modifier.fillMaxWidth().onSizeChanged { navHeight = it.height }, color = palette.bg) {
+    TranslucentChipBar(scrolledUnder = scrolledUnder, onBarHeight = { navHeight = it }) {
         LazyRow(
             state = chipRow,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = ChipBarVerticalPadding),
+            contentPadding = PaddingValues(horizontal = ChipBarHorizontalPadding),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
