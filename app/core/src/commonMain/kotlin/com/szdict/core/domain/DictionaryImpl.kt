@@ -106,6 +106,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
     private val audio = AudioPlanner(store)
     private val cards = CardBuilder(store, audio)
     private val decomposer = Decomposer(store, cards)
+    private val parts = PartsIndex(store, cards, decomposer, cantonese)
     private var closed = false
 
     // Small bounded memos, valid for this generation only.
@@ -594,6 +595,10 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
     override suspend fun decompose(characters: List<String>, script: Script, headwordEntryId: Int?): List<CharacterDecomposition> = guard {
         decomposer.decompose(characters, script, headwordEntryId?.let { store.entry(it) })
     }
+
+    override suspend fun characterParts(characters: List<String>, script: Script, headwordEntryId: Int?) = guard { parts.parts(characters, script, headwordEntryId) }
+
+    override suspend fun appearsIn(character: String, script: Script, offset: Int, limit: Int) = guard { parts.appearsIn(character, script, offset, limit) }
 
     // ------------------------------------------------------------------ text analysis
 

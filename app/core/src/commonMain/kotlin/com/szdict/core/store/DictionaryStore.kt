@@ -790,6 +790,36 @@ internal class DictionaryStore private constructor(
         return out
     }
 
+    /** `part_of.chars` of [component] (SCHEMA note 23), `""` without a row; null when the pack or the table is absent. */
+    suspend fun partOf(component: String): String? {
+        val db = pack(decompPath, decompDb) { decompDb = it } ?: return null
+        return withContext(io) {
+            db.use { c ->
+                var table = false
+                c.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'part_of'", {}) { table = true }
+                if (!table) return@use null
+                var chars = ""
+                c.query("SELECT chars FROM part_of WHERE part = ?", { it.bindText(1, component) }) { chars = it.getText(0) }
+                chars
+            }
+        }
+    }
+
+    /** Exact (kind 0) headword hits with each entry's (simplified, traditional) forms: one batched read (PARTS tab). */
+    suspend fun headwordForms(keys: Collection<String>): Map<String, List<Triple<String, String, Proj>>> {
+        if (keys.isEmpty()) return emptyMap()
+        val out = HashMap<String, MutableList<Triple<String, String, Proj>>>()
+        read { c ->
+            c.query(
+                "SELECT h.key, e.simp, e.trad, $PROJ_COLS FROM headword h JOIN entry e ON e.id = h.entry_id WHERE h.kind = 0 AND h.key IN (SELECT value FROM json_each(?))",
+                { it.bindText(1, Codec.jsonArray(keys)) },
+            ) {
+                out.getOrPut(it.getText(0)) { ArrayList(2) }.add(Triple(it.getText(1), it.getText(2), projOf(it, 3)))
+            }
+        }
+        return out
+    }
+
     companion object {
         private const val ENTRY_CACHE_SIZE = 2000
         private const val MIN_SCHEMA_VERSION = 1

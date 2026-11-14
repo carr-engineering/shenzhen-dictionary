@@ -196,6 +196,38 @@ class FakeDictionary(override val mode: DictMode = DictMode.MANDARIN) : Dictiona
     override suspend fun decompose(characters: List<String>, script: Script, headwordEntryId: Int?): List<CharacterDecomposition> =
         throw DictException(DictError.AssetMissing("packs/decomposition.db"))
 
+    // PARTS tab: a few hand-written trees (你 = ⿰亻尔, 尔 = ⿱⺈小; 好 = ⿰女子; 们 = ⿰亻门) and their reverse index.
+    private val fakeParts = mapOf("你" to ("⿰" to listOf("亻", "尔")), "尔" to ("⿱" to listOf("⺈", "小")), "好" to ("⿰" to listOf("女", "子")), "们" to ("⿰" to listOf("亻", "门")))
+    private val fakeRadicals = mapOf("你" to "人", "好" to "女", "们" to "人", "尔" to "小")
+
+    private fun fakeNode(glyph: String, path: List<Int>, script: Script): PartNode {
+        val split = fakeParts[glyph]
+        val hit = entries.filter { it.simp == glyph }.sortedWith(rank)
+        val children = split?.second.orEmpty().mapIndexed { i, c -> fakeNode(c, path + i, script) }
+        val node = DecompNode(
+            path = path, kind = PartKind.CHARACTER, glyph = glyph, mapsTo = null, position = null, operator = split?.first,
+            ids = split?.let { it.first + it.second.joinToString("") }.orEmpty(), isRoot = split == null, card = hit.firstOrNull()?.let { card(it, script) },
+            entryIds = hit.map { it.id }, radicalName = null, svgPath = null, strokeCount = null,
+            highlight = PartHighlight(null, Region(0f, 0f, 1f, 1f), null), children = children.map { it.node },
+        )
+        return PartNode(node, split == null && glyph in setOf("亻", "女", "子", "小", "门"), false, false, children)
+    }
+
+    override suspend fun characterParts(characters: List<String>, script: Script, headwordEntryId: Int?): List<CharacterParts> = characters.map { c ->
+        if (c !in fakeParts) CharacterParts(c, false, null, null)
+        else {
+            val root = fakeNode(c, emptyList(), script)
+            val radical = fakeRadicals[c]
+            CharacterParts(c, true, radical, root.copy(children = root.children.map { it.copy(isParentRadical = it.node.glyph == radical || (it.node.glyph == "亻" && radical == "人")) }))
+        }
+    }
+
+    override suspend fun appearsIn(character: String, script: Script, offset: Int, limit: Int): AppearsInPage {
+        val all = fakeParts.filter { (c, split) -> character in split.second && entries.any { it.simp == c } }.keys
+            .map { c -> entries.filter { it.simp == c }.sortedWith(rank).first() }.sortedWith(rank)
+        return AppearsInPage(character, all.size, offset, all.drop(offset).take(limit).map { AppearsInItem(head(it, script), card(it, script)) })
+    }
+
     override suspend fun resolveReference(traditional: String, simplified: String, readingCanonical: String?, script: Script): ReferenceCandidates {
         val m = entries.filter { it.simp == simplified || it.trad == traditional }.sortedWith(rank)
         return ReferenceCandidates(if (script == Script.SIMPLIFIED) simplified else traditional, m.map { card(it, script) }, m.firstOrNull()?.id, emptyList())
