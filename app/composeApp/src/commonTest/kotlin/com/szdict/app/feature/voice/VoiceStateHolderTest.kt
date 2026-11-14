@@ -152,8 +152,37 @@ class VoiceStateHolderTest {
         settle()
         assertEquals(1, f.permission.requests)
         assertEquals(VoicePhase.LISTENING, f.holder.phase)
-        assertEquals("Listening…", f.holder.status)
+        assertNull(f.holder.status)
         assertTrue(f.capture.open)
+    }
+
+    @Test
+    fun theElapsedTimeStartsAtZeroOnEveryStart() = runTest {
+        val f = Fixture(this)
+        f.holder.enter()
+        settle()
+        assertEquals(0, f.holder.elapsedSeconds)
+        f.holder.startListening()
+        settle()
+        assertEquals(VoicePhase.LISTENING, f.holder.phase)
+        assertEquals(0, f.holder.elapsedSeconds)
+        f.holder.stopListening()
+        settle()
+        f.holder.startListening()
+        settle()
+        assertEquals(0, f.holder.elapsedSeconds)
+        f.holder.stopListening()
+        settle()
+    }
+
+    @Test
+    fun elapsedTimeIsFormattedAsMinutesAndSeconds() {
+        assertEquals("0:00", formatElapsed(0))
+        assertEquals("0:07", formatElapsed(7))
+        assertEquals("1:00", formatElapsed(60))
+        assertEquals("12:05", formatElapsed(725))
+        assertEquals("61:01", formatElapsed(3661))
+        assertEquals("0:00", formatElapsed(-3))
     }
 
     @Test
@@ -209,7 +238,7 @@ class VoiceStateHolderTest {
 
         gate.complete(Unit)
         settle()
-        assertEquals("Listening…", f.holder.status)
+        assertNull(f.holder.status)
         assertEquals(5, f.recognizer.framesHeard)   // VOICE-022: recognised once the model is ready
     }
 

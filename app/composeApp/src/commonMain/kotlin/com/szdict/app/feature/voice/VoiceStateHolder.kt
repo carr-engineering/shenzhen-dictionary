@@ -3,6 +3,7 @@ package com.szdict.app.feature.voice
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -24,12 +25,14 @@ import com.szdict.core.api.SegmentationMode
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.log10
 import kotlin.math.sqrt
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -123,17 +126,20 @@ class VoiceStateHolder(
     var inputLevel: Float by mutableFloatStateOf(0f)
         private set
 
+    /** Whole seconds since the current recording started; 0 outside one (reset on each start). */
+    var elapsedSeconds: Int by mutableIntStateOf(0)
+        private set
+
     val listening: Boolean get() = phase == VoicePhase.LISTENING
 
     /** The start button is disabled until the model is on the device (VOICE-002). */
     val canStart: Boolean get() = services != null && packState == VoicePackState.Present && phase != VoicePhase.STOPPING
 
-    /** English status line text (VOICE-002), or null. */
+    /** English status line text (VOICE-002), or null; plain listening is shown by the record pill. */
     val status: String?
         get() = when {
             error != null -> error?.label
             phase == VoicePhase.LISTENING && modelState != VoiceModelState.READY -> "Preparing…"
-            phase == VoicePhase.LISTENING -> "Listening…"
             else -> null
         }
 
@@ -331,6 +337,14 @@ class VoiceStateHolder(
         val stop = CompletableDeferred<Unit>()
         stopSignal = stop
         phase = VoicePhase.LISTENING
+        elapsedSeconds = 0
+        val startedAt = TimeSource.Monotonic.markNow()
+        val ticker = launch {
+            while (true) {
+                delay(TICK_MS)
+                elapsedSeconds = startedAt.elapsedNow().inWholeSeconds.toInt()
+            }
+        }
         // Audio is buffered in memory until the model is ready (VOICE-022) and never dropped (VOICE-081).
         val audio = Channel<FloatArray>(Channel.UNLIMITED)
         val pump = launch {
@@ -364,6 +378,7 @@ class VoiceStateHolder(
             modelState = VoiceModelState.FAILED   // the next start loads again (ARCH-122)
             error = VoiceError.MODEL_UNAVAILABLE   // VOICE-023
         } finally {
+            ticker.cancel()
             stopper.cancel()
             pump.cancel()
         }
@@ -678,6 +693,7 @@ class VoiceStateHolder(
 
     companion object {
         private const val LEVEL_DECAY = 0.82f
+        private const val TICK_MS = 250L
         private var current: VoiceStateHolder? = null
 
         /** The holder of [session], created on first use and kept for the life of the process. */

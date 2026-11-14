@@ -1,8 +1,6 @@
 package com.szdict.app.feature.voice
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
@@ -13,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -32,6 +31,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
@@ -63,7 +63,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -74,6 +73,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
 import com.szdict.app.Destination
@@ -117,11 +117,12 @@ fun VoiceScreen(session: AppSession, modifier: Modifier = Modifier) {
         val bottomInset = if (maxWidth < 600.dp) 0.dp else navInset
         // The controls stay reachable above the word sheet at its peek height (TXT-044).
         val sheetInset = LocalSheetInset.current.coerceAtMost(maxHeight * 0.5f)
+        val bottomPad = maxOf(bottomInset, sheetInset) + 12.dp
         Column(
             Modifier
                 .widthIn(max = 900.dp)   // GLB-067
                 .fillMaxSize()
-                .padding(top = topInset + 14.dp, bottom = maxOf(bottomInset, sheetInset) + 12.dp),
+                .padding(top = topInset + 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             VoiceHeader(
@@ -129,39 +130,41 @@ fun VoiceScreen(session: AppSession, modifier: Modifier = Modifier) {
                 holder = holder,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             )
+            val status = holder.status
+            if (status != null) {
+                Text(
+                    text = strings.text(status),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (holder.error != null) MaterialTheme.colorScheme.error else palette.muted,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
             Spacer(Modifier.height(8.dp))
+            // The transcript owns the rest of the screen down to the bottom edge.
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val pack = holder.packState
                 val permission = holder.permissionStatus
+                val panelPad = Modifier.padding(bottom = bottomPad)
                 when {
-                    !holder.available -> CenteredPanel { PanelText(strings.text(VoiceError.MODEL_UNAVAILABLE.label)) }
-                    pack != VoicePackState.Present -> ModelDownloadPanel(pack, onRequest = holder::requestModel)
+                    !holder.available -> Box(panelPad) { CenteredPanel { PanelText(strings.text(VoiceError.MODEL_UNAVAILABLE.label)) } }
+                    pack != VoicePackState.Present -> Box(panelPad) { ModelDownloadPanel(pack, onRequest = holder::requestModel) }
                     permission == MicPermissionStatus.DENIED || permission == MicPermissionStatus.DENIED_PERMANENTLY ->
-                        PermissionPanel(
-                            permanent = permission == MicPermissionStatus.DENIED_PERMANENTLY,
-                            onTryAgain = holder::startListening,
-                            onOpenSettings = holder::openPermissionSettings,
-                        )
-                    holder.isEmpty -> CenteredPanel {
-                        PanelText(strings.text("Tap the microphone and speak Mandarin, Cantonese or English."))
+                        Box(panelPad) {
+                            PermissionPanel(
+                                permanent = permission == MicPermissionStatus.DENIED_PERMANENTLY,
+                                onTryAgain = holder::startListening,
+                                onOpenSettings = holder::openPermissionSettings,
+                            )
+                        }
+                    holder.isEmpty -> Box(panelPad) {
+                        CenteredPanel {
+                            PanelText(strings.text("Tap Record and speak Mandarin, Cantonese or English."))
+                        }
                     }
-                    else -> Transcript(holder, session, listState)
+                    else -> Transcript(holder, session, listState, bottomPad)
                 }
             }
-            val status = holder.status
-            Text(
-                text = status?.let { strings.text(it) } ?: "",
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (holder.error != null) MaterialTheme.colorScheme.error else palette.muted,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp).padding(horizontal = 16.dp, vertical = 2.dp),
-            )
-            ListenButton(
-                listening = holder.listening,
-                enabled = holder.canStart,
-                level = holder.inputLevel,
-                onClick = holder::toggleListening,
-            )
         }
     }
 }
@@ -176,34 +179,45 @@ private fun VoiceHeader(
 ) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    FlowRow(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        itemVerticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = strings.text("Voice"),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = palette.fg,
-            modifier = Modifier.weight(1f).semantics { heading() },
-        )
-        PronunciationToggle(session)
-        HeaderAction(Icons.Rounded.ContentCopy, strings.text("Copy"), enabled = !holder.isEmpty, onClick = holder::copy)
-        HeaderAction(Icons.Rounded.Clear, strings.text("Clear"), enabled = !holder.isEmpty, onClick = holder::clear)
-        ScriptConversionButton(
-            selection = holder.selection,
-            enabled = !holder.isEmpty,
-            onMainAction = holder::toggleConversion,
-            onConvert = holder::convert,
-        )
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = strings.text("Voice"),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.fg,
+                modifier = Modifier.weight(1f).semantics { heading() },
+            )
+            Spacer(Modifier.width(8.dp))
+            RecordPill(
+                phase = holder.phase,
+                enabled = holder.canStart || holder.phase == VoicePhase.STARTING,
+                elapsedSeconds = holder.elapsedSeconds,
+                onClick = holder::toggleListening,
+            )
+        }
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            PronunciationToggle(session)
+            HeaderAction(Icons.Rounded.ContentCopy, strings.text("Copy"), enabled = !holder.isEmpty, onClick = holder::copy)
+            HeaderAction(Icons.Rounded.Clear, strings.text("Clear"), enabled = !holder.isEmpty, onClick = holder::clear)
+            ScriptConversionButton(
+                selection = holder.selection,
+                enabled = !holder.isEmpty,
+                onMainAction = holder::toggleConversion,
+                onConvert = holder::convert,
+            )
+        }
     }
 }
 
 /** The transcript (VOICE-030, VOICE-040): one line per utterance, virtualised, the live one last. */
 @Composable
-private fun Transcript(holder: VoiceStateHolder, session: AppSession, listState: LazyListState) {
+private fun Transcript(holder: VoiceStateHolder, session: AppSession, listState: LazyListState, bottomPad: Dp) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val scope = rememberCoroutineScope()
@@ -230,7 +244,7 @@ private fun Transcript(holder: VoiceStateHolder, session: AppSession, listState:
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottomPad),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(lines, key = { it.id }) { utterance ->
@@ -249,7 +263,7 @@ private fun Transcript(holder: VoiceStateHolder, session: AppSession, listState:
             visible = listState.canScrollForward && holder.listening && (!follow || sheetOpen),
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomPad),
         ) {
             Button(
                 onClick = {
@@ -269,45 +283,57 @@ private fun Transcript(holder: VoiceStateHolder, session: AppSession, listState:
     }
 }
 
-/** The 72 dp start/stop control (VOICE-002, VOICE-003) with a live input-level halo while listening. */
+/**
+ * The compact pill-shaped record control (VOICE-002, VOICE-003): microphone and "Record" when idle,
+ * stop, "Recording" and the elapsed m:ss while listening. At least 48 dp high.
+ */
 @Composable
-private fun ListenButton(listening: Boolean, enabled: Boolean, level: Float, onClick: () -> Unit) {
+private fun RecordPill(phase: VoicePhase, enabled: Boolean, elapsedSeconds: Int, onClick: () -> Unit) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    val label = strings.text(if (listening) "Stop listening" else "Start listening")
-    val halo by animateFloatAsState(if (listening) level else 0f, tween(110), label = "voice-input-level")
-    val accent = palette.accent
-    Box(
-        modifier = Modifier.size(104.dp).drawBehind {
-            if (listening) {
-                val base = 36.dp.toPx()
-                drawCircle(accent.copy(alpha = 0.14f), radius = base + 5.dp.toPx() + 11.dp.toPx() * halo)
-                drawCircle(accent.copy(alpha = 0.22f), radius = base + 2.dp.toPx() + 6.dp.toPx() * halo)
-            }
+    val listening = phase == VoicePhase.LISTENING
+    val active = listening || phase == VoicePhase.STOPPING || phase == VoicePhase.STARTING
+    val text = when (phase) {
+        VoicePhase.IDLE -> strings.text("Record")
+        VoicePhase.STARTING -> strings.text("Starting…")
+        VoicePhase.LISTENING -> strings.text("Recording")
+        VoicePhase.STOPPING -> strings.text("Stopping…")
+    }
+    val time = if (listening) formatElapsed(elapsedSeconds) else null
+    val description = strings.text(if (active) "Stop listening" else "Start listening") + (time?.let { ", $it" } ?: "")
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(percent = 50),
+        color = if (listening) palette.accent else palette.panel,
+        contentColor = if (listening) palette.onAccent else palette.accent,
+        border = BorderStroke(1.dp, if (listening) palette.accent else palette.border),
+        modifier = Modifier.heightIn(min = 48.dp).semantics {
+            contentDescription = description
+            role = Role.Button
         },
-        contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            onClick = onClick,
-            enabled = enabled,
-            shape = CircleShape,
-            color = if (enabled) accent else accent.copy(alpha = 0.35f),
-            contentColor = palette.onAccent,
-            shadowElevation = if (enabled) 3.dp else 0.dp,
-            modifier = Modifier.size(72.dp).semantics {
-                contentDescription = label
-                role = Role.Button
-            },
+        Row(
+            Modifier.heightIn(min = 48.dp).padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = if (listening) Icons.Rounded.Stop else Icons.Rounded.Mic,
-                    contentDescription = null,
-                    modifier = Modifier.size(32.dp),
-                )
-            }
+            Icon(
+                imageVector = if (listening) Icons.Rounded.Stop else Icons.Rounded.Mic,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+            Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            if (time != null) Text(time, style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
     }
+}
+
+/** `0:07`, `12:05`, `61:00` — minutes are not wrapped into hours. */
+internal fun formatElapsed(seconds: Int): String {
+    val total = seconds.coerceAtLeast(0)
+    val s = total % 60
+    return "${total / 60}:${if (s < 10) "0" else ""}$s"
 }
 
 /** Microphone rationale after a denial (VOICE-011). */
