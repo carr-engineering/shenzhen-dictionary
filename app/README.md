@@ -71,8 +71,11 @@ from the `PrivacyPolicy*.kt` sources).
 - **CJK font.** Without preparation the app fetches the complete Noto Sans CJK (16 MB) of the glyph
   variant in use from the font host. `uv run --no-project --with fonttools tools/stage-web-fonts.py`
   cuts the SC, TC and HK variants into frequency tiers under `build/web/static/cjk/fonts` — about
-  1.5 MB for the first — which the distribution then includes and the app fetches in order;
-  `--full` also stages the complete fonts for a deployment that must not ask the font host. The
+  1.5 MB for the first, which also holds every character of the interface text. The
+  distribution includes them and the app fetches them in order; `index.html` requests the first
+  tier with the page (beside the code and the dataset), so hanzi appear with the first frames.
+  The option
+  `--full` stages the complete fonts for a deployment that must not ask the font host. The
   same run cuts the rare tier: the 2,432 characters of the datasets and packs that Noto Sans CJK
   lacks (mostly CJK Extensions B–J), from Plangothic P1 and P2 (SIL OFL 1.1; subsets renamed
   "SZDict Rare Han", as the licence's reserved name requires) into `rare-1.ttf` (0.51 MB) and

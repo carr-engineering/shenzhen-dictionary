@@ -36,10 +36,11 @@ import kotlinx.serialization.json.JsonPrimitive
  * Kong shapes (HK) for Cantonese. Fonts registered first win, so the variant is chosen once, when
  * the page starts; a later change of mode or script takes effect on the next load.
  *
- * When the build staged frequency subsets (`tools/stage-web-fonts.sh` → `fonts/index.json`) the
+ * When the build staged frequency subsets (`tools/stage-web-fonts.py` → `fonts/index.json`) the
  * font arrives in steps, each registered as soon as it is here:
- *  1. the core — the most frequent characters of the dataset's headwords, with the accented
- *     letters of Pinyin and the punctuation;
+ *  1. the core — the most frequent characters of the dataset's headwords, every character of the
+ *     interface text, the accented letters of Pinyin and the punctuation; index.html requests it
+ *     with the page, and it is registered as soon as the settings are read;
  *  2. the further tiers, down to every character the datasets and packs contain;
  *  3. the complete font, only once Reading or OCR is opened, where text from outside the dictionary is shown.
  * Without staged subsets the complete font of the variant is fetched from the font host at once.
@@ -59,17 +60,22 @@ fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
         suspend fun register(name: String, urls: List<String>): Boolean {
             for (url in urls) {
                 val sha256 = hashes[url]
+                val start = jsNow()
                 val bytes = (if (sha256 != null) fetchVerifiedBytes(url, sha256) else fetchBytes(url)) ?: continue
+                val fetched = jsNow()
                 if (!isFontFile(bytes)) continue   // a host answering a missing file with the app shell
                 if (runCatching { resolver.preload(FontFamily(Font(name, bytes))) }.isSuccess) {
                     generation++
+                    fontLog("$url: fetched ${(fetched - start).toInt()} ms, registered ${(jsNow() - fetched).toInt()} ms later")
                     return true
                 }
             }
             return false
         }
+        fontLog("start")
         val index = stagedIndex()
         hashes = index?.sha256.orEmpty()
+        fontLog("index")
         // The rare tier waits for its characters, beside everything below.
         index?.rare?.forEachIndexed { k, file ->
             launch {
@@ -78,9 +84,9 @@ fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
             }
         }
         snapshotFlow { session.settingsLoaded }.first { it }
-        // On a first visit the service worker is still installing: the font waits for it (a moment,
-        // behind the dataset download) so the files are kept for the next, possibly offline, start.
-        awaitServiceWorker()
+        fontLog("settings")
+        // The first tier never waits: index.html has already asked for it.
+        val controlled = serviceWorkerControls()
         val settings = session.settings.value
         val variant = when {
             settings.dictionaryMode == DictMode.CANTONESE -> CjkVariant.HK
@@ -93,6 +99,11 @@ fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
             register("NotoSansCJK", complete)
             return@LaunchedEffect
         }
+        // On a first visit the service worker was still installing: once it controls the page the
+        // first tier is asked for again (from the HTTP cache), so it keeps it for an offline start,
+        // and the further tiers wait for it.
+        awaitServiceWorker()
+        if (!controlled && serviceWorkerControls()) jsWarm(staged.tiers.first())
         // The first frames and the first search come first; the long tail follows — on a first
         // visit only once the dataset is here, so it never shares the connection with it (PERF-060).
         runCatching { session.dictionary() }
@@ -176,6 +187,21 @@ private fun isFontFile(bytes: ByteArray): Boolean {
     if (bytes.size < 12) return false
     val tag = (0 until 4).joinToString("") { (bytes[it].toInt() and 0xFF).toChar().toString() }
     return tag == "OTTO" || tag == "ttcf" || tag == "true" || (bytes[0].toInt() == 0 && bytes[1].toInt() == 1 && bytes[2].toInt() == 0 && bytes[3].toInt() == 0)
+}
+
+private fun jsServiceWorkerControls(): Boolean = js("!!(navigator.serviceWorker && navigator.serviceWorker.controller)")
+
+private fun serviceWorkerControls(): Boolean = jsServiceWorkerControls()
+
+private fun jsWarm(url: String): Unit = js("{ fetch(url).then(function (r) { return r.arrayBuffer(); }).catch(function () {}); }")
+
+private fun jsNow(): Double = js("performance.now()")
+
+private fun jsFontLogEnabled(): Boolean = js("(function () { try { return localStorage.getItem('szdict.debug') === '1'; } catch (e) { return false; } })()")
+
+/** `[font] <ms since navigation> <message>` on the console, with `localStorage["szdict.debug"] = "1"`. */
+private fun fontLog(message: String) {
+    if (jsFontLogEnabled()) consoleLog("[font] ${jsNow().toInt()} $message")
 }
 
 private const val REFRESH_STEP = 1f / 4096

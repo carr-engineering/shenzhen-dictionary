@@ -65,6 +65,22 @@
         if (name !== 'Shenzhen Dictionary') document.documentElement.lang = name === '深圳词典' ? 'zh-Hans' : 'zh-Hant';
     } catch (e) {}
 
+    // The CJK font's first tier is fetched with the page, beside the code and the dataset, and is
+    // here when the app asks for it (WebFont.kt chooses the same variant from the same settings).
+    try {
+        var stored = function (key) { try { return localStorage.getItem('szdict.setting.' + key); } catch (e) { return null; } };
+        var dictMode = (stored('dictionary_mode') || '').trim().toLowerCase();
+        var variant = dictMode === 'cantonese' || dictMode === 'yue' ? 'hk'
+            : (stored('script.mandarin') || '').trim().toLowerCase() === 'traditional' ? 'tc' : 'sc';
+        fetch('fonts/index.json').then(function (r) { return r.ok ? r.json() : null; }).then(function (index) {
+            var tiers = index && index[variant] && index[variant].tiers;
+            if (!tiers || !tiers.length) return;
+            var link = document.createElement('link');
+            link.rel = 'preload'; link.as = 'fetch'; link.crossOrigin = 'anonymous'; link.href = 'fonts/' + tiers[0];
+            document.head.appendChild(link);
+        }).catch(function () {});
+    } catch (e) {}
+
     // The store worker starts with the page, beside the download of the app's code, and begins to
     // open — on a first visit, to download — the dataset the page is about to ask for (PERF-060).
     // Its events are kept until the app is there to read them.

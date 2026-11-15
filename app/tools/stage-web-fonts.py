@@ -4,8 +4,10 @@
 Compose draws text itself, so the Web build fetches Noto Sans CJK after start-up. The complete font
 is 16 MB per glyph variant; this script cuts each variant (SC, TC, HK) into
 
-  <v>-core.otf   the most frequent characters of the dataset's headwords, with punctuation and the
-                 accented Latin letters of Pinyin — what the first screens need;
+  <v>-core.otf   the most frequent characters of the dataset's headwords, every character of the
+                 interface text (the Kotlin sources of the shared and Web UI: labels, translations,
+                 the privacy policy), with punctuation and the accented Latin letters of Pinyin —
+                 what the first screens need;
   <v>-mid.otf    the next few thousand headword characters;
   <v>-tail.otf   every other character the datasets and packs contain;
 
@@ -68,6 +70,18 @@ PINNED = {
 BASICS = [(0x00A0, 0x024F), (0x02B0, 0x02FF), (0x0300, 0x036F), (0x1E00, 0x1EFF), (0x2000, 0x206F), (0x2190, 0x21FF),
           (0x3000, 0x303F), (0xFE30, 0xFE4F), (0xFF00, 0xFFEF)]
 CJK = re.compile('[⺀-⿟⿰-⿿぀-ヿ㄀-ㄯㆠ-㇯㐀-䶿一-鿿豈-﫿\U00020000-\U0003ffff]')
+
+
+def interface_characters():
+    """Every CJK character of the app's own text: the Kotlin sources of the shared and Web UI."""
+    found = set()
+    for source in ('commonMain', 'wasmJsMain'):
+        for root, _, files in os.walk(os.path.join(APP, 'composeApp', 'src', source, 'kotlin')):
+            for name in files:
+                if name.endswith('.kt'):
+                    with open(os.path.join(root, name), encoding='utf-8') as f:
+                        found.update(CJK.findall(f.read()))
+    return found
 
 
 def headword_order(db, column):
@@ -190,6 +204,9 @@ def main():
         if os.path.isfile(path):
             everything |= all_characters(path)
     basics = {cp for lo, hi in BASICS for cp in range(lo, hi + 1)}
+    # Interface text (Settings labels such as 粵語 / 繁體, translated chrome) is drawn before any
+    # result: it belongs to the first tier of every variant.
+    basics |= {ord(ch) for ch in interface_characters()}
     index = {}
     noto = set()
     for variant, (file, directory, dataset, column) in VARIANTS.items():
