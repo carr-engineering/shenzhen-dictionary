@@ -5,3 +5,6 @@ web-runtime/
 build/
 # The TensorFlow Lite C runtime of the iOS build, restored by tools/fetch_ios_frameworks.sh.
 ios-frameworks/
+
+# The OCR models of the Android and iOS apps, restored by tools/fetch_ocr2_models.sh (./gradlew :recognition:fetchOcr2Models).
+src/androidMain/assets/models/ocr2/

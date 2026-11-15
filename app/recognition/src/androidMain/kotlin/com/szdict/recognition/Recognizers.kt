@@ -4,8 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import com.szdict.recognition.ink.InkPipeline
 import com.szdict.recognition.ink.ScriptClasses
-import com.szdict.recognition.ocr.OcrOptions
-import com.szdict.recognition.ocr.OcrPipeline
+import com.szdict.recognition.ocr2.Ocr2Options
+import com.szdict.recognition.ocr2.Ocr2Pipeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -21,8 +21,8 @@ import kotlin.coroutines.coroutineContext
  */
 object Recognizers {
     /**
-     * OCR with per-character alternatives. Models (about 1.9 MB) are loaded on the first
-     * [TextRecognizer.recognize] call and released by [TextRecognizer.close].
+     * OCR with per-character alternatives. Models (16 MB, `assets/models/ocr2/`) are loaded on the
+     * first [TextRecognizer.recognize] call and released by [TextRecognizer.close].
      *
      * @param alternatives how many candidates to keep per character, including the best one.
      */
@@ -99,21 +99,18 @@ private class Guarded<T : Any>(private val load: () -> T, private val release: (
 }
 
 internal class AndroidTextRecognizer(private val context: Context, private val alternatives: Int) : TextRecognizer {
-    private class Loaded(val nets: LiteRtOcrNets, val pipeline: OcrPipeline)
+    private class Loaded(val nets: OrtOcr2Nets, val pipeline: Ocr2Pipeline)
 
     private val guarded = Guarded(
         load = {
             val assets = context.assets
-            val nets = LiteRtOcrNets(assets, workerThreads())
-            Loaded(
-                nets,
-                OcrPipeline(
-                    nets,
-                    assets.loadLabels("$MODEL_DIR/ocr/hani-labels.txt"),
-                    assets.loadLabels("$MODEL_DIR/ocr/latn-labels.txt"),
-                    OcrOptions(alternatives = alternatives),
-                ),
-            )
+            val nets = OrtOcr2Nets({ assets.loadModel("$MODEL_DIR/ocr2/$it") }, workerThreads())
+            try {
+                Loaded(nets, Ocr2Pipeline(nets, assets.loadLabels("$MODEL_DIR/ocr2/rec-labels.txt"), Ocr2Options(alternatives = alternatives)))
+            } catch (e: Throwable) {
+                nets.close()
+                throw e
+            }
         },
         release = { it.nets.close() },
     )
@@ -125,7 +122,11 @@ internal class AndroidTextRecognizer(private val context: Context, private val a
     override suspend fun recognize(image: OcrImage): OcrResult = withContext(Dispatchers.Default) {
         val context = coroutineContext
         guarded.use { loaded ->
-            loaded.pipeline.recognize(image) { context.ensureActive() }.also { lastTimings = loaded.pipeline.timings.toMap() }
+            try {
+                loaded.pipeline.recognize(image) { context.ensureActive() }
+            } finally {
+                lastTimings = loaded.pipeline.timings.toMap()
+            }
         }
     }
 

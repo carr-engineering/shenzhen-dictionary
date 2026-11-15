@@ -5,6 +5,8 @@ plugins {
     id("org.jetbrains.kotlin.multiplatform")
 }
 
+val onnxRuntime = "1.23.2"
+
 // On-device text recognition (OCR with per-character alternatives) and handwriting recognition.
 // commonMain holds the platform-neutral contract plus all geometry, image preparation and decoding;
 // androidMain only runs the neural graphs (LiteRT) and loads the bundled model assets.
@@ -39,6 +41,15 @@ kotlin {
         }
         androidMain.dependencies {
             implementation("com.google.ai.edge.litert:litert:1.4.2")
+            // OCR graphs (ocr2). 1.23.2 is the last release with a 19 MB arm64 library; later ones
+            // are 26 to 36 MB and, from 1.32, carry a telemetry client.
+            implementation("com.microsoft.onnxruntime:onnxruntime-android:$onnxRuntime")
+        }
+        val androidUnitTest by getting {
+            dependencies {
+                // The same Java API with desktop libraries: the host tests run the real graphs.
+                implementation("com.microsoft.onnxruntime:onnxruntime:$onnxRuntime")
+            }
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
@@ -67,7 +78,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     // Models are memory-mapped straight out of the APK.
-    androidResources { noCompress += listOf("tflite") }
+    androidResources { noCompress += listOf("tflite", "onnx") }
 }
 
 tasks.withType<Test>().configureEach {
@@ -79,9 +90,13 @@ tasks.withType<Test>().configureEach {
     System.getenv("RECOGNITION_HOST_OUT")?.let { systemProperty("recognition.hostOut", it) }
     // Optional accuracy evaluation over <name>.png|jpg + <name>.txt pairs (tools/make_eval_set.py).
     System.getenv("RECOGNITION_EVAL_DIR")?.let { systemProperty("recognition.evalDir", it) }
+    // Benchmark run of the Android/iOS OCR pipeline on the host (Ocr2BenchmarkRun).
+    for (name in listOf("RECOGNITION_OCR2_IMAGES", "RECOGNITION_OCR2_OUT", "RECOGNITION_OCR2_OPTIONS")) {
+        System.getenv(name)?.let { environment(name, it); outputs.upToDateWhen { false } }
+    }
     // Host-harness runs read images from outside the project: never treat them as up to date.
     if (System.getenv("RECOGNITION_HOST_PYTHON") != null) outputs.upToDateWhen { false }
-    maxHeapSize = "1g"
+    maxHeapSize = "2g"
 }
 
 // Restores the TensorFlow Lite C runtime of the iOS build (see tools/fetch_ios_frameworks.sh); a no-op once in place.
@@ -98,6 +113,13 @@ tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimu
     environment("SIMCTL_CHILD_RECOGNITION_MODEL_DIR", file("src/androidMain/assets/models").absolutePath)
     environment("SIMCTL_CHILD_RECOGNITION_GOLDEN_DIR", file("src/androidUnitTest/resources/golden").absolutePath)
     environment("SIMCTL_CHILD_RECOGNITION_TESTDATA_DIR", file("src/androidInstrumentedTest/assets/testdata").absolutePath)
+}
+
+// Restores the OCR models of the Android and iOS apps (see tools/fetch_ocr2_models.sh); a no-op once in place.
+tasks.register<Exec>("fetchOcr2Models") {
+    group = "recognition"
+    description = "Restores the PP-OCR detector, classifier and recogniser (pinned URLs and SHA-256) into assets/models/ocr2/."
+    commandLine("sh", file("tools/fetch_ocr2_models.sh").absolutePath)
 }
 
 // Restores the model binaries that are too large for git (see tools/fetch_models.sh).
