@@ -131,7 +131,8 @@ class WebDatasets(private val audio: WebAudioPlayer, private val scope: Coroutin
                 } else catalogRequested = false   // asked again when the next dictionary opens
             }
         }
-        return DictionaryFactory.open(DATA_DIR, mode)
+        // Its answers name the characters about to be shown: the rare-character font follows them (WebFont.kt).
+        return CharacterNotingDictionary(DictionaryFactory.open(DATA_DIR, mode))
     }
 
     /** The files of the first-visit progress: a mode's main dataset, not its packs or language model. */

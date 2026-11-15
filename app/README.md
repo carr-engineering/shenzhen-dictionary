@@ -61,11 +61,25 @@ from the `PrivacyPolicy*.kt` sources).
   keeps lazily fetched audio, OpenCC dictionaries, fonts and stroke graphics as they pass through.
   A new build installs beside the running one and takes over on the next load. The development
   server runs without it.
-- **Font.** Without preparation the app fetches the complete Noto Sans CJK (16 MB) of the glyph
-  variant in use from the font host. `python3 tools/stage-web-fonts.py` (needs `fonttools`) cuts
-  the SC, TC and HK variants into frequency tiers under `build/web/static/cjk/fonts` — about
+- **Latin font.** English, Pinyin and Jyutping are set in Source Sans 3 (SIL OFL 1.1) on every
+  platform: the unmodified static OTFs of release 3.052R for weights 400/500/600/700 are Compose
+  resources (`composeApp/src/commonMain/composeResources/font/`, 1.35 MB, with the licence under
+  `files/`; `ui/theme/AppTypography.kt`). Chinese falls back per glyph to the platform's CJK font
+  (system font on Android, PingFang on iOS, the tiers below on Web). On Web they are part of the
+  offline shell; `index.html` preloads them beside the code and the first frame waits for them,
+  so text never appears in another face first (1.35 MB, 0.62 MB with Brotli).
+- **CJK font.** Without preparation the app fetches the complete Noto Sans CJK (16 MB) of the glyph
+  variant in use from the font host. `uv run --no-project --with fonttools tools/stage-web-fonts.py`
+  cuts the SC, TC and HK variants into frequency tiers under `build/web/static/cjk/fonts` — about
   1.5 MB for the first — which the distribution then includes and the app fetches in order;
-  `--full` also stages the complete fonts for a deployment that must not ask the font host.
+  `--full` also stages the complete fonts for a deployment that must not ask the font host. The
+  same run cuts the rare tier: the 2,432 characters of the datasets and packs that Noto Sans CJK
+  lacks (mostly CJK Extensions B–J), from Plangothic P1 and P2 (SIL OFL 1.1; subsets renamed
+  "SZDict Rare Han", as the licence's reserved name requires) into `rare-1.ttf` (0.51 MB) and
+  `rare-2.ttf` (0.19 MB). A rare file is fetched only once the dictionary has handed the interface
+  one of its characters (`ShownCharacters.kt`). Source fonts are downloaded from pinned URLs into
+  `build/web/font-cache` and checked against pinned SHA-256s; `fonts/index.json` lists every staged
+  file's SHA-256, which the app verifies before using it.
 - **Compression.** `node tools/web-precompress.mjs` writes `.br` and `.gz` siblings into the
   distribution for hosts that serve precompressed files; otherwise the host must compress
   (the code is 4.6 MB with Brotli, 17 MB without).

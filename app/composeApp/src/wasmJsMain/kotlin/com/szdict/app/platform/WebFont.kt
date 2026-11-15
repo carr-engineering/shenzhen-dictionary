@@ -19,6 +19,7 @@ import com.szdict.core.api.DictMode
 import com.szdict.core.api.Script
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -43,15 +44,22 @@ import kotlinx.serialization.json.JsonPrimitive
  *  3. the complete font, only once Reading or OCR is opened, where text from outside the dictionary is shown.
  * Without staged subsets the complete font of the variant is fetched from the font host at once.
  * Start-up never waits for any of it: text laid out before a font arrived is laid out again.
+ *
+ * Characters of the datasets that Noto Sans CJK has no glyph for (rare ideographs of the CJK
+ * extensions, about 2,400) come from the rare tier, files shared by every variant: each is fetched
+ * only once the dictionary has handed the interface one of its characters ([ShownCharacters]).
+ * Staged files are verified against the SHA-256 of `fonts/index.json`.
  */
 @Composable
 fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
     val resolver = LocalFontFamilyResolver.current
     var generation by remember { mutableIntStateOf(0) }
     LaunchedEffect(resolver) {
+        var hashes: Map<String, String> = emptyMap()
         suspend fun register(name: String, urls: List<String>): Boolean {
             for (url in urls) {
-                val bytes = fetchBytes(url) ?: continue
+                val sha256 = hashes[url]
+                val bytes = (if (sha256 != null) fetchVerifiedBytes(url, sha256) else fetchBytes(url)) ?: continue
                 if (!isFontFile(bytes)) continue   // a host answering a missing file with the app shell
                 if (runCatching { resolver.preload(FontFamily(Font(name, bytes))) }.isSuccess) {
                     generation++
@@ -59,6 +67,15 @@ fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
                 }
             }
             return false
+        }
+        val index = stagedIndex()
+        hashes = index?.sha256.orEmpty()
+        // The rare tier waits for its characters, beside everything below.
+        index?.rare?.forEachIndexed { k, file ->
+            launch {
+                ShownCharacters.version.first { ShownCharacters.any(file::contains) }
+                register("RareHan-$k", listOf(file.url))
+            }
         }
         snapshotFlow { session.settingsLoaded }.first { it }
         // On a first visit the service worker is still installing: the font waits for it (a moment,
@@ -70,7 +87,7 @@ fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
             settings.script(DictMode.MANDARIN) == Script.TRADITIONAL -> CjkVariant.TC
             else -> CjkVariant.SC
         }
-        val staged = stagedSubsets(variant)
+        val staged = index?.variants?.get(variant.key)
         val complete = listOfNotNull(staged?.full, FONT_HOST + variant.hostPath)
         if (staged == null || !register("NotoSansCJK-0", listOf(staged.tiers.first()))) {
             register("NotoSansCJK", complete)
@@ -104,14 +121,51 @@ private enum class CjkVariant(val key: String, @Suppress("unused") val file: Str
 
 private class StagedSubsets(val tiers: List<String>, val full: String?)
 
-/** `fonts/index.json`: `{ "sc": { "tiers": ["sc-core.otf", "sc-mid.otf", "sc-tail.otf"], "full": "…" }, … }`, or null when nothing is staged. */
-private suspend fun stagedSubsets(variant: CjkVariant): StagedSubsets? {
+/** A file of the rare tier and the code points it holds, as sorted inclusive ranges. */
+private class RareFile(val url: String, private val starts: IntArray, private val ends: IntArray) {
+    fun contains(codePoint: Int): Boolean {
+        var low = 0
+        var high = starts.size - 1
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            when {
+                codePoint < starts[mid] -> high = mid - 1
+                codePoint > ends[mid] -> low = mid + 1
+                else -> return true
+            }
+        }
+        return false
+    }
+}
+
+private class StagedIndex(val variants: Map<String, StagedSubsets>, val rare: List<RareFile>, val sha256: Map<String, String>)
+
+/**
+ * `fonts/index.json`, or null when nothing is staged:
+ * `{ "sc": { "tiers": ["sc-core.otf", "sc-mid.otf", "sc-tail.otf"], "full": "…" }, …,
+ *    "rare": [{ "file": "rare-1.ttf", "ranges": "20000-20003,2A6D6,…" }, …], "sha256": { "sc-core.otf": "…", … } }`.
+ * URLs are relative to the page (`fonts/…`), and so are the keys of [StagedIndex.sha256].
+ */
+private suspend fun stagedIndex(): StagedIndex? {
     val text = fetchText("fonts/index.json") ?: return null
     return try {
-        val entry = (Json.parseToJsonElement(text) as JsonObject)[variant.key] as? JsonObject ?: return null
-        val tiers = (entry["tiers"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content?.let { name -> "fonts/$name" } }.orEmpty()
-        if (tiers.isEmpty()) return null
-        StagedSubsets(tiers, (entry["full"] as? JsonPrimitive)?.content?.let { "fonts/$it" })
+        val root = Json.parseToJsonElement(text) as JsonObject
+        val variants = CjkVariant.entries.mapNotNull { variant ->
+            val entry = root[variant.key] as? JsonObject ?: return@mapNotNull null
+            val tiers = (entry["tiers"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content?.let { name -> "fonts/$name" } }.orEmpty()
+            if (tiers.isEmpty()) null else variant.key to StagedSubsets(tiers, (entry["full"] as? JsonPrimitive)?.content?.let { "fonts/$it" })
+        }.toMap()
+        val rare = (root["rare"] as? JsonArray)?.mapNotNull { item ->
+            val entry = item as? JsonObject ?: return@mapNotNull null
+            val file = (entry["file"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+            val ranges = (entry["ranges"] as? JsonPrimitive)?.content?.split(',')?.filter { it.isNotEmpty() }?.map { range ->
+                val bounds = range.split('-').map { it.toInt(16) }
+                bounds.first() to bounds.last()
+            }?.sortedBy { it.first }.orEmpty()
+            RareFile("fonts/$file", IntArray(ranges.size) { ranges[it].first }, IntArray(ranges.size) { ranges[it].second })
+        }.orEmpty()
+        val sha256 = (root["sha256"] as? JsonObject)?.mapNotNull { (name, value) -> (value as? JsonPrimitive)?.content?.let { "fonts/$name" to it } }?.toMap().orEmpty()
+        StagedIndex(variants, rare, sha256)
     } catch (e: Throwable) {
         null
     }
