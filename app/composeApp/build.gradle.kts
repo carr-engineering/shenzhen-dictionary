@@ -160,7 +160,7 @@ android {
     }
     // Datasets and SQLite packs are opened from extracted files; models are memory-mapped.
     androidResources {
-        noCompress += listOf("tflite", "bin", "onnx", "opus", "m4a", "hzb")
+        noCompress += listOf("tflite", "bin", "onnx", "opus", "m4a", "hzb", "otf")
         // GLB-103: only the three UI languages ship; translations bundled by libraries are removed.
         // The locale config (res/xml/locales_config.xml) is maintained by hand, so it is not generated.
         localeFilters += listOf("en", "b+zh+Hans", "b+zh+Hant")
@@ -213,12 +213,33 @@ android.sourceSets.getByName("main").assets.srcDir(openccAssetsDir)
 android.sourceSets.getByName("test").resources.srcDir(openccAssetsDir)
 tasks.named("preBuild") { dependsOn(stageOpenccData) }
 
+// The interface font with the rare characters Android's system CJK font lacks (GLB-008,
+// AndroidAppFonts.kt), written by tools/stage-app-fonts.py and packaged as assets `fonts/`.
+// Without it the app uses the Source Sans resources and rare characters show as boxes.
+val androidFontsDir = layout.buildDirectory.dir("android/fonts")
+val androidFontAssetsDir = layout.buildDirectory.dir("generated/appfonts/assets")
+val stageAndroidFonts by tasks.registering(Sync::class) {
+    from(androidFontsDir) {
+        include("sans-*.otf")
+        into("fonts")
+    }
+    into(androidFontAssetsDir)
+    val fontsDir = androidFontsDir.map { it.asFile }
+    doLast {
+        if (fontsDir.get().listFiles().orEmpty().none { it.name.startsWith("sans-") && it.extension == "otf" }) {
+            logger.warn("warning: Android fonts not staged; rare characters will show as boxes (run: uv run --no-project --with fonttools --with cffsubr tools/stage-app-fonts.py)")
+        }
+    }
+}
+android.sourceSets.getByName("main").assets.srcDir(androidFontAssetsDir)
+tasks.named("preBuild") { dependsOn(stageAndroidFonts) }
+
 // ---- iOS bundle assets (ARCH-141) ----
 // Everything the iOS app reads in place from its bundle, staged into one directory that the Xcode
 // project copies as the folder `assets/` (never committed): `data/` (datasets, packs, recorded
 // audio), `opencc/`, `strokes/` + `licenses/` (the animator's iOS stroke data), `models/` (OCR and
 // handwriting graphs), when tools/fetch-voice-model.sh was run, `voice-model/`, and, when
-// tools/stage-ios-fonts.py was run, `fonts/` (the interface font with the rare characters, IosAppFonts.kt).
+// tools/stage-app-fonts.py was run, `fonts/` (the interface font with the rare characters, IosAppFonts.kt).
 val strokeIosData by configurations.creating {
     isTransitive = false
     isCanBeConsumed = false
@@ -254,7 +275,7 @@ val stageIosAssets by tasks.registering(Sync::class) {
     val fontsDir = iosFontsDir.map { it.asFile }
     doLast {
         if (fontsDir.get().listFiles().orEmpty().none { it.name.startsWith("sans-") && it.extension == "otf" }) {
-            logger.warn("warning: iOS fonts not staged; rare characters will show as boxes (run: uv run --no-project --with fonttools --with cffsubr tools/stage-ios-fonts.py)")
+            logger.warn("warning: iOS fonts not staged; rare characters will show as boxes (run: uv run --no-project --with fonttools --with cffsubr tools/stage-app-fonts.py)")
         }
     }
 }

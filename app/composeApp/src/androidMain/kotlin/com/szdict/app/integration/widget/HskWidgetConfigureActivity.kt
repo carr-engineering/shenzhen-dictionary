@@ -62,9 +62,11 @@ import com.szdict.app.feature.hsk.WidgetRow
 import com.szdict.app.i18n.AppStrings
 import com.szdict.app.i18n.LocalStrings
 import com.szdict.app.i18n.appStrings
+import com.szdict.app.platform.AndroidAppFonts
 import com.szdict.app.ui.kit.HskBadge
 import com.szdict.app.ui.theme.DictionaryTheme
 import com.szdict.app.ui.theme.LocalDictionaryPalette
+import com.szdict.app.ui.theme.LocalPlatformFontFamily
 import com.szdict.core.api.Script
 import com.szdict.core.api.Settings
 import kotlinx.coroutines.MainScope
@@ -102,26 +104,29 @@ class HskWidgetConfigureActivity : ComponentActivity() {
                 loaded = true
             }
             val strings = remember(settings.uiLanguage) { AppStrings(settings.uiLanguage.resolve(WidgetSettings.systemLocaleTag(this))) }
-            DictionaryTheme(settings.themeMode, settings.dictionaryMode) {
-                CompositionLocalProvider(LocalStrings provides strings) {
-                    Surface(Modifier.fillMaxSize(), color = LocalDictionaryPalette.current.bg) {
-                        ConfigureScreen(
-                            loaded = loaded,
-                            saving = saving,
-                            levelMask = levelMask,
-                            settings = settings,
-                            preview = remember(projection, levelMask) {
-                                projection?.let { WidgetPick.pick(it.rows, levelMask, LocalDate.now().toEpochDay()) }
-                            },
-                            onToggle = { levelMask = WidgetPick.toggle(levelMask, it) },
-                            onCancel = ::finish,
-                            onConfirm = {
-                                if (levelMask != 0 && !saving) {
-                                    saving = true
-                                    save(glanceId, levelMask)
-                                }
-                            },
-                        )
+            // GLB-008: the interface font with the rare characters the system CJK font lacks.
+            CompositionLocalProvider(LocalPlatformFontFamily provides AndroidAppFonts.family(this)) {
+                DictionaryTheme(settings.themeMode, settings.dictionaryMode) {
+                    CompositionLocalProvider(LocalStrings provides strings) {
+                        Surface(Modifier.fillMaxSize(), color = LocalDictionaryPalette.current.bg) {
+                            ConfigureScreen(
+                                loaded = loaded,
+                                saving = saving,
+                                levelMask = levelMask,
+                                settings = settings,
+                                preview = remember(projection, levelMask) {
+                                    projection?.let { WidgetPick.pick(it.rows, levelMask, LocalDate.now().toEpochDay()) }
+                                },
+                                onToggle = { levelMask = WidgetPick.toggle(levelMask, it) },
+                                onCancel = ::finish,
+                                onConfirm = {
+                                    if (levelMask != 0 && !saving) {
+                                        saving = true
+                                        save(glanceId, levelMask)
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }

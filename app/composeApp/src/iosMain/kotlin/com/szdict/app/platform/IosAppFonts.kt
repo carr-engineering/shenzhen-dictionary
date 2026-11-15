@@ -8,7 +8,7 @@ import com.szdict.app.ui.theme.AppFonts
 /**
  * The interface font of the iOS app (GLB-008): Source Sans 3 with the ~2,300 characters of the
  * datasets and packs that the iOS system fonts lack (rare ideographs of CJK Extensions B–J …) added
- * from Plangothic, staged by `tools/stage-ios-fonts.py` as `assets/fonts/sans-<weight>.otf`.
+ * from Plangothic, staged by `tools/stage-app-fonts.py` as `assets/fonts/sans-<weight>.otf`.
  *
  * Why in the font itself: Compose on iOS shapes with Skia, whose per-glyph fallback asks only
  * CoreText; CoreText's cascade never offers fonts the app registers (CTFontManagerRegisterFontsForURL)

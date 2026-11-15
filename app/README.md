@@ -18,6 +18,7 @@ uv run pipeline/fetch.py && uv run pipeline/packs/build_packs.py && uv run pipel
 app/tools/publish-animator.sh        # stroke-order library (Android, JVM, Wasm, iOS) -> app/local-maven (needs ../shenzhen_hanzi_animator_kmp; ANIMATOR_SKIP_IOS=1 without Xcode)
 (cd app && ./gradlew :recognition:fetchModels)   # handwriting model (needs ../chinese-handwritting) and the TFLite Web runtime
 app/tools/fetch-voice-model.sh       # sherpa-onnx library + voice model (~280 MB)
+(cd app && uv run --no-project --with fonttools --with cffsubr tools/stage-app-fonts.py)   # iOS/Android interface font with rare characters (below)
 ```
 
 `opencc-kmp` is resolved from `../opencc-kmp/.cache/maven`.
@@ -29,6 +30,21 @@ cd app
 ./gradlew :core:jvmTest :composeApp:testDebugUnitTest :recognition:testDebugUnitTest
 ./gradlew :composeApp:assembleDebug      # or assembleRelease (R8, debug-signed)
 ```
+
+- **Rare characters on Android.** Android's system CJK font (AOSP's Noto Sans CJK) has no glyph for
+  2,435 of the 25,451 characters in the datasets, packs and interface text (the same set as the Web
+  rare tier; `gen3` → 𫖱), and the system fallback never reaches a font the app brings, so — as on
+  iOS — the glyphs are added to the interface font: `tools/stage-app-fonts.py` also writes
+  `composeApp/build/android/fonts/sans-<weight>.otf` (Source Sans 3 + those characters from
+  Plangothic, renamed "SZDict Sans", 1.07 MB each). `stageAndroidFonts` (on `preBuild`) packages
+  them as the assets `fonts/` of every variant, stored uncompressed (`noCompress` "otf": Compose maps
+  a weight in under a millisecond instead of inflating it); `AndroidAppFonts.kt` sets them as the
+  interface family in `MainActivity` and the widget configuration. Without them the build warns and
+  the app uses the Source Sans resources (rare characters as boxes). Release APK +4.8 MB. The
+  recording `tools/android-system-cjk.txt` is Noto Sans CJK's coverage
+  (`tools/stage-app-fonts.py --record-android NotoSansCJK-Regular.ttc`, pulled from an emulator's
+  `/system/fonts`): only characters Noto lacks are added, so every other hanzi still comes from the
+  system font, and phones with other system fonts get the same conservative set.
 
 ## Web
 
@@ -65,7 +81,7 @@ from the `PrivacyPolicy*.kt` sources).
   platform: the unmodified static OTFs of release 3.052R for weights 400/500/600/700 are Compose
   resources (`composeApp/src/commonMain/composeResources/font/`, 1.35 MB, with the licence under
   `files/`; `ui/theme/AppTypography.kt`). Chinese falls back per glyph to the platform's CJK font
-  (system font on Android, PingFang on iOS — with rare characters added to the font, see iOS below — the tiers below on Web). On Web they are part of the
+  (system font on Android, PingFang on iOS — on both with rare characters added to the font, see Build and test and iOS below — the tiers below on Web). On Web they are part of the
   offline shell; `index.html` preloads them beside the code and the first frame waits for them,
   so text never appears in another face first (1.35 MB, 0.62 MB with Brotli).
 - **CJK font.** Without preparation the app fetches the complete Noto Sans CJK (16 MB) of the glyph
@@ -143,7 +159,7 @@ a device needs a signing team, and the Associated Domains entitlement for Univer
   `gen3` → 𫖱). Skia's per-glyph fallback on iOS asks only CoreText, and CoreText's cascade never
   offers fonts an app registers or hands to Compose (it answers with LastResort's "?" box), so the
   glyphs go into the interface font itself:
-  `uv run --no-project --with fonttools --with cffsubr tools/stage-ios-fonts.py` writes
+  `uv run --no-project --with fonttools --with cffsubr tools/stage-app-fonts.py` writes
   `composeApp/build/ios/fonts/sans-{regular,medium,semibold,bold}.otf` — the Source Sans 3
   resources with those characters added from Plangothic P1/P2 (pinned URLs and SHA-256 shared with
   the Web tool, cache in `build/web/font-cache`), renamed "SZDict Sans" as both licences' reserved

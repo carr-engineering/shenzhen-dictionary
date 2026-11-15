@@ -1,30 +1,37 @@
 #!/usr/bin/env python3
-"""Stages the iOS interface fonts with the rare-character glyphs (GLB-008).
+"""Stages the iOS and Android interface fonts with the rare-character glyphs (GLB-008).
 
-iOS draws Chinese with the system font cascade (PingFang and its fallbacks), which has no glyph for
-some 2,300 characters of the datasets and packs (rare ideographs of CJK Extensions B–J, new
-ideographic description characters …): Compose shows them as LastResort's "?" box. Skia's
-per-glyph fallback on iOS asks only CoreText, and CoreText never offers fonts the app brings along
-(registered or given to Compose), so the glyphs must sit in the font the text is set in.
+The system CJK fonts have no glyph for some 2,300–2,400 characters of the datasets and packs (rare
+ideographs of CJK Extensions B–J, new ideographic description characters …), which then show as a
+box. Fallback to a font the app brings along does not happen: on iOS, Skia's per-glyph fallback asks
+only CoreText, whose cascade never offers app fonts (registered or given to Compose) and answers
+with LastResort's "?" box; on Android the fallback chain is the system's. A glyph is found first in
+the family the text is set in, so the glyphs go there.
 
-This script therefore writes, for each weight of the interface font, Source Sans 3 (the unmodified
-Compose resources, SIL OFL 1.1) with those characters added from Plangothic P1 and P2 (SIL OFL
-1.1); both licences' reserved names require a modified version to be renamed, so the result is
-called "SZDict Sans":
+For each platform this script writes, per weight of the interface font, Source Sans 3 (the
+unmodified Compose resources, SIL OFL 1.1) with the characters that platform's system fonts lack
+added from Plangothic P1 and P2 (SIL OFL 1.1); both licences' reserved names require a modified
+version to be renamed, so the result is called "SZDict Sans":
 
-  composeApp/build/ios/fonts/sans-<weight>.otf      regular, medium, semibold, bold
+  composeApp/build/ios/fonts/sans-<weight>.otf          bundled by :composeApp:stageIosAssets
+  composeApp/build/android/fonts/sans-<weight>.otf      packaged by :composeApp:stageAndroidFonts
 
-`:composeApp:stageIosAssets` bundles them as `assets/fonts/`, and the app uses them in place of the
-Source Sans resources (IosAppFonts.kt). Only characters the system fonts lack are added, so every
-other hanzi still comes from PingFang. Nothing here is committed. Without the files the app builds
-and runs as before (rare characters drawn as boxes); the Gradle task warns.
+(regular, medium, semibold, bold). The apps use them in place of the Source Sans resources
+(IosAppFonts.kt, AndroidAppFonts.kt). Only characters the system lacks are added, so every other
+hanzi still comes from the system font. Nothing here is committed. Without the files the apps build
+and run as before (rare characters drawn as boxes); the Gradle tasks warn.
 
-The system cascade's coverage is not read on the Mac (its fonts differ): it is recorded in
-tools/ios-system-cjk.txt by tools/ios-font-probe.swift, run in an iOS simulator (see that file).
-Every dataset character outside it is added, so a character the recording does not know is drawn
-from the added glyphs rather than missing.
+What the system fonts draw is recorded, as code-point ranges, in
+  tools/ios-system-cjk.txt      the iOS 26 cascade, by tools/ios-font-probe.swift in a simulator;
+  tools/android-system-cjk.txt  AOSP's Noto Sans CJK (Android 16), by --record-android from
+                                /system/fonts/NotoSansCJK-Regular.ttc pulled from an emulator.
+Every dataset character outside a recording is added, so a character the recording does not know
+is drawn from the added glyphs rather than missing. Android is recorded from Noto Sans CJK alone,
+not from one device's whole fallback chain: phones ship other system fonts, and what Noto lacks
+is the conservative set (it equals the Web rare tier).
 
-  uv run --no-project --with fonttools --with cffsubr tools/stage-ios-fonts.py [--fonts DIR]
+  uv run --no-project --with fonttools --with cffsubr tools/stage-app-fonts.py [--platform ios|android|all] [--fonts DIR]
+  uv run --no-project --with fonttools tools/stage-app-fonts.py --record-android NotoSansCJK-Regular.ttc
 
 Without cffsubr the files are written unsubroutinized (1.6 MB instead of 1.0 MB each).
 
@@ -43,16 +50,20 @@ _spec = importlib.util.spec_from_file_location('stage_web_fonts', os.path.join(A
 web = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(web)
 
-COVERAGE = os.path.join(APP, 'tools', 'ios-system-cjk.txt')
+PLATFORMS = {
+    # platform: (recording of what the system fonts draw, output directory)
+    'ios': ('ios-system-cjk.txt', os.path.join('ios', 'fonts')),
+    'android': ('android-system-cjk.txt', os.path.join('android', 'fonts')),
+}
 SOURCE_SANS = os.path.join(APP, 'composeApp', 'src', 'commonMain', 'composeResources', 'font')
 WEIGHTS = ['regular', 'medium', 'semibold', 'bold']
 FAMILY = 'SZDict Sans'
 
 
-def system_coverage():
-    """The code points the iOS system font cascade draws, from the probe's recording."""
+def system_coverage(platform):
+    """The code points [platform]'s system fonts draw, from its recording."""
     covered = set()
-    with open(COVERAGE, encoding='utf-8') as f:
+    with open(os.path.join(APP, 'tools', PLATFORMS[platform][0]), encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
@@ -148,19 +159,37 @@ def merge(source, outlines, target, weight):
     return len(added)
 
 
+def record_android(ttc):
+    """Writes tools/android-system-cjk.txt: the code points of the CJK blocks that [ttc] (every face) maps."""
+    from fontTools.ttLib import TTCollection
+    covered = set()
+    collection = TTCollection(ttc, lazy=True)
+    for face in collection.fonts:
+        covered |= {cp for cp in face.getBestCmap() if web.CJK.match(chr(cp))}
+    names = ', '.join(face['name'].getDebugName(6) for face in collection.fonts)
+    path = os.path.join(APP, 'tools', PLATFORMS['android'][0])
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(f'# Android system CJK font ({os.path.basename(ttc)}: {names}): {len(covered)} code points '
+                f'(tools/stage-app-fonts.py --record-android)\n')
+        f.write(web.ranges(covered).replace(',', '\n') + '\n')
+    print('wrote', path, len(covered), 'code points')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--platform', choices=['ios', 'android', 'all'], default='all')
     parser.add_argument('--fonts', default=os.path.join(APP, 'composeApp', 'build', 'web', 'font-cache'))
-    parser.add_argument('--out', default=os.path.join(APP, 'composeApp', 'build', 'ios', 'fonts'))
+    parser.add_argument('--record-android', metavar='TTC')
     args = parser.parse_args()
     try:
         import fontTools  # noqa: F401
     except ImportError:
         sys.exit('fontTools is missing: pip install fonttools')
+    if args.record_android:
+        record_android(args.record_android)
+        return
 
     os.makedirs(args.fonts, exist_ok=True)
-    shutil.rmtree(args.out, ignore_errors=True)
-    os.makedirs(args.out, exist_ok=True)
     everything = set()
     for name in ('mandarin.db', 'cantonese.db', 'packs/sentences.db', 'packs/sentences-yue.db', 'packs/decomposition.db'):
         path = os.path.join(web.OUT, name)
@@ -168,14 +197,18 @@ def main():
             everything |= web.all_characters(path)
     everything |= web.interface_characters()
     codepoints = {ord(ch) for ch in everything}
-    missing = codepoints - system_coverage()
-    outlines, left = rare_outlines(missing, args.fonts)
-    for weight in WEIGHTS:
-        target = os.path.join(args.out, f'sans-{weight}.otf')
-        count = merge(os.path.join(SOURCE_SANS, f'source_sans_3_{weight}.otf'), outlines, target, weight)
-        print(f'sans-{weight}.otf: Source Sans 3 + {count} characters, {os.path.getsize(target) / 1e6:.2f} MB')
-    print(f'dataset characters: {len(codepoints)}, without a glyph in the iOS system fonts: {len(missing)}, '
-          f'in no font: {len(left)}' + (f' ({web.ranges(left)})' if left else ''))
+    for platform in (['ios', 'android'] if args.platform == 'all' else [args.platform]):
+        out = os.path.join(APP, 'composeApp', 'build', PLATFORMS[platform][1])
+        shutil.rmtree(out, ignore_errors=True)
+        os.makedirs(out, exist_ok=True)
+        missing = codepoints - system_coverage(platform)
+        outlines, left = rare_outlines(missing, args.fonts)
+        for weight in WEIGHTS:
+            target = os.path.join(out, f'sans-{weight}.otf')
+            count = merge(os.path.join(SOURCE_SANS, f'source_sans_3_{weight}.otf'), outlines, target, weight)
+            print(f'{platform}/sans-{weight}.otf: Source Sans 3 + {count} characters, {os.path.getsize(target) / 1e6:.2f} MB')
+        print(f'{platform}: dataset characters {len(codepoints)}, without a glyph in the system fonts {len(missing)}, '
+              f'in no font {len(left)}' + (f' ({web.ranges(left)})' if left else ''))
 
 
 if __name__ == '__main__':

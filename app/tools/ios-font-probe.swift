@@ -1,4 +1,4 @@
-// Records which CJK code points the iOS system font cascade can draw, for tools/stage-ios-fonts.py.
+// Records which CJK code points the iOS system font cascade can draw, for tools/stage-app-fonts.py.
 //
 // Runs inside an iOS simulator (CoreText there is the device's, not the Mac's):
 //

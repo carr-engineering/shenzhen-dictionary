@@ -42,8 +42,9 @@ fun appFontFamily(): FontFamily {
 
 /**
  * A platform's own build of the interface family, used instead of the resources when provided:
- * on iOS the same Source Sans 3 faces with the rare characters the system fonts lack added
- * (`tools/stage-ios-fonts.py`, IosAppFonts.kt), since Skia falls back only to system fonts there.
+ * on iOS and Android the same Source Sans 3 faces with the rare characters the system CJK fonts lack
+ * added (`tools/stage-app-fonts.py`; IosAppFonts.kt, AndroidAppFonts.kt). A glyph is looked for in
+ * the text's own family before the system's fallback, which never reaches a font the app brings.
  */
 val LocalPlatformFontFamily = staticCompositionLocalOf<FontFamily?> { null }
 

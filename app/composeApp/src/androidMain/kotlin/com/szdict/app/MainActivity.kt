@@ -9,6 +9,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,9 +22,11 @@ import com.szdict.app.platform.AndroidLinkOpener
 import com.szdict.app.platform.AndroidSpeaker
 import com.szdict.app.platform.AndroidTranslator
 import com.szdict.app.platform.DataStoreSettingsStorage
+import com.szdict.app.platform.AndroidAppFonts
 import com.szdict.app.platform.DatasetInstaller
 import com.szdict.app.ui.theme.DarkDictionaryPalette
 import com.szdict.app.ui.theme.LightDictionaryPalette
+import com.szdict.app.ui.theme.LocalPlatformFontFamily
 import com.szdict.core.api.DictionaryFactory
 import com.szdict.core.api.ThemeMode
 import kotlinx.coroutines.CoroutineScope
@@ -74,7 +77,8 @@ class MainActivity : ComponentActivity() {
         AndroidIntegrations.onCreate(this, session, fresh = savedInstanceState == null)
         setContent {
             SystemBarsFollowTheme()
-            App(session)
+            // GLB-008: the interface font with the rare characters the system CJK font lacks.
+            CompositionLocalProvider(LocalPlatformFontFamily provides AndroidAppFonts.family(this)) { App(session) }
         }
     }
 
