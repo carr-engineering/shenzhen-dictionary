@@ -252,7 +252,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Shared UI runtime, Foundation, Material 3, resources, and icons" to "共享界面运行时、Foundation、Material 3、资源和图标",
     "Typeface for English, Pinyin and Jyutping (© Adobe)" to "英文、拼音和粤拼字体（© Adobe）",
     "Chinese typeface of the web app" to "网页版的中文字体",
-    "Rare Chinese characters in the web app (subset, renamed)" to "网页版的生僻字（子集，已改名）",
+    "Rare Chinese characters in the web and iOS apps (subset, renamed)" to "网页版和 iOS 版的生僻字（子集，已改名）",
     "Adaptive list/detail and navigation layouts" to "自适应列表、详情和导航布局",
     "Platform-neutral back-event handling" to "跨平台返回事件处理",
     "Application language and standard library" to "应用编程语言及标准库",
