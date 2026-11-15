@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
@@ -163,7 +165,15 @@ internal fun SearchControl(
                                 )
                             }
                         },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        // No auto-correction: queries are pinyin, jyutping and partial syllables, which a keyboard
+                        // would "fix" into English words. Suggestions stay on (plain text type, no
+                        // no-suggestions flag); only the auto-correct hint is withdrawn, and nothing is capitalised.
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.None,
+                            autoCorrectEnabled = false,
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Search,
+                        ),
                         keyboardActions = KeyboardActions(onSearch = { onImeSearch() }),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = palette.panel,
