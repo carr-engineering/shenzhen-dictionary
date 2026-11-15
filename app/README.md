@@ -137,7 +137,12 @@ a device needs a signing team, and the Associated Domains entitlement for Univer
   first launch. AVAudioPlayer does not play the pack's Ogg container, so each clip's Opus packets are rewrapped as CAF in memory when it is played (`OggOpusCaf.kt`; nothing is transcoded).
 - **Icon.** `./gradlew :composeApp:generateIosAppIcon` redraws
   `iosApp/SZDict/Assets.xcassets/AppIcon.appiconset/icon-1024.png` from the Android launcher
-  vectors; run it when they change (the PNG is committed).
+  vectors; run it when they change (the PNG is committed). Likewise
+  `./gradlew :composeApp:generateAppLogo` redraws the shared UI's logo (`ui/kit/AppLogo.kt`, an
+  `ImageVector` shown in the expanded rail header).
+- **Name.** "SZ Dict" where space is tight (home screen), "Shenzhen Dictionary" where there is room;
+  深圳词典 / 深圳詞典 always in Chinese (`AppName.kt`, mirrored in `InfoPlist.strings`, the Android
+  `app_name` strings and `index.html`; the PWA manifest reads it from `AppName.kt`).
 - **Entry points.** `MainViewController.kt` builds the session and exposes what the Swift host
   (`iosApp/SZDict/SZDictApp.swift`) forwards: incoming URLs (`szdict:` scheme and Universal Links,
   through `IncomingRouter`), Home Screen quick actions, and Apple's translation sheet.

@@ -433,14 +433,7 @@ private fun AppExpandedRail(destinations: List<Destination>, selected: Destinati
             .padding(horizontal = 12.dp)
             .selectableGroup(),
     ) {
-        Text(
-            "SZ Dict",
-            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = palette.fg,
-            maxLines = 1,
-            modifier = Modifier.padding(start = 16.dp, top = 22.dp, bottom = 18.dp).semantics { heading() },
-        )
+        com.szdict.app.ui.kit.RailHeader()
         destinations.forEach { destination ->
             NavigationDrawerItem(
                 label = { Text(strings.text(label(destination)), maxLines = 1) },
