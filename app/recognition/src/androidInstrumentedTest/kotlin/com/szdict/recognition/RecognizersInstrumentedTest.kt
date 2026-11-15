@@ -118,7 +118,7 @@ class RecognizersInstrumentedTest {
                 lines += result.lines.size
                 val stages = (text as AndroidTextRecognizer).lastTimings
                 stages.forEach { (stage, v) -> totals[stage] = (totals[stage] ?: 0.0) + v }
-                Log.i(TAG, "OCR bench ${file.name} ${img.width}x${img.height}: $ms ms, ${result.lines.size} lines, " + stages.entries.joinToString(" ") { "${it.key}=${"%.0f".format(it.value)}" })
+                Log.i(TAG, "OCR bench ${file.name} ${img.width}x${img.height}: $ms ms, ${result.lines.size} lines, text ${result.text.hashCode()}, " + stages.entries.joinToString(" ") { "${it.key}=${"%.0f".format(it.value)}" })
             }
             Log.i(TAG, "OCR bench $group: ${images.size} images, ${"%.1f".format(lines.toDouble() / images.size)} lines/image, ${wall / images.size} ms/image; " +
                 totals.entries.joinToString(" ") { "${it.key}=${"%.0f".format(it.value / images.size)}" })
