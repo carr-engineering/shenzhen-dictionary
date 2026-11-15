@@ -2,6 +2,7 @@ package com.szdict.app
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,8 +23,10 @@ import com.szdict.app.platform.IosLinkOpener
 import com.szdict.app.platform.IosSpeaker
 import com.szdict.app.platform.IosTranslator
 import com.szdict.app.platform.UserDefaultsSettings
+import com.szdict.app.platform.IosAppFonts
 import com.szdict.app.ui.theme.DarkDictionaryPalette
 import com.szdict.app.ui.theme.LightDictionaryPalette
+import com.szdict.app.ui.theme.LocalPlatformFontFamily
 import com.szdict.core.api.DictionaryFactory
 import com.szdict.core.api.ThemeMode
 import com.szdict.recognition.Recognizers
@@ -98,7 +101,8 @@ fun MainViewController(): UIViewController {
         },
     ) {
         SystemChromeFollowsTheme(session)
-        App(session)
+        // GLB-008: the interface font with the rare characters iOS has no glyph for.
+        CompositionLocalProvider(LocalPlatformFontFamily provides IosAppFonts.family) { App(session) }
     }
 }
 

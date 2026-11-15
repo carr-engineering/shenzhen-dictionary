@@ -3,6 +3,7 @@ package com.szdict.app.ui.theme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -34,9 +35,17 @@ internal val AppFonts: List<Pair<FontWeight, FontResource>> = listOf(
  */
 @Composable
 fun appFontFamily(): FontFamily {
+    LocalPlatformFontFamily.current?.let { return it }
     val fonts = AppFonts.map { (weight, resource) -> Font(resource, weight) }
     return remember(fonts) { FontFamily(fonts) }
 }
+
+/**
+ * A platform's own build of the interface family, used instead of the resources when provided:
+ * on iOS the same Source Sans 3 faces with the rare characters the system fonts lack added
+ * (`tools/stage-ios-fonts.py`, IosAppFonts.kt), since Skia falls back only to system fonts there.
+ */
+val LocalPlatformFontFamily = staticCompositionLocalOf<FontFamily?> { null }
 
 /** Material's type scale with every style set in [family]. */
 internal fun appTypography(family: FontFamily): Typography {

@@ -217,13 +217,15 @@ tasks.named("preBuild") { dependsOn(stageOpenccData) }
 // Everything the iOS app reads in place from its bundle, staged into one directory that the Xcode
 // project copies as the folder `assets/` (never committed): `data/` (datasets, packs, recorded
 // audio), `opencc/`, `strokes/` + `licenses/` (the animator's iOS stroke data), `models/` (OCR and
-// handwriting graphs) and, when tools/fetch-voice-model.sh was run, `voice-model/`.
+// handwriting graphs), when tools/fetch-voice-model.sh was run, `voice-model/`, and, when
+// tools/stage-ios-fonts.py was run, `fonts/` (the interface font with the rare characters, IosAppFonts.kt).
 val strokeIosData by configurations.creating {
     isTransitive = false
     isCanBeConsumed = false
 }
 dependencies { add(strokeIosData.name, "engineering.carr:shenzhen-hanzi-animator-bundled-data:0.1.0:ios-data@zip") }
 val iosAssetsDir = layout.buildDirectory.dir("ios/assets")
+val iosFontsDir = layout.buildDirectory.dir("ios/fonts")
 val stageIosAssets by tasks.registering(Sync::class) {
     from(rootProject.file("../pipeline/out")) {
         include("mandarin.db", "mandarin-lm.db", "cantonese.db", "cantonese-lm.db")
@@ -243,7 +245,18 @@ val stageIosAssets by tasks.registering(Sync::class) {
         include("encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt")
         into("voice-model")
     }
+    // The interface font with the rare characters is bundled when staged; without it they show as boxes.
+    from(iosFontsDir) {
+        include("sans-*.otf")
+        into("fonts")
+    }
     into(iosAssetsDir)
+    val fontsDir = iosFontsDir.map { it.asFile }
+    doLast {
+        if (fontsDir.get().listFiles().orEmpty().none { it.name.startsWith("sans-") && it.extension == "otf" }) {
+            logger.warn("warning: iOS fonts not staged; rare characters will show as boxes (run: uv run --no-project --with fonttools --with cffsubr tools/stage-ios-fonts.py)")
+        }
+    }
 }
 tasks.matching { it.name == "embedAndSignAppleFrameworkForXcode" }.configureEach { dependsOn(stageIosAssets) }
 

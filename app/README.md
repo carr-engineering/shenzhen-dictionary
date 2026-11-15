@@ -65,7 +65,7 @@ from the `PrivacyPolicy*.kt` sources).
   platform: the unmodified static OTFs of release 3.052R for weights 400/500/600/700 are Compose
   resources (`composeApp/src/commonMain/composeResources/font/`, 1.35 MB, with the licence under
   `files/`; `ui/theme/AppTypography.kt`). Chinese falls back per glyph to the platform's CJK font
-  (system font on Android, PingFang on iOS, the tiers below on Web). On Web they are part of the
+  (system font on Android, PingFang on iOS — with rare characters added to the font, see iOS below — the tiers below on Web). On Web they are part of the
   offline shell; `index.html` preloads them beside the code and the first frame waits for them,
   so text never appears in another face first (1.35 MB, 0.62 MB with Brotli).
 - **CJK font.** Without preparation the app fetches the complete Noto Sans CJK (16 MB) of the glyph
@@ -138,6 +138,23 @@ a device needs a signing team, and the Associated Domains entitlement for Univer
   into `composeApp/build/ios/assets` (about 440 MB); Xcode copies that folder into the app as
   `assets/`. Everything is opened in place and read-only (`IosBundle.kt`); nothing is copied at
   first launch. AVAudioPlayer does not play the pack's Ogg container, so each clip's Opus packets are rewrapped as CAF in memory when it is played (`OggOpusCaf.kt`; nothing is transcoded).
+- **Fonts.** Hanzi come from the system cascade (PingFang), which has no glyph for 2,301 of the
+  25,451 characters in the datasets and packs (rare ideographs of CJK Extensions B–J and the like;
+  `gen3` → 𫖱). Skia's per-glyph fallback on iOS asks only CoreText, and CoreText's cascade never
+  offers fonts an app registers or hands to Compose (it answers with LastResort's "?" box), so the
+  glyphs go into the interface font itself:
+  `uv run --no-project --with fonttools --with cffsubr tools/stage-ios-fonts.py` writes
+  `composeApp/build/ios/fonts/sans-{regular,medium,semibold,bold}.otf` — the Source Sans 3
+  resources with those characters added from Plangothic P1/P2 (pinned URLs and SHA-256 shared with
+  the Web tool, cache in `build/web/font-cache`), renamed "SZDict Sans" as both licences' reserved
+  names require; 1.0 MB each, 2.8 MB more than the resources. `stageIosAssets` bundles them as
+  `assets/fonts/` and `IosAppFonts.kt` sets them as the interface family (`LocalPlatformFontFamily`);
+  only characters the system lacks are added, so every other hanzi still comes from PingFang.
+  Without them the build warns and the app uses the Source Sans resources (rare characters as
+  boxes). Which characters the system lacks is recorded in `tools/ios-system-cjk.txt` (the code
+  points the iOS 26 cascade draws); after an iOS update, re-record it in a simulator with
+  `tools/ios-font-probe.swift` (commands in the file). Characters missing from the recording are
+  added, so new dataset characters are never left without a glyph.
 - **Icon.** `./gradlew :composeApp:generateIosAppIcon` redraws
   `iosApp/SZDict/Assets.xcassets/AppIcon.appiconset/icon-1024.png` from the Android launcher
   vectors; run it when they change (the PNG is committed). Likewise
