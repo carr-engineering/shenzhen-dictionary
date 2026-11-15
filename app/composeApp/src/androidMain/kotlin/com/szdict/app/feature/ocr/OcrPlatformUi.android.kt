@@ -171,7 +171,7 @@ private fun lensPlan(context: Context): LensPlan? = runCatching {
     val defaultRear = runCatching { CameraSelector.DEFAULT_BACK_CAMERA.filter(infos).firstOrNull()?.cameraIdOrNull() }.getOrNull()
     val specs = infos.mapNotNull { it.spec() }
     planLenses(specs, defaultRear).also { plan ->
-        Log.i("szdict.ocr", "cameras ${specs.joinToString { "${it.id}${if (it.front) "F" else "B"} zoom ${it.minZoom}..${it.maxZoom} focal ${it.focal} lenses ${it.lensCount}" }}; default rear $defaultRear; menu ${plan.lenses.joinToString { it.id }}")
+        Log.i("szdict.ocr", "cameras ${specs.joinToString { "${it.id}${if (it.front) "F" else "B"} zoom ${it.minZoom}..${it.maxZoom} focal ${it.focal} lenses ${it.lensCount}" }}; default rear $defaultRear; menu ${plan.lenses.joinToString { "${it.label}=${it.id}" }}")
     }
 }.getOrNull()
 
@@ -179,13 +179,11 @@ private fun lensPlan(context: Context): LensPlan? = runCatching {
 private fun cameraWithId(id: String): CameraSelector =
     CameraSelector.Builder().addCameraFilter { infos -> infos.filter { it.cameraIdOrNull() == id } }.build()
 
-/** Which camera is open and how its zoom relates to the main camera's (CAM-028). */
+/** Which camera is open, and the zoom to apply once a rebound camera is open (CAM-028). */
 private class LensTracker {
     var plan: LensPlan? = null
     var currentId: String? = null
     var info: CameraInfo? = null
-    var factor = 1f
-    var front = false
     var pendingZoom: Float? = null
     var stateSource: LiveData<CameraState>? = null
 }
@@ -248,8 +246,6 @@ actual fun CameraPreview(
         lenses.info = info
         val id = info.cameraIdOrNull()
         lenses.currentId = id
-        lenses.front = info.lensFacing == CameraSelector.LENS_FACING_FRONT
-        lenses.factor = id?.let { lenses.plan?.factors?.get(it) } ?: 1f
         handle.flashModes = if (info.hasFlashUnit()) setOf(FlashMode.AUTO, FlashMode.ON, FlashMode.TORCH) else emptySet()   // CAM-037
         handle.ready = true
         lenses.stateSource?.removeObserver(stateObserver)
@@ -261,11 +257,9 @@ actual fun CameraPreview(
     }
 
     val zoomObserver = remember(controller) {
-        Observer<ZoomState> { zoom ->
+        Observer<ZoomState> { _ ->
             if (disposed[0]) return@Observer
             controller.cameraInfo?.let { onCamera(it) }
-            // The chip names the front camera instead of a zoom factor.
-            handle.zoom = if (lenses.front) null else zoom.zoomRatio * lenses.factor
         }
     }
 
@@ -310,9 +304,10 @@ actual fun CameraPreview(
             // (a separate rear lens, or the front camera), opened by rebinding.
             val at = lens.id.lastIndexOf('@')
             val cameraId = if (at > 0) lens.id.substring(0, at) else lens.id
-            val ratio = if (at > 0) lens.id.substring(at + 1).toFloatOrNull() else null
+            // A choice also resets any pinch zoom to the lens's own base (1 on a separate camera).
+            val ratio = (if (at > 0) lens.id.substring(at + 1).toFloatOrNull() else null) ?: 1f
             if (cameraId == lenses.currentId) {
-                ratio?.let { runCatching { controller.setZoomRatio(it) } }
+                runCatching { controller.setZoomRatio(ratio) }
             } else {
                 lenses.pendingZoom = ratio
                 runCatching { controller.cameraSelector = cameraWithId(cameraId) }
@@ -378,7 +373,7 @@ actual fun CameraPreview(
         Box(
             Modifier.fillMaxSize()
                 .pointerInput(controller) {
-                    // CAM-028: pinch zooms continuously across the lenses; the lens chip follows the live factor.
+                    // CAM-028: pinch zooms continuously (across a logical camera's lenses); the chip keeps the selected camera.
                     detectTransformGestures { _, _, zoomChange, _ ->
                         val zoom = controller.zoomState.value ?: return@detectTransformGestures
                         if (zoomChange != 1f) {

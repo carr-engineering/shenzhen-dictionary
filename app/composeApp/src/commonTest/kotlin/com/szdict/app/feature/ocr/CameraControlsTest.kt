@@ -38,29 +38,29 @@ class CameraControlsTest {
     }
 
     @Test
-    fun withoutATelephotoADigitalTwoTimesIsOffered() {
-        assertEquals(listOf(0.5f, 1f, 2f), zoomSteps(0.5f, 8f, listOf(0.5f, 1f)))
+    fun onlyPhysicalLensesAreOfferedNeverADigitalLevel() {
+        // No telephoto: ultra-wide and wide only, no synthetic 2×.
+        assertEquals(listOf(0.5f, 1f), zoomSteps(0.5f, 8f, listOf(0.5f, 1f)))
     }
 
     @Test
-    fun withoutLensInformationTheFallbackIsMinimumOneAndTwo() {
-        assertEquals(listOf(0.6f, 1f, 2f), zoomSteps(0.6f, 8f, emptyList()))
-        assertEquals(listOf(1f, 2f), zoomSteps(1f, 4f, emptyList()))
-        // A camera that cannot zoom has a single step: no chip.
-        assertEquals(listOf(1f), zoomSteps(1f, 1f, emptyList()))
+    fun withoutLensInformationAMinimumBelowOneStandsForTheUltraWide() {
+        assertEquals(listOf(0.6f, 1f), zoomSteps(0.6f, 8f, emptyList()))
+        // A plain camera that zooms digitally is one lens.
+        assertEquals(listOf(1f), zoomSteps(1f, 10f, emptyList()))
     }
 
     @Test
     fun lensesBeyondTheMaximumZoomAreLeftOut() {
-        assertEquals(listOf(1f, 2f), zoomSteps(1f, 4f, listOf(1f, 10f)))
+        assertEquals(listOf(1f), zoomSteps(1f, 4f, listOf(1f, 10f)))
     }
 
     @Test
     fun separateCamerasJoinTheMainCamerasSteps() {
-        // Main camera zooms 1×…8× only; a separate ultra-wide camera is listed as its own entry.
-        val lenses = lensOptions(zoomSteps(1f, 8f, emptyList()), listOf("2" to 0.55f, "3" to 2.05f), mainId = "0")
+        // Main camera without lens information; a separate ultra-wide and telephoto are their own entries.
+        val lenses = lensOptions(zoomSteps(1f, 8f, emptyList()), listOf("2" to 0.55f, "3" to 2f), mainId = "0")
         assertEquals(listOf("0.6×", "1×", "2×"), labels(lenses))
-        assertEquals(listOf("2", "0@1.0", "0@2.0"), lenses.map { it.id })
+        assertEquals(listOf("2", "0@1.0", "3"), lenses.map { it.id })
     }
 
     @Test
@@ -69,29 +69,29 @@ class CameraControlsTest {
         val (base, steps) = virtualDeviceSteps(hasUltraWide = true, switchOvers = listOf(2f, 6f), maxZoom = 123f)
         assertEquals(2f, base)
         assertEquals(listOf(0.5f, 1f, 3f), steps)
-        // Dual-wide: ultra-wide + wide, plus a digital 2×.
-        assertEquals(2f to listOf(0.5f, 1f, 2f), virtualDeviceSteps(true, listOf(2f), 95f))
+        // Dual-wide: ultra-wide + wide, no digital 2×.
+        assertEquals(2f to listOf(0.5f, 1f), virtualDeviceSteps(true, listOf(2f), 95f))
         // Dual: wide + 2× telephoto; the device's own 1 is the wide camera.
         assertEquals(1f to listOf(1f, 2f), virtualDeviceSteps(false, listOf(2f), 16f))
     }
 
     @Test
-    fun theChipShowsTheLiveFactorAndTheMenuTheLensBelowIt() {
+    fun theChipShowsTheSelectedCameraWhateverTheZoom() {
         val lenses = lensOptions(listOf(0.5f, 1f, 3f), emptyList())
-        assertEquals("1.4×", lensChipLabel(lenses, lenses[1].id, 1.42f))
-        assertEquals(lenses[1], activeLens(lenses, lenses[0].id, 1.42f))
-        assertEquals(lenses[2], activeLens(lenses, null, 3f))
-        assertEquals(lenses[0], activeLens(lenses, null, 0.5f))
-        // Below every lens (a rounding below the ultra-wide): still the widest.
-        assertEquals(lenses[0], activeLens(lenses, null, 0.4f))
+        // There is no zoom input any more: the selection alone decides.
+        assertEquals(lenses[1], activeLens(lenses, lenses[1].id))
+        assertEquals("1×", activeLens(lenses, lenses[1].id)?.label)
+        assertEquals(lenses[0], activeLens(lenses, null))
     }
 
     @Test
     fun namedCamerasShowTheirName() {
         val cameras = listOf(CameraLens("a", null, "Back camera"), CameraLens("b", null, "Camera 2"))
-        assertEquals("Camera 2", lensChipLabel(cameras, "b", null))
-        assertEquals(cameras[0], activeLens(cameras, "missing", null))
+        assertEquals("Camera 2", activeLens(cameras, "b")?.label)
+        assertEquals(cameras[0], activeLens(cameras, "missing"))
         assertEquals("Back camera", cameras[0].label)
+        // Web names are never facing names, even beside nothing else.
+        assertEquals(cameras, withFacingNames(cameras))
     }
 
     @Test
@@ -141,12 +141,13 @@ class CameraControlsTest {
     )
 
     @Test
-    fun vivoAsAThirdPartyAppSeesItGetsDigitalStepsAndTheFrontCamera() {
+    fun vivoAsAThirdPartyAppSeesItGetsBackAndFront() {
         // `vendor.camera.aux.packagelist` keeps cameras 2–4 to the system camera app: the list holds 0 and 1.
         val plan = planLenses(listOf(vivoMain, vivoFront), defaultRearId = "0")
         assertEquals("0", plan.rearId)
-        assertEquals(listOf("1×", "2×", "Front"), labels(plan.lenses))
-        assertEquals(listOf("0@1.0", "0@2.0", "1"), plan.lenses.map { it.id })
+        assertEquals(listOf("Back", "Front"), labels(plan.lenses))
+        assertEquals(listOf("0@1.0", "1"), plan.lenses.map { it.id })
+        assertTrue(plan.lenses.all { it.facing })
         assertTrue(plan.lenses.last().front)
         assertEquals("0@1.0", plan.initial?.id)
     }
@@ -165,8 +166,8 @@ class CameraControlsTest {
         // No logical camera: the ultra-wide (focal/sensor 0.45 against 0.68) and the 3× telephoto by rebinding.
         val plan = planLenses(listOf(vivoMain, vivoFront, vivoUltraWide, vivoTele), defaultRearId = "0")
         assertEquals("0", plan.rearId)
-        assertEquals(listOf("0.7×", "1×", "2×", "3×", "Front"), labels(plan.lenses))
-        assertEquals(listOf("3", "0@1.0", "0@2.0", "4", "1"), plan.lenses.map { it.id })
+        assertEquals(listOf("0.7×", "1×", "3×", "Front"), labels(plan.lenses))
+        assertEquals(listOf("3", "0@1.0", "4", "1"), plan.lenses.map { it.id })
         assertEquals(3f, plan.factors["4"])
     }
 
@@ -179,8 +180,9 @@ class CameraControlsTest {
     }
 
     @Test
-    fun withoutAFrontCameraOrZoomThereIsNothingToChoose() {
-        assertEquals(1, planLenses(listOf(CameraSpec("0")), "0").lenses.size)
+    fun aSingleCameraHasNothingToChoose() {
+        // One rear camera that zooms digitally only: one entry, no chip.
+        assertEquals(listOf("1×"), labels(planLenses(listOf(vivoMain), "0").lenses))
         // A front camera alone (a tablet, say) opens as the only entry.
         val front = planLenses(listOf(vivoFront), null)
         assertEquals(null, front.rearId)
@@ -188,13 +190,11 @@ class CameraControlsTest {
     }
 
     @Test
-    fun theFrontCameraIsSelectedByIdAndNamedWithoutZoom() {
+    fun theFrontCameraIsSelectedById() {
         val plan = planLenses(listOf(vivoMain, vivoFront), "0")
-        // The platform reports no zoom while the front camera is open.
-        assertEquals(plan.lenses.last(), activeLens(plan.lenses, "1", null))
-        assertEquals("Front", lensChipLabel(plan.lenses, "1", null))
-        // Back on the rear camera, the live factor picks among the rear lenses only.
-        assertEquals(plan.lenses[1], activeLens(plan.lenses, "1", 2.4f))
+        assertEquals(plan.lenses.last(), activeLens(plan.lenses, "1"))
+        assertEquals("Front", activeLens(plan.lenses, "1")?.label)
+        assertEquals("Back", activeLens(plan.lenses, "0@1.0")?.label)
     }
 
     @Test

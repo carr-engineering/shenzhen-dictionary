@@ -52,11 +52,8 @@ class CameraHandle {
     /** The lens menu (CAM-028): shown with two or more entries. */
     var lenses: List<CameraLens> by mutableStateOf(emptyList())
 
-    /** Id of the lens last picked (or opened with). */
+    /** Id of the lens last picked (or opened with): what the chip shows, whatever the zoom (CAM-028). */
     var lens: String? by mutableStateOf(null)
-
-    /** Live zoom relative to the main camera, where the platform knows it; follows pinches. */
-    var zoom: Float? by mutableStateOf(null)
 
     /** Set by the platform preview while it is bound. */
     var shutter: (() -> Unit)? = null
@@ -82,7 +79,6 @@ class CameraHandle {
         ready = false
         lenses = emptyList()
         lens = null
-        zoom = null
     }
 }
 

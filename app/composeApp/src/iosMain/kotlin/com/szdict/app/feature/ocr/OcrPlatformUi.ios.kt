@@ -280,9 +280,7 @@ private class IosCamera {
                         val raw = fovFactor(wide, other)
                         other.uniqueID to (if (raw < 0.9f) raw else snapLensFactor(raw))
                     }
-                // A digital `2×` beside `1×` where no telephoto is longer, as on Android.
-                val steps = if (others.none { it.second > 1.05f } && wide.maxAvailableVideoZoomFactor >= 2.0) listOf(1f, 2f) else listOf(1f)
-                lenses = lensOptions(steps, others, mainId = "wide")
+                lenses = lensOptions(listOf(1f), others, mainId = "wide")
                 for (lens in lenses) {
                     val other = found.firstOrNull { it.uniqueID == lens.id }
                     lensMap[lens.id] = if (other != null) IosLens(other, 1.0, lens.factor ?: 1f) else IosLens(wide, (lens.factor ?: 1f).toDouble(), 1f)
@@ -294,7 +292,7 @@ private class IosCamera {
             val frontCamera = AVCaptureDevice.defaultDeviceWithDeviceType(AVCaptureDeviceTypeBuiltInWideAngleCamera, AVMediaTypeVideo, AVCaptureDevicePositionFront)
             if (frontCamera != null && camera !== frontCamera) {
                 val entry = frontLens("front")
-                lenses = lenses + entry
+                lenses = withFacingNames(lenses + entry)   // one rear lens + front: `Back` / `Front`
                 lensMap[entry.id] = IosLens(frontCamera, 1.0, 1f)
             }
             val newInput = camera?.let { runCatching { AVCaptureDeviceInput.deviceInputWithDevice(it, null) }.getOrNull() }
@@ -350,13 +348,6 @@ private class IosCamera {
         if (camera.torchMode == mode || !camera.isTorchModeSupported(mode) || !camera.lockForConfiguration(null)) return
         camera.torchMode = mode
         camera.unlockForConfiguration()
-    }
-
-    /** Live zoom relative to the wide camera; none on the front camera, which the chip names instead. */
-    fun zoom(): Float? {
-        val camera = device ?: return null
-        if (camera.position == AVCaptureDevicePositionFront) return null
-        return (camera.videoZoomFactor / base).toFloat() * deviceFactor
     }
 
     /** Pinch: continuous zoom across the lenses of a virtual device (or within one lens), up to 10× or twice the longest lens. */
@@ -500,8 +491,7 @@ actual fun CameraPreview(
             } else {
                 handle.flashModes = camera.flashModes()   // CAM-037
                 handle.lenses = camera.lenses   // CAM-028
-                handle.lens = camera.lenses.firstOrNull { it.factor == 1f }?.id
-                handle.zoom = camera.zoom()
+                handle.lens = camera.lenses.firstOrNull { !it.front && it.factor == 1f }?.id
                 handle.ready = true
                 opened = true
             }
@@ -510,7 +500,6 @@ actual fun CameraPreview(
             camera.select(lens.id) {
                 if (!disposed[0]) {
                     handle.flashModes = camera.flashModes()
-                    handle.zoom = camera.zoom()
                     camera.setTorch(flashMode == FlashMode.TORCH)
                 }
             }
@@ -552,12 +541,9 @@ actual fun CameraPreview(
         Box(
             Modifier.fillMaxSize()
                 .pointerInput(camera) {
-                    // CAM-028: pinch zooms continuously across the lenses; the lens chip follows the live factor.
+                    // CAM-028: pinch zooms continuously (across a virtual device's lenses); the chip keeps the selected camera.
                     detectTransformGestures { _, _, zoomChange, _ ->
-                        if (zoomChange != 1f) {
-                            camera.zoomBy(zoomChange)
-                            handle.zoom = camera.zoom()
-                        }
+                        if (zoomChange != 1f) camera.zoomBy(zoomChange)
                     }
                 }
                 .pointerInput(camera) {
