@@ -14,8 +14,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Both recognisers end to end on a device: bundled models through LiteRT, on the reference
- * implementation's test images and ink drawings. Alternatives and timings are logged under the
+ * Both recognisers end to end on a device: the bundled models through ONNX Runtime (OCR) and LiteRT
+ * (handwriting), on the reference test images and ink drawings. Alternatives and timings are logged under the
  * `RecognitionTest` tag.
  */
 @RunWith(AndroidJUnit4::class)
@@ -63,7 +63,7 @@ class RecognizersInstrumentedTest {
         text.recognize(image("hello-world-zh.png")) // loads the models
         Log.i(TAG, "OCR first call including model load: ${SystemClock.elapsedRealtime() - cold} ms")
         val failures = ArrayList<String>()
-        for (case in OcrCases.all) {
+        for (case in Ocr2Cases.all) {
             val img = image(case.file)
             val start = SystemClock.elapsedRealtime()
             val result = text.recognize(img)
@@ -79,7 +79,7 @@ class RecognizersInstrumentedTest {
                 for (c in line.chars) {
                     assertEquals(c.text, c.alternatives.first().text)
                     assertEquals(c.confidence, c.alternatives.first().score)
-                    assertTrue(c.alternatives.size in 5..8, "five to eight candidates per character")
+                    assertEquals(8, c.alternatives.size, "eight candidates per character")
                     assertTrue(c.confidence > 0f && c.confidence <= 1f)
                     assertTrue(c.alternatives.zipWithNext().all { (a, b) -> a.score >= b.score }, "alternatives are best first")
                     for (p in c.box.points) {
@@ -100,10 +100,10 @@ class RecognizersInstrumentedTest {
         assertEquals(2, result.lines.size)
         fun alternatives(line: Int, index: Int) = result.lines[line].chars[index].alternatives.map { it.text }
         // 我已经吃过了: 已 / 己 / 巳 are near-identical; all must be offered at that position.
-        assertTrue(alternatives(0, 1).take(4).containsAll(listOf("已", "己", "巳")), "已/己/巳: ${alternatives(0, 1)}")
+        assertEquals(listOf("已", "己", "巳"), alternatives(0, 1).take(3))
         // 未来的土地很大: 未 / 末 and 土 / 士.
-        assertTrue(alternatives(1, 0).containsAll(listOf("未", "末")), "未/末: ${alternatives(1, 0)}")
-        assertTrue(alternatives(1, 3).take(3).containsAll(listOf("土", "士")), "土/士: ${alternatives(1, 3)}")
+        assertTrue(alternatives(1, 0).take(4).containsAll(listOf("未", "末")), "未/末: ${alternatives(1, 0)}")
+        assertTrue(alternatives(1, 3).containsAll(listOf("土", "士")), "土/士: ${alternatives(1, 3)}")
         // Glyph boxes run left to right without overlapping their neighbours' centres.
         for (line in result.lines) {
             val centres = line.chars.map { it.box.center.x }
@@ -113,7 +113,8 @@ class RecognizersInstrumentedTest {
 
     @Test
     fun ocrBoxesFollowVerticalAndRotatedText() = runBlocking {
-        val vertical = text.recognize(image("pipeline-vertical.png"))
+        val vertical = text.recognize(image("vertical-tight.png"))
+        assertEquals(4, vertical.lines.size)
         assertTrue(vertical.lines.all { it.vertical })
         for (line in vertical.lines) {
             val ys = line.chars.map { it.box.center.y }

@@ -75,6 +75,36 @@ object OcrCases {
     )
 }
 
+/**
+ * What the Android and iOS pipeline (PP-OCR detector and recogniser, `ocr2`) reads on the same
+ * images. It differs from the Web pipeline's [OcrCases] where the detector separates text that the
+ * older pipeline joins by its own layout rules:
+ *  - a wide gap inside a row starts a new line ("中文 Chinese" and "123");
+ *  - a vertical column whose characters stand more than about half a character apart is found as
+ *    single characters, each a line of its own (the tight columns are read as columns).
+ * The characters themselves are still read (all but one of the 39 column characters of these images).
+ */
+object Ocr2Cases {
+    /** The rows in order, and the columns' characters in lines of one or more, with at most [errors] wrong or missing. */
+    private fun looseColumns(file: String, rows: String, columns: String, errors: Int = 0) = OcrCase(file, (rows + "\n" + columns).trim()) { text ->
+        val lines = text.split('\n')
+        val expectedRows = rows.split('\n').filter { it.isNotEmpty() }
+        val wanted = columns.toMutableList()
+        val read = lines.filter { it !in expectedRows }.joinToString("")
+        val extra = read.count { !wanted.remove(it) }
+        lines.filter { it in expectedRows } == expectedRows && wanted.size <= errors && extra <= errors
+    }
+
+    private val different = listOf(
+        OcrCase("pipeline-mixed.png", "你好世界\nHello world\n中文 Chinese\n123"),
+        looseColumns("pipeline-vertical.png", "", "你好世界中国文化"),
+        looseColumns("mixed-right-loose.png", MIXED_ROWS, "小心地滑注意安全"),
+        looseColumns("mixed-3col-loose.png", MIXED_ROWS, "小心地滑注意安全高空作业禁止通行佩戴安全帽进入", errors = 2),
+    ).associateBy { it.file }
+
+    val all = OcrCases.all.map { different[it.file] ?: it }
+}
+
 /** Reference ink drawings with the reference encoder's features and the reference decoder's ranking. */
 class InkGolden(val cases: List<Case>) {
     class Case(

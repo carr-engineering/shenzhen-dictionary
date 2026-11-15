@@ -30,6 +30,7 @@ class Ocr2BenchmarkRun {
         val options = Ocr2Options(
             classify = settings["classify"]?.toBoolean() ?: defaults.classify,
             maxOutputElements = settings["chunk"]?.toInt() ?: defaults.maxOutputElements,
+            detectorMaxGrow = settings["grow"]?.toDouble() ?: defaults.detectorMaxGrow,
         )
         val nets = Ocr2Host.nets(settings["threads"]?.toInt() ?: 4)
         try {

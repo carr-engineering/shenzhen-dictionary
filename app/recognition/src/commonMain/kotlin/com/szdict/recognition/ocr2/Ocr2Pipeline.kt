@@ -7,8 +7,11 @@ import com.szdict.recognition.OcrLine
 import com.szdict.recognition.OcrResult
 import com.szdict.recognition.Point
 import com.szdict.recognition.Quad
+import com.szdict.recognition.ocr.Box
+import com.szdict.recognition.ocr.Geometry
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.round
@@ -19,8 +22,8 @@ import kotlin.math.roundToInt
  * Small recogniser: a Kotlin port of the pipeline that was evaluated (RapidOCR 3.10 driven by
  * `ocr-baseline/tools/benchmark_models.py`, profile "v4"), extended to the app's contract.
  *
- *  1. The image is padded above and below when it is very flat, and enlarged so that its shorter
- *     side has at least 736 pixels (sides rounded to multiples of 32) for the detector.
+ *  1. The image is padded above and below when it is very flat, and enlarged for the detector so
+ *     that its shorter side has 736 pixels, by at most a factor of two (sides rounded to multiples of 32).
  *  2. [DbPostProcess] turns the detector's probability map into line boxes.
  *  3. Every box is cut out with a perspective transform at its own size; a crop at least 1.5 times
  *     taller than wide is turned a quarter counter-clockwise, so a vertical column reads left to right.
@@ -30,10 +33,11 @@ import kotlin.math.roundToInt
  *  6. [CtcAlternatives] gives every character its alternatives and [CharSpans] its extent in the
  *     crop, which is mapped back to the image through the crop's transform.
  *
- * Differences from the reference, none of which changes a reading: character boxes of lines the
+ * Differences from the reference: small images are enlarged by at most a factor of two (see
+ * [Ocr2Options.detectorMaxGrow]); and, without effect on any reading, character boxes of lines the
  * classifier turned are turned with them (the reference leaves them mirrored), boxes are not
- * truncated to whole pixels, whitespace gets a box, and vertical columns are listed after the
- * horizontal lines, right to left.
+ * truncated to whole pixels, whitespace gets a box, and lines are listed in the app's reading order
+ * (columns of a page left to right, rows top to bottom, then vertical columns right to left).
  */
 internal class Ocr2Pipeline(
     private val nets: Ocr2Nets,
@@ -144,11 +148,13 @@ internal class Ocr2Pipeline(
                     // Upright glyphs of a column lie on their left side in the turned crop.
                     val quad = if (crop.tall) Quad(toPage(l, height), toPage(l, 0.0), toPage(r, 0.0), toPage(r, height))
                     else Quad(toPage(l, 0.0), toPage(r, 0.0), toPage(r, height), toPage(l, height))
+                    // Whitespace is not a reading to offer for a glyph.
+                    val candidates = symbol.labels.indices.filter { it == 0 || !symbols[symbol.labels[it]].isBlank() }.take(options.alternatives)
                     OcrChar(
                         text = texts[i],
                         box = quad,
                         confidence = symbol.scores[0],
-                        alternatives = List(symbol.labels.size) { OcrAlt(symbols[symbol.labels[it]], symbol.scores[it]) },
+                        alternatives = candidates.map { OcrAlt(symbols[symbol.labels[it]], symbol.scores[it]) },
                     )
                 }
                 val p = crop.box.points
@@ -161,14 +167,22 @@ internal class Ocr2Pipeline(
                 (if (crop.tall) vertical else horizontal).add(OcrLine(texts.joinToString(""), quad, chars, vertical = crop.tall))
             }
         }
-        // Rows top to bottom as detected, then columns right to left.
-        vertical.sortByDescending { it.box.center.x }
-        return OcrResult(image.width, image.height, horizontal + vertical)
+        // Ordered by the lines' own extents (length x thickness about the centre), so that the rows
+        // of a tilted page do not overlap as their upright bounding boxes would. (A column's quad is in
+        // image order, so this holds for both kinds.)
+        fun bounds(line: OcrLine): Box {
+            val q = line.box
+            val c = q.center
+            val along = hypot(q.topRight.x - q.topLeft.x, q.topRight.y - q.topLeft.y) / 2.0
+            val across = hypot(q.bottomLeft.x - q.topLeft.x, q.bottomLeft.y - q.topLeft.y) / 2.0
+            return Box(c.x - along, c.y - across, c.x + along, c.y + across)
+        }
+        return OcrResult(image.width, image.height, Geometry.readingOrder(horizontal, false, ::bounds) + Geometry.readingOrder(vertical, true, ::bounds))
     }
 
     private fun detect(page: BgrImage): List<TextBox> {
         val shorter = min(page.width, page.height)
-        val grow = if (shorter < options.detectorMinSide) options.detectorMinSide.toDouble() / shorter else 1.0
+        val grow = if (shorter < options.detectorMinSide) min(options.detectorMinSide.toDouble() / shorter, options.detectorMaxGrow) else 1.0
         val width = roundTo32((page.width * grow).toInt())
         val height = roundTo32((page.height * grow).toInt())
         if (width <= 0 || height <= 0) return emptyList()
@@ -244,7 +258,7 @@ internal class Ocr2Pipeline(
                 }
                 timed("decode") {
                     for ((n, index) in part.withIndex()) {
-                        val decoded = CtcAlternatives.decode(output.data, n * output.frames * output.classes, output.frames, output.classes, options.alternatives)
+                        val decoded = CtcAlternatives.decode(output.data, n * output.frames * output.classes, output.frames, output.classes, options.alternatives + WHITESPACE_CLASSES)
                         if (decoded.isNotEmpty()) out[index] = Reading(decoded, output.frames, aspect(crops[index].image), batchAspect)
                     }
                 }
@@ -281,6 +295,9 @@ internal class Ocr2Pipeline(
         const val TALL = 1.5
         const val FLAT_HEIGHT = 30
         const val FLAT_ASPECT = 8.0
+
+        /** Whitespace symbols of the recogniser (space, ideographic space): decoded on top of the alternatives wanted, then left out. */
+        const val WHITESPACE_CLASSES = 2
 
         /** Nearest multiple of 32, halves to the even multiple. */
         fun roundTo32(v: Int): Int = (round(v / 32.0) * 32).toInt()

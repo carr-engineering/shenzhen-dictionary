@@ -409,8 +409,8 @@ internal object DbPostProcess {
      *
      * Scores of small kernels sit close to the box threshold, so the pixels counted are exactly those
      * OpenCV's `fillPoly` sets: the four sides drawn as 8-connected lines, and on every row from the
-     * top corner down to (not including) the bottom one the pixels between the two sides crossing it,
-     * the sides followed in 16-bit fixed point and their positions rounded down.
+     * top corner down to (not including) the bottom one the whole pixels between the two sides
+     * crossing it, the sides followed in 16-bit fixed point.
      */
     internal fun boxScore(map: FloatArray, width: Int, height: Int, corners: DoubleArray): Double {
         var minX = Double.MAX_VALUE
@@ -470,7 +470,7 @@ internal object DbPostProcess {
             crossings.sort(0, active)
             var k = 0
             while (k + 1 < active) {
-                val from = max((crossings[k] shr 16).toInt(), 0)
+                val from = max(((crossings[k] + 0xFFFF) shr 16).toInt(), 0)
                 val to = min((crossings[k + 1] shr 16).toInt(), w - 1)
                 for (x in from..to) mask[y * w + x] = true
                 k += 2

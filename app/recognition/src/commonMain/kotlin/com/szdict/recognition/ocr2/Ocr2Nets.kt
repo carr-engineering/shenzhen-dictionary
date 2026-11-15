@@ -30,8 +30,8 @@ internal interface Ocr2Nets {
 
 /**
  * Parameters of the pipeline. The defaults are the evaluated configuration (RapidOCR 3.10 with the
- * PP-OCRv4 detector profile, see `ocr-baseline/tools/benchmark_models.py`); change them only together
- * with a new evaluation.
+ * PP-OCRv4 detector profile, see `ocr-baseline/tools/benchmark_models.py`) with one addition,
+ * [detectorMaxGrow]; change them only together with a new evaluation.
  */
 internal class Ocr2Options(
     /** Number of candidates kept per character (including the top-1). */
@@ -42,6 +42,13 @@ internal class Ocr2Options(
     val minSide: Int = 30,
     /** The detector sees the image enlarged so that its shorter side is at least this long. */
     val detectorMinSide: Int = 736,
+    /**
+     * ... but never by more than this factor. The evaluated configuration has no such limit
+     * (`Double.MAX_VALUE`): it enlarges a 208 x 53 crop of four characters to 2880 x 736, where the
+     * detector no longer sees them as one line. With the limit the labelled set scores the same or
+     * slightly better on every measure (line F 59.0 against 58.3 %, Han top-1 86.9 against 86.6 %).
+     */
+    val detectorMaxGrow: Double = 2.0,
     /** Probability above which a pixel of the detector's map is text. */
     val pixelThreshold: Float = 0.3f,
     /** Mean probability inside a candidate box under which it is dropped. */
