@@ -43,21 +43,18 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -74,7 +71,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.szdict.app.i18n.appStrings
@@ -122,8 +118,10 @@ internal fun SearchControl(
     // Flat on the page until the list beneath it has scrolled.
     val elevation by animateDpAsState(if (elevated) 8.dp else 0.dp, tween(160), label = "search-shadow")
     val interactions = remember { MutableInteractionSource() }
+    // The latest callback: it closes over the current input method, which changes while the collector runs.
+    val fieldTapped by rememberUpdatedState(onFieldTapped)
     LaunchedEffect(interactions) {
-        interactions.interactions.collect { if (it is PressInteraction.Release) onFieldTapped() }
+        interactions.interactions.collect { if (it is PressInteraction.Release) fieldTapped() }
     }
     Surface(
         modifier = modifier,
@@ -133,59 +131,39 @@ internal fun SearchControl(
         shadowElevation = elevation,
     ) {
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                InputMethodGate {
-                    TextField(
-                        value = field,
-                        onValueChange = onFieldChange,
-                        modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(fieldFocus)
-                            .onFocusChanged { if (it.isFocused) onFieldFocused() },
-                        singleLine = true,
-                        interactionSource = interactions,
-                        placeholder = {
-                            Text(
-                                strings.text(if (cantonese) "English · Jyutping · 漢字" else "English · Pinyin · 汉字"),
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 2.dp)) {
-                                when {
-                                    field.text.isNotEmpty() ->
-                                        ControlIcon(Icons.Rounded.Close, strings.text("Clear search"), palette.muted, onClear)
-                                    canPaste ->
-                                        ControlIcon(Icons.Rounded.ContentPaste, strings.text("Paste clipboard into search"), palette.accent, onPaste)
-                                }
-                                ControlIcon(
-                                    if (handwriting) Icons.Rounded.Keyboard else Icons.Rounded.Draw,
-                                    strings.text(if (handwriting) "Switch to keyboard" else "Switch to handwriting"),
-                                    palette.muted, onToggleInputMethod,
-                                )
-                            }
-                        },
-                        // No auto-correction: queries are pinyin, jyutping and partial syllables, which a keyboard
-                        // would "fix" into English words. Suggestions stay on (plain text type, no
-                        // no-suggestions flag); only the auto-correct hint is withdrawn, and nothing is capitalised.
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.None,
-                            autoCorrectEnabled = false,
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Search,
-                        ),
-                        keyboardActions = KeyboardActions(onSearch = { onImeSearch() }),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = palette.panel,
-                            unfocusedContainerColor = palette.panel,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            cursorColor = palette.accent,
-                            focusedTextColor = palette.fg,
-                            unfocusedTextColor = palette.fg,
-                            focusedPlaceholderColor = palette.muted,
-                            unfocusedPlaceholderColor = palette.muted,
-                        ),
+            SearchField(
+                value = field,
+                onValueChange = onFieldChange,
+                placeholder = strings.text(if (cantonese) "English · Jyutping · 漢字" else "English · Pinyin · 汉字"),
+                textColor = palette.fg,
+                placeholderColor = palette.muted,
+                cursorColor = palette.accent,
+                // No auto-correction: queries are pinyin, jyutping and partial syllables, which a keyboard
+                // would "fix" into English words. Suggestions stay on (plain text type, no
+                // no-suggestions flag); only the auto-correct hint is withdrawn, and nothing is capitalised.
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Search,
+                ),
+                keyboardActions = KeyboardActions(onSearch = { onImeSearch() }),
+                focusRequester = fieldFocus,
+                onFocused = onFieldFocused,
+                interactionSource = interactions,
+                fieldWrapper = { InputMethodGate(it) },
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 2.dp)) {
+                    when {
+                        field.text.isNotEmpty() ->
+                            ControlIcon(Icons.Rounded.Close, strings.text("Clear search"), palette.muted, onClear)
+                        canPaste ->
+                            ControlIcon(Icons.Rounded.ContentPaste, strings.text("Paste clipboard into search"), palette.accent, onPaste)
+                    }
+                    ControlIcon(
+                        if (handwriting) Icons.Rounded.Keyboard else Icons.Rounded.Draw,
+                        strings.text(if (handwriting) "Switch to keyboard" else "Switch to handwriting"),
+                        palette.muted, onToggleInputMethod,
                     )
                 }
             }
