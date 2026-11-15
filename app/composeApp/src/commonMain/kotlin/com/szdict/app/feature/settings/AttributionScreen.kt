@@ -92,7 +92,7 @@ fun AttributionScreen(session: AppSession, onBack: () -> Unit, modifier: Modifie
             items(models, key = { "model-${it.credit.name}" }) { CreditCard(it, session.env.links::open) }
             item("divider") { HorizontalDivider(color = palette.border, modifier = Modifier.padding(vertical = 6.dp)) }
             item("licences") {
-                OutlinedButton(onClick = { showLicences = true }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { showLicences = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Icon(Icons.Rounded.Policy, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(strings.text("Open-source library licenses"))
@@ -135,7 +135,7 @@ private fun CreditCard(resolved: ResolvedCredit, onOpen: (String) -> Unit) {
                 Text(strings.text("Version {0}", version), style = MaterialTheme.typography.labelMedium, color = palette.muted)
             }
             credit.links.forEach { link ->
-                TextButton(onClick = { onOpen(link.url) }, modifier = Modifier.align(Alignment.End)) {
+                TextButton(onClick = { onOpen(link.url) }, modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp)) {
                     Text(link.label)
                     Spacer(Modifier.width(6.dp))
                     Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = strings.text("Open {0}", link.label))

@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.szdict.app.ui.theme.LocalDictionaryPalette
+import com.szdict.app.ui.theme.LocalIsDark
 
 /**
  * A section-navigation chip (HSK level selector, WORDS-tab sections): a label in [color], an
@@ -101,7 +102,7 @@ val ChipBarHorizontalPadding = 14.dp
 /**
  * The floating chip bar over scrolling content (HSK-011…016, GLB-074; the HSK selector and the
  * entry page's WORDS and PARTS chip rows): the page background at [CHIP_BAR_ALPHA] so content
- * shows through as it scrolls beneath, no blur, and a bottom-only shadow while [scrolledUnder].
+ * shows through as it scrolls beneath, no blur, and a bottom-only shadow while [scrolledUnder] (light theme only: in dark theme it reads as a glow).
  * [onBarHeight] reports the bar without its shadow (where content should stop when jumped to).
  */
 @Composable
@@ -119,10 +120,12 @@ fun TranslucentChipBar(
             color = palette.bg.copy(alpha = CHIP_BAR_ALPHA),
             content = content,
         )
-        Box(
-            Modifier.fillMaxWidth().height(8.dp).background(
-                Brush.verticalGradient(listOf(palette.border.copy(alpha = 0.52f * shadowAlpha), palette.border.copy(alpha = 0f)))
+        if (!LocalIsDark.current) {
+            Box(
+                Modifier.fillMaxWidth().height(8.dp).background(
+                    Brush.verticalGradient(listOf(palette.border.copy(alpha = 0.52f * shadowAlpha), palette.border.copy(alpha = 0f)))
+                )
             )
-        )
+        }
     }
 }

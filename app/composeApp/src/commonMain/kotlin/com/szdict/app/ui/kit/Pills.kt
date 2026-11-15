@@ -5,7 +5,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -14,9 +16,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.szdict.app.ui.theme.LocalDictionaryPalette
@@ -57,10 +61,16 @@ fun NavPill(
 fun SegmentedPillRow(
     options: List<String>,
     selectedIndex: Int,
-    onSelect: (Int) -> Unit
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    /** Segments share the width equally (the control should then be given a width, e.g. fillMaxWidth). */
+    equalWidth: Boolean = false,
+    /** Minimum height of every segment, the tap target. */
+    minHeight: Dp = 0.dp,
 ) {
     val palette = LocalDictionaryPalette.current
     Surface(
+        modifier = modifier,
         shape = CircleShape,
         color = palette.bgSoft,
         border = BorderStroke(1.dp, palette.border)
@@ -71,18 +81,21 @@ fun SegmentedPillRow(
                     val selected = index == selectedIndex
                     Surface(
                         onClick = { onSelect(index) },
+                        modifier = (if (equalWidth) Modifier.weight(1f) else Modifier).heightIn(min = minHeight),
                         shape = CircleShape,
                         color = if (selected) palette.accent else Color.Transparent,
                         contentColor = if (selected) palette.onAccent else palette.muted
                     ) {
-                        Text(
-                            text = label,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 0.5.sp,
-                            maxLines = 1
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = label,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.5.sp,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }

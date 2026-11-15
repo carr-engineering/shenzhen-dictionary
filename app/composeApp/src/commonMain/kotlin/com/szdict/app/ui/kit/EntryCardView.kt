@@ -89,21 +89,23 @@ fun EntryCardView(
     inside: InsideWordsState? = null,
 ) {
     val palette = LocalDictionaryPalette.current
-    val color = if (containerColor == Color.Unspecified) palette.panel else containerColor
+    val requested = if (containerColor == Color.Unspecified) palette.panel else containerColor
     val border = BorderStroke(1.dp, if (selected) palette.accent else palette.border)
     val cardModifier = modifier.fillMaxWidth().padding(vertical = 4.dp)
-    if (inside != null && card.insideCount > 0 && card.hanziCount >= 2) {
-        Surface(modifier = cardModifier, shape = MaterialTheme.shapes.medium, color = color, border = border) {
-            Column {
-                Box(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-                    EntryCardContent(card, compact, audio, maxDefinitionLines, showHsk)
+    CardContainer(requested) { color ->
+        if (inside != null && card.insideCount > 0 && card.hanziCount >= 2) {
+            Surface(modifier = cardModifier, shape = MaterialTheme.shapes.medium, color = color, border = border) {
+                Column {
+                    Box(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+                        EntryCardContent(card, compact, audio, maxDefinitionLines, showHsk)
+                    }
+                    InsideWordsFooter(card.headword, card.insideCount, inside, maxDefinitionLines)
                 }
-                InsideWordsFooter(card.headword, card.insideCount, inside, maxDefinitionLines)
             }
-        }
-    } else {
-        Surface(onClick = onClick, modifier = cardModifier, shape = MaterialTheme.shapes.medium, color = color, border = border) {
-            EntryCardContent(card, compact, audio, maxDefinitionLines, showHsk)
+        } else {
+            Surface(onClick = onClick, modifier = cardModifier, shape = MaterialTheme.shapes.medium, color = color, border = border) {
+                EntryCardContent(card, compact, audio, maxDefinitionLines, showHsk)
+            }
         }
     }
 }
@@ -124,22 +126,24 @@ fun EntryCardGroup(
         return
     }
     val palette = LocalDictionaryPalette.current
-    Surface(
-        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = palette.panel,
-        border = BorderStroke(1.dp, if (cards.any { it.id == selectedId }) palette.accent else palette.border),
-    ) {
-        Column {
-            cards.forEachIndexed { index, card ->
-                Box(Modifier.fillMaxWidth().clickable { onClick(card) }) {
-                    EntryCardContent(card, false, audio(card), DEFAULT_DEFINITION_LINES, true)
+    CardContainer(palette.panel) { color ->
+        Surface(
+            modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = color,
+            border = BorderStroke(1.dp, if (cards.any { it.id == selectedId }) palette.accent else palette.border),
+        ) {
+            Column {
+                cards.forEachIndexed { index, card ->
+                    Box(Modifier.fillMaxWidth().clickable { onClick(card) }) {
+                        EntryCardContent(card, false, audio(card), DEFAULT_DEFINITION_LINES, true)
+                    }
+                    if (index < cards.lastIndex) HorizontalDivider(color = palette.border, modifier = Modifier.padding(horizontal = 13.dp))
                 }
-                if (index < cards.lastIndex) HorizontalDivider(color = palette.border, modifier = Modifier.padding(horizontal = 13.dp))
-            }
-            val last = cards.last()
-            if (inside != null && last.insideCount > 0 && last.hanziCount >= 2) {
-                InsideWordsFooter(last.headword, last.insideCount, inside, DEFAULT_DEFINITION_LINES)
+                val last = cards.last()
+                if (inside != null && last.insideCount > 0 && last.hanziCount >= 2) {
+                    InsideWordsFooter(last.headword, last.insideCount, inside, DEFAULT_DEFINITION_LINES)
+                }
             }
         }
     }
@@ -147,7 +151,7 @@ fun EntryCardGroup(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio?, maxDefinitionLines: Int, showHsk: Boolean, badgeBackground: Color = Color.Unspecified) {
+private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio?, maxDefinitionLines: Int, showHsk: Boolean) {
     val palette = LocalDictionaryPalette.current
     val prefs = LocalDisplayPrefs.current
     val strings = appStrings()
@@ -209,7 +213,7 @@ private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio
             Text(it.text(strings.lang), style = MaterialTheme.typography.labelSmall, color = palette.muted, modifier = Modifier.padding(bottom = 3.dp))
         }
         val definitions = card.mandarinRow?.definitions ?: card.definitions
-        NumberedDefinitions(definitions, maxDefinitionLines, badgeBackground = badgeBackground)
+        NumberedDefinitions(definitions, maxDefinitionLines)
         if (definitions.isEmpty() && card.notes.isNotEmpty()) {
             Text(
                 card.notes.joinToString(" • ") { "${it.label.text(strings.lang)} ${it.text}".trim() },
@@ -224,11 +228,11 @@ private fun EntryCardContent(card: EntryCard, compact: Boolean, audio: CardAudio
 }
 
 /** Definition line limit of cards on the page; the word sheet passes [Int.MAX_VALUE] (no limit). */
-const val DEFAULT_DEFINITION_LINES = 4
+const val DEFAULT_DEFINITION_LINES = 5
 
 /** All definitions as one numbered paragraph, clamped with a `+N` badge (SRCH-094, SRCH-095). */
 @Composable
-fun NumberedDefinitions(definitions: List<String>, maxLines: Int, modifier: Modifier = Modifier, badgeBackground: Color = Color.Unspecified) {
+fun NumberedDefinitions(definitions: List<String>, maxLines: Int, modifier: Modifier = Modifier) {
     if (definitions.isEmpty()) return
     val palette = LocalDictionaryPalette.current
     val starts = remember(definitions) { IntArray(definitions.size) }
@@ -256,7 +260,7 @@ fun NumberedDefinitions(definitions: List<String>, maxLines: Int, modifier: Modi
         )
         if (hidden > 0) {
             Text("+$hidden", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = palette.accent,
-                modifier = Modifier.align(Alignment.BottomEnd).background(if (badgeBackground == Color.Unspecified) palette.panel else badgeBackground).padding(start = 4.dp))
+                modifier = Modifier.align(Alignment.BottomEnd).background(LocalCardContainerColor.current.let { if (it == Color.Unspecified) palette.panel else it }).padding(start = 4.dp))
         }
     }
 }
