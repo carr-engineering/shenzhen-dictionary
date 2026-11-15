@@ -84,6 +84,7 @@ import platform.AVFoundation.hasTorch
 import platform.AVFoundation.isTorchModeSupported
 import platform.AVFoundation.maxAvailableVideoZoomFactor
 import platform.AVFoundation.minAvailableVideoZoomFactor
+import platform.AVFoundation.position
 import platform.AVFoundation.torchMode
 import platform.AVFoundation.videoZoomFactor
 import platform.AVFoundation.virtualDevice
@@ -163,6 +164,9 @@ actual fun rememberCameraPermission(): CameraPermissionState {
 private class CameraPreviewView(session: AVCaptureSession) : UIView(frame = CGRectZero.readValue()) {
     val previewLayer = AVCaptureVideoPreviewLayer(session = session)
 
+    /** The front camera is open: its sensor turns the other way, so the landscape angles swap. */
+    var front = false
+
     init {
         backgroundColor = UIColor.blackColor
         previewLayer.videoGravity = AVLayerVideoGravityResizeAspect   // CAM-021: fit-centre
@@ -180,8 +184,8 @@ private class CameraPreviewView(session: AVCaptureSession) : UIView(frame = CGRe
 
     /** Video rotation that shows the sensor image upright in the current interface orientation. */
     fun rotationAngle(): Double = when (window?.windowScene?.interfaceOrientation) {
-        UIInterfaceOrientationLandscapeRight -> 0.0
-        UIInterfaceOrientationLandscapeLeft -> 180.0
+        UIInterfaceOrientationLandscapeRight -> if (front) 180.0 else 0.0
+        UIInterfaceOrientationLandscapeLeft -> if (front) 0.0 else 180.0
         UIInterfaceOrientationPortraitUpsideDown -> 270.0
         else -> 90.0
     }
@@ -276,11 +280,22 @@ private class IosCamera {
                         val raw = fovFactor(wide, other)
                         other.uniqueID to (if (raw < 0.9f) raw else snapLensFactor(raw))
                     }
-                lenses = lensOptions(listOf(1f), others, mainId = "wide")
+                // A digital `2×` beside `1×` where no telephoto is longer, as on Android.
+                val steps = if (others.none { it.second > 1.05f } && wide.maxAvailableVideoZoomFactor >= 2.0) listOf(1f, 2f) else listOf(1f)
+                lenses = lensOptions(steps, others, mainId = "wide")
                 for (lens in lenses) {
                     val other = found.firstOrNull { it.uniqueID == lens.id }
-                    lensMap[lens.id] = IosLens(other ?: wide, 1.0, lens.factor ?: 1f)
+                    lensMap[lens.id] = if (other != null) IosLens(other, 1.0, lens.factor ?: 1f) else IosLens(wide, (lens.factor ?: 1f).toDouble(), 1f)
                 }
+            } else {
+                lenses = emptyList()
+            }
+            // CAM-022: the front camera is an entry of the same menu, after the rear lenses.
+            val frontCamera = AVCaptureDevice.defaultDeviceWithDeviceType(AVCaptureDeviceTypeBuiltInWideAngleCamera, AVMediaTypeVideo, AVCaptureDevicePositionFront)
+            if (frontCamera != null && camera !== frontCamera) {
+                val entry = frontLens("front")
+                lenses = lenses + entry
+                lensMap[entry.id] = IosLens(frontCamera, 1.0, 1f)
             }
             val newInput = camera?.let { runCatching { AVCaptureDeviceInput.deviceInputWithDevice(it, null) }.getOrNull() }
             var opened = false
@@ -306,6 +321,7 @@ private class IosCamera {
             runOnMain {
                 device = camera.takeIf { opened }
                 deviceFactor = 1f
+                view.front = camera?.position == AVCaptureDevicePositionFront
                 onOpened(device)
             }
         }
@@ -336,9 +352,10 @@ private class IosCamera {
         camera.unlockForConfiguration()
     }
 
-    /** Live zoom relative to the wide camera. */
+    /** Live zoom relative to the wide camera; none on the front camera, which the chip names instead. */
     fun zoom(): Float? {
         val camera = device ?: return null
+        if (camera.position == AVCaptureDevicePositionFront) return null
         return (camera.videoZoomFactor / base).toFloat() * deviceFactor
     }
 
@@ -378,10 +395,16 @@ private class IosCamera {
                 input?.let { session.addInput(it) }
             }
             session.commitConfiguration()
+            // The lens's own zoom on the new camera (a virtual device's `1×` is not its zoom factor 1).
+            if (switched && lens.device.lockForConfiguration(null)) {
+                lens.device.videoZoomFactor = lens.deviceZoom.coerceIn(lens.device.minAvailableVideoZoomFactor, lens.device.maxAvailableVideoZoomFactor)
+                lens.device.unlockForConfiguration()
+            }
             runOnMain {
                 if (switched) {
                     device = lens.device
                     deviceFactor = lens.factor
+                    view.front = lens.device.position == AVCaptureDevicePositionFront
                     view.setNeedsLayout()
                 }
                 onSwitched()
@@ -398,7 +421,14 @@ private class IosCamera {
         }
         if (output.supportedFlashModes.any { (it as? Number)?.toLong() == wanted }) settings.flashMode = wanted
         // What is framed is what is captured: the still carries the preview's orientation.
-        output.connectionWithMediaType(AVMediaTypeVideo)?.rotateTo(view.rotationAngle())
+        output.connectionWithMediaType(AVMediaTypeVideo)?.let { connection ->
+            connection.rotateTo(view.rotationAngle())
+            // The preview of the front camera is mirrored, as the system's is; the photo read for OCR is not.
+            if (connection.isVideoMirroringSupported()) {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.videoMirrored = false
+            }
+        }
         val delegate = PhotoDelegate { self, bytes ->
             delegates.remove(self)
             onDone(bytes)

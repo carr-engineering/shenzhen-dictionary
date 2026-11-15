@@ -52,7 +52,7 @@ private fun jsCameraCreate(): JsAny = js(
         video.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
         host.appendChild(video);
         document.body.insertBefore(host, document.body.firstChild);
-        return { host: host, video: video, stream: null, track: null, capture: null, torch: false, fill: [], focus: false, deviceId: null, closed: false };
+        return { host: host, video: video, stream: null, track: null, capture: null, torch: false, fill: [], focus: false, deviceId: null, mirrored: false, closed: false };
     })()"""
 )
 
@@ -80,7 +80,12 @@ private fun jsCameraOpen(camera: JsAny, deviceId: String?): Promise<JsString> = 
             try { await camera.video.play(); } catch (e) { /* autoplay starts it */ }
             const capabilities = track.getCapabilities ? track.getCapabilities() : {};
             camera.torch = !!capabilities.torch;
-            camera.deviceId = (track.getSettings ? track.getSettings().deviceId : null) || null;
+            const settings = track.getSettings ? track.getSettings() : {};
+            camera.deviceId = settings.deviceId || null;
+            // CAM-022: a user-facing camera's preview is mirrored, as camera apps show it; the captured
+            // photo (takePhoto() or a frame of the stream) never is.
+            camera.mirrored = settings.facingMode === 'user';
+            camera.video.style.transform = camera.mirrored ? 'scaleX(-1)' : '';
             // CAM-037: a capture flash exists only where ImageCapture reports fill-light modes.
             camera.fill = [];
             if (typeof ImageCapture !== 'undefined') {
@@ -193,7 +198,8 @@ private fun jsCameraFocusAt(camera: JsAny, x: Double, y: Double): Promise<JsBool
         if (!track || !camera.focus || !(video.videoWidth > 0)) return false;
         const box = camera.host.getBoundingClientRect();
         const scale = Math.min(box.width / video.videoWidth, box.height / video.videoHeight);
-        const nx = (x - (box.width - video.videoWidth * scale) / 2) / (video.videoWidth * scale);
+        const shown = (x - (box.width - video.videoWidth * scale) / 2) / (video.videoWidth * scale);
+        const nx = camera.mirrored ? 1 - shown : shown;
         const ny = (y - (box.height - video.videoHeight * scale) / 2) / (video.videoHeight * scale);
         if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return false;
         const modes = (track.getCapabilities().focusMode || []);

@@ -464,6 +464,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Flashlight" to "手电筒",
     "Camera lens" to "镜头",
     "Camera {0}" to "相机 {0}",
+    "Front" to "前置",
     "Handwriting area" to "手写区域",
     "Handwriting is unavailable." to "手写输入不可用。",
     "Image dropped" to "已拖入图片",

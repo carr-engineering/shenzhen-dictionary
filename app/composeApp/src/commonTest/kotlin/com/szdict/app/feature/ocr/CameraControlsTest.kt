@@ -129,6 +129,74 @@ class CameraControlsTest {
         assertEquals(FlashMode.ON, captureFlash(FlashMode.ON))
     }
 
+    // vivo V2528A (Android 16), from `dumpsys media.camera`: focal length / sensor width per camera.
+    private val vivoMain = CameraSpec("0", minZoom = 1f, maxZoom = 10f, focal = 5.56f / 8.192f)
+    private val vivoFront = CameraSpec("1", front = true, minZoom = 1f, maxZoom = 10f, focal = 3.09f / 5.2224f)
+    private val vivoUltraWide = CameraSpec("3", minZoom = 1f, maxZoom = 10f, focal = 1.6f / 3.584f)
+    private val vivoTele = CameraSpec("4", minZoom = 1f, maxZoom = 10f, focal = 13.85f / 6.5536f)
+    private val vivoLogical = CameraSpec(
+        "2", minZoom = 0.6f, maxZoom = 100f, focal = 5.56f / 8.192f,
+        physicalFocals = listOf(vivoUltraWide.focal!!, vivoMain.focal!!, vivoTele.focal!!),
+        physicalIds = setOf("3", "0", "4"),
+    )
+
+    @Test
+    fun vivoAsAThirdPartyAppSeesItGetsDigitalStepsAndTheFrontCamera() {
+        // `vendor.camera.aux.packagelist` keeps cameras 2–4 to the system camera app: the list holds 0 and 1.
+        val plan = planLenses(listOf(vivoMain, vivoFront), defaultRearId = "0")
+        assertEquals("0", plan.rearId)
+        assertEquals(listOf("1×", "2×", "Front"), labels(plan.lenses))
+        assertEquals(listOf("0@1.0", "0@2.0", "1"), plan.lenses.map { it.id })
+        assertTrue(plan.lenses.last().front)
+        assertEquals("0@1.0", plan.initial?.id)
+    }
+
+    @Test
+    fun aLogicalCameraReachingMoreLensesIsOpenedInsteadOfTheDefault() {
+        // The same phone were every camera listed: the logical camera 2 zooms 0.6×…100× across 3, 0 and 4.
+        val plan = planLenses(listOf(vivoMain, vivoFront, vivoLogical, vivoUltraWide, vivoTele), defaultRearId = "0")
+        assertEquals("2", plan.rearId)
+        assertEquals(listOf("0.6×", "1×", "3×", "Front"), labels(plan.lenses))
+        assertEquals(listOf("2@0.6", "2@1.0", "2@3.0", "1"), plan.lenses.map { it.id })
+    }
+
+    @Test
+    fun separateRearCamerasAreListedByTheirFactor() {
+        // No logical camera: the ultra-wide (focal/sensor 0.45 against 0.68) and the 3× telephoto by rebinding.
+        val plan = planLenses(listOf(vivoMain, vivoFront, vivoUltraWide, vivoTele), defaultRearId = "0")
+        assertEquals("0", plan.rearId)
+        assertEquals(listOf("0.7×", "1×", "2×", "3×", "Front"), labels(plan.lenses))
+        assertEquals(listOf("3", "0@1.0", "0@2.0", "4", "1"), plan.lenses.map { it.id })
+        assertEquals(3f, plan.factors["4"])
+    }
+
+    @Test
+    fun aLogicalDefaultCameraKeepsItsPhysicalLensesOutOfTheList() {
+        // Pixel-style: camera 0 is itself the logical camera; its physical lenses are also listed.
+        val pixel = vivoLogical.copy(id = "0", physicalIds = setOf("2", "3", "4"))
+        val plan = planLenses(listOf(pixel, vivoFront, vivoUltraWide.copy(id = "2")), defaultRearId = "0")
+        assertEquals(listOf("0.6×", "1×", "3×", "Front"), labels(plan.lenses))
+    }
+
+    @Test
+    fun withoutAFrontCameraOrZoomThereIsNothingToChoose() {
+        assertEquals(1, planLenses(listOf(CameraSpec("0")), "0").lenses.size)
+        // A front camera alone (a tablet, say) opens as the only entry.
+        val front = planLenses(listOf(vivoFront), null)
+        assertEquals(null, front.rearId)
+        assertEquals(listOf("Front"), labels(front.lenses))
+    }
+
+    @Test
+    fun theFrontCameraIsSelectedByIdAndNamedWithoutZoom() {
+        val plan = planLenses(listOf(vivoMain, vivoFront), "0")
+        // The platform reports no zoom while the front camera is open.
+        assertEquals(plan.lenses.last(), activeLens(plan.lenses, "1", null))
+        assertEquals("Front", lensChipLabel(plan.lenses, "1", null))
+        // Back on the rear camera, the live factor picks among the rear lenses only.
+        assertEquals(plan.lenses[1], activeLens(plan.lenses, "1", 2.4f))
+    }
+
     @Test
     fun selectingALensRecordsItAndAsksThePlatform() {
         val handle = CameraHandle()

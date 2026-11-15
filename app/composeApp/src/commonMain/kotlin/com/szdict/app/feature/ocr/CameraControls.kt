@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.rounded.FlashAuto
 import androidx.compose.material.icons.rounded.FlashOff
 import androidx.compose.material.icons.rounded.FlashOn
@@ -41,16 +43,94 @@ import androidx.compose.ui.unit.dp
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import kotlin.math.abs
+import kotlin.math.ln
 import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------- lenses (CAM-028)
 
 /**
  * One entry of the lens menu. [factor] is the zoom relative to the main wide camera (1 = `1×`,
- * the ultra-wide about 0.5); null where the platform knows no zoom (Web), and [name] is shown instead.
+ * the ultra-wide about 0.5); null where the platform knows no zoom (Web, the front camera), and
+ * [name] is shown instead. [front] marks the front camera's entry (named `Front`, translated by the UI).
  */
-data class CameraLens(val id: String, val factor: Float?, val name: String? = null) {
+data class CameraLens(val id: String, val factor: Float?, val name: String? = null, val front: Boolean = false) {
     val label: String get() = factor?.let(::formatZoom) ?: name.orEmpty()
+}
+
+/** The menu entry of the front camera (CAM-022): a named entry after the rear lenses. */
+fun frontLens(id: String): CameraLens = CameraLens(id, factor = null, name = FrontCameraName, front = true)
+
+/** English name of the front camera entry; the UI shows it through the string table. */
+const val FrontCameraName = "Front"
+
+/**
+ * What the lens menu needs to know of one camera the app can open (CAM-028). [focal] is the focal
+ * length over the sensor width (proportional to the zoom the camera gives); [physicalFocals] the same
+ * for each physical lens of a logical multi-camera ([physicalIds] their ids), empty for a single camera.
+ * [intrinsicZoom] is the platform's own zoom relative to the default rear camera, used where [focal]
+ * is unknown.
+ */
+data class CameraSpec(
+    val id: String,
+    val front: Boolean = false,
+    val minZoom: Float = 1f,
+    val maxZoom: Float = 1f,
+    val focal: Float? = null,
+    val physicalFocals: List<Float> = emptyList(),
+    val physicalIds: Set<String> = emptySet(),
+    val intrinsicZoom: Float? = null,
+) {
+    /** Lenses this camera reaches by zooming alone. */
+    val lensCount: Int get() = if (physicalFocals.size >= 2) physicalFocals.size else 1
+}
+
+/**
+ * The lens menu of a device: [rearId] is the camera opened by default (null without a rear camera),
+ * [lenses] the menu, [factors] each camera's zoom `1` relative to the main camera's `1×`.
+ */
+data class LensPlan(val rearId: String?, val lenses: List<CameraLens>, val factors: Map<String, Float>) {
+    /** The entry selected when the camera opens: `1×` of the rear camera, else the first. */
+    val initial: CameraLens? get() = lenses.firstOrNull { !it.front && it.factor == 1f } ?: lenses.firstOrNull()
+}
+
+/**
+ * Builds the lens menu from every camera the app can open (CAM-022, CAM-028). The rear camera is
+ * the platform default ([defaultRearId]) unless a logical multi-camera reaches more lenses by zoom,
+ * which is then opened instead; its zoom steps come first, separate rear cameras whose factor no step
+ * covers are added (factor from focal length over sensor width relative to the main camera), and the
+ * front camera closes the menu as a named entry. With a single plain rear camera the steps are `1×`
+ * and a digital `2×` (when its zoom allows), so the menu still has a use.
+ */
+fun planLenses(cameras: List<CameraSpec>, defaultRearId: String?): LensPlan {
+    val rears = cameras.filter { !it.front }
+    val defaultRear = rears.firstOrNull { it.id == defaultRearId } ?: rears.firstOrNull()
+    val best = rears.maxByOrNull { it.lensCount }
+    val main = if (best != null && defaultRear != null && best.lensCount > defaultRear.lensCount) best else defaultRear
+    val lenses = mutableListOf<CameraLens>()
+    val factors = HashMap<String, Float>()
+    if (main != null) {
+        factors[main.id] = 1f
+        val steps = zoomSteps(main.minZoom, main.maxZoom, physicalRatios(main))
+        val others = rears.filter { it.id != main.id && it.id !in main.physicalIds }.mapNotNull { other ->
+            val raw = when {
+                other.focal != null && main.focal != null && main.focal > 0f -> other.focal / main.focal
+                other.intrinsicZoom != null && main.intrinsicZoom != null && main.intrinsicZoom > 0f -> other.intrinsicZoom / main.intrinsicZoom
+                else -> return@mapNotNull null
+            }
+            other.id to snapLensFactor(raw).also { factors[other.id] = it }
+        }
+        lenses += lensOptions(steps, others, mainId = main.id)
+    }
+    cameras.firstOrNull { it.front }?.let { lenses += frontLens(it.id) }
+    return LensPlan(main?.id, lenses, factors)
+}
+
+/** A logical camera's physical lenses relative to its `1×`: the physical lens closest to its own field of view. */
+private fun physicalRatios(camera: CameraSpec): List<Float> {
+    val reference = camera.focal ?: return emptyList()
+    if (camera.physicalFocals.size < 2 || reference <= 0f) return emptyList()
+    val anchor = camera.physicalFocals.minBy { abs(ln(it / reference)) }
+    return camera.physicalFocals.map { it / anchor }
 }
 
 /** `0.5×`, `1×`, `1.4×`, `10×`: one decimal below 10, none from 10 up, no trailing `.0`. */
@@ -75,11 +155,12 @@ fun snapLensFactor(ratio: Float): Float = when {
  * Android), as zoom ratios within [minZoom]…[maxZoom]. [lensRatios] are the physical lenses' ratios
  * when known; without them the steps are the widest zoom (where it is below 1), `1×` and a digital
  * `2×`. A digital `2×` is also offered when no lens is longer than the main one, as camera apps do.
+ * The ultra-wide step is the minimum zoom: the widest the camera opens it (vivo, Pixel: `0.6×`).
  */
 fun zoomSteps(minZoom: Float, maxZoom: Float, lensRatios: List<Float>): List<Float> {
     val steps = mutableListOf(1f.coerceIn(minZoom, maxZoom))
     for (ratio in lensRatios) {
-        val step = if (ratio < 0.95f) maxOf(ratio, minZoom) else snapLensFactor(ratio)
+        val step = if (ratio < 0.95f) minZoom else snapLensFactor(ratio)
         if (step <= maxZoom + 0.01f) steps += step.coerceAtMost(maxZoom)
     }
     if (steps.none { it < 0.95f } && minZoom < 0.95f && lensRatios.isEmpty()) steps += minZoom
@@ -117,12 +198,14 @@ private fun distinctSteps(steps: List<Float>): List<Float> {
 }
 
 /**
- * The lens shown as selected: with a live [zoom], the longest lens at or below it (a pinch from
- * `1×` to `1.8×` is still on `1×`); otherwise the one the user picked.
+ * The lens shown as selected: with a live [zoom] (a rear camera is open), the longest rear lens at or
+ * below it (a pinch from `1×` to `1.8×` is still on `1×`); otherwise the one the user picked. The
+ * platform reports no zoom while the front camera is open.
  */
 fun activeLens(lenses: List<CameraLens>, selected: String?, zoom: Float?): CameraLens? {
-    if (zoom != null && lenses.isNotEmpty() && lenses.all { it.factor != null }) {
-        return lenses.lastOrNull { it.factor!! <= zoom + 0.02f } ?: lenses.first()
+    val zoomable = lenses.filter { it.factor != null }
+    if (zoom != null && zoomable.isNotEmpty()) {
+        return zoomable.lastOrNull { it.factor!! <= zoom + 0.02f } ?: zoomable.first()
     }
     return lenses.firstOrNull { it.id == selected } ?: lenses.firstOrNull()
 }
@@ -206,7 +289,8 @@ internal fun LensControl(handle: CameraHandle, modifier: Modifier = Modifier) {
     val palette = LocalDictionaryPalette.current
     var open by remember { mutableStateOf(false) }
     val current = activeLens(lenses, handle.lens, handle.zoom)
-    val chip = lensChipLabel(lenses, handle.lens, handle.zoom)
+    val name = { lens: CameraLens -> if (lens.front) strings.text(FrontCameraName) else lens.label }
+    val chip = if (current?.front == true) name(current) else lensChipLabel(lenses, handle.lens, handle.zoom)
     val label = strings.text("Camera lens")
     Box(modifier) {
         Surface(
@@ -233,10 +317,13 @@ internal fun LensControl(handle: CameraHandle, modifier: Modifier = Modifier) {
             }
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = palette.panel, border = BorderStroke(1.dp, palette.border)) {
-            for (lens in lenses) {
+            for ((index, lens) in lenses.withIndex()) {
                 val selected = lens.id == current?.id
+                // The front camera follows the rear lenses, set apart (CAM-022).
+                if (lens.front && index > 0) HorizontalDivider(Modifier.padding(vertical = 4.dp), color = palette.border)
                 DropdownMenuItem(
-                    text = { Text(lens.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    text = { Text(name(lens), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = if (lens.front) ({ Icon(Icons.Rounded.Cameraswitch, contentDescription = null) }) else null,
                     trailingIcon = { if (selected) Icon(Icons.Rounded.Check, contentDescription = null, tint = palette.accent) },
                     onClick = { open = false; handle.selectLens(lens) },
                     modifier = Modifier.widthIn(max = 320.dp).semantics { this.selected = selected },

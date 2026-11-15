@@ -289,8 +289,10 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
                 }
 
                 // CAM-023: 72 dp accent shutter, bottom-centre; a 30 dp spinner while a capture is in flight.
-                if (live) {
-                    WithTooltip(strings.text("Take photo"), Modifier.align(Alignment.BottomCenter).padding(20.dp)) {
+                // The placement sits on a Box of this BoxScope: TooltipBox applies its modifier to an inner
+                // anchor inside a Box of its own, so an `align` passed to WithTooltip would be ignored.
+                if (live) Box(Modifier.align(Alignment.BottomCenter).padding(20.dp)) {
+                    WithTooltip(strings.text("Take photo")) {
                         FilledIconButton(
                             onClick = handle::takePicture,
                             enabled = handle.ready && !capturing,

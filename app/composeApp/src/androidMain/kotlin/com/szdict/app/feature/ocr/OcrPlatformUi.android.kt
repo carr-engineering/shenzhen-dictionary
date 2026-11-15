@@ -10,6 +10,7 @@ import android.graphics.ImageFormat
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,8 +66,6 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
-import kotlin.math.ln
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -139,20 +138,42 @@ private fun CameraInfo.normalizedFocal(): Float? = runCatching {
     if (width > 0f) focal / width else null
 }.getOrNull()
 
-/**
- * CAM-028: zoom ratios of a logical multi-camera's physical lenses (CameraX 1.5
- * `getPhysicalCameraInfos()` + Camera2 characteristics), relative to its `1×`: the physical lens
- * closest to the logical camera's own field of view. Empty when the camera exposes no lenses.
- */
-private fun physicalLensRatios(main: CameraInfo): List<Float> {
-    val physical = runCatching { main.physicalCameraInfos }.getOrDefault(emptySet())
-    if (physical.size < 2) return emptyList()
-    val reference = main.normalizedFocal() ?: return emptyList()
-    val focals = physical.mapNotNull { it.normalizedFocal() }
-    if (focals.size < 2) return emptyList()
-    val anchor = focals.minBy { abs(ln(it / reference)) }
-    return focals.map { it / anchor }
+/** CAM-022 / CAM-028: what the lens menu needs of a camera CameraX can open. */
+@OptIn(ExperimentalCamera2Interop::class)
+private fun CameraInfo.spec(): CameraSpec? {
+    val id = cameraIdOrNull() ?: return null
+    val camera2 = runCatching { Camera2CameraInfo.from(this) }.getOrNull()
+    // The zoom range from the characteristics: CameraX only reports it for the open camera.
+    val range = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) camera2?.getCameraCharacteristic(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE) else null
+    }.getOrNull()
+    val maxDigital = runCatching { camera2?.getCameraCharacteristic(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) }.getOrNull()
+    val physical = runCatching { physicalCameraInfos }.getOrDefault(emptySet()).filter { it.cameraIdOrNull() != id }
+    return CameraSpec(
+        id = id,
+        front = lensFacing == CameraSelector.LENS_FACING_FRONT,
+        minZoom = range?.lower ?: 1f,
+        maxZoom = range?.upper ?: maxDigital ?: 1f,
+        focal = normalizedFocal(),
+        physicalFocals = if (physical.size >= 2) physical.mapNotNull { it.normalizedFocal() } else emptyList(),
+        physicalIds = physical.mapNotNull { it.cameraIdOrNull() }.toSet(),
+        intrinsicZoom = runCatching { intrinsicZoomRatio }.getOrNull(),
+    )
 }
+
+/**
+ * CAM-028: the lens menu from every camera CameraX can open (the ids `CameraManager.getCameraIdList()`
+ * returns to this app: some vendors list only the main rear and the front camera to third-party apps).
+ */
+private fun lensPlan(context: Context): LensPlan? = runCatching {
+    val infos = ProcessCameraProvider.getInstance(context).get().availableCameraInfos
+        .filter { it.lensFacing == CameraSelector.LENS_FACING_BACK || it.lensFacing == CameraSelector.LENS_FACING_FRONT }
+    val defaultRear = runCatching { CameraSelector.DEFAULT_BACK_CAMERA.filter(infos).firstOrNull()?.cameraIdOrNull() }.getOrNull()
+    val specs = infos.mapNotNull { it.spec() }
+    planLenses(specs, defaultRear).also { plan ->
+        Log.i("szdict.ocr", "cameras ${specs.joinToString { "${it.id}${if (it.front) "F" else "B"} zoom ${it.minZoom}..${it.maxZoom} focal ${it.focal} lenses ${it.lensCount}" }}; default rear $defaultRear; menu ${plan.lenses.joinToString { it.id }}")
+    }
+}.getOrNull()
 
 @OptIn(ExperimentalCamera2Interop::class)
 private fun cameraWithId(id: String): CameraSelector =
@@ -160,12 +181,12 @@ private fun cameraWithId(id: String): CameraSelector =
 
 /** Which camera is open and how its zoom relates to the main camera's (CAM-028). */
 private class LensTracker {
-    var mainId: String? = null
+    var plan: LensPlan? = null
     var currentId: String? = null
     var info: CameraInfo? = null
     var factor = 1f
+    var front = false
     var pendingZoom: Float? = null
-    val factors = HashMap<String, Float>()
     var stateSource: LiveData<CameraState>? = null
 }
 
@@ -222,29 +243,13 @@ actual fun CameraPreview(
     }
 
     // A camera was bound (first open, or a switch to another camera of the lens menu).
-    fun onCamera(info: CameraInfo, zoom: ZoomState?) {
+    fun onCamera(info: CameraInfo) {
         if (info === lenses.info) return
         lenses.info = info
         val id = info.cameraIdOrNull()
         lenses.currentId = id
-        if (lenses.mainId == null && id != null && zoom != null) {
-            // CAM-028: the main camera's lens steps, plus other back cameras that are not reachable by its zoom.
-            lenses.mainId = id
-            val steps = zoomSteps(zoom.minZoomRatio, zoom.maxZoomRatio, physicalLensRatios(info))
-            val others = runCatching {
-                ProcessCameraProvider.getInstance(context).get().availableCameraInfos
-                    .filter { it.lensFacing == CameraSelector.LENS_FACING_BACK }
-                    .mapNotNull { other ->
-                        val otherId = other.cameraIdOrNull() ?: return@mapNotNull null
-                        if (otherId == id) return@mapNotNull null
-                        otherId to other.intrinsicZoomRatio
-                    }
-            }.getOrDefault(emptyList())
-            others.forEach { (otherId, factor) -> lenses.factors[otherId] = factor }
-            handle.lenses = if (info.lensFacing == CameraSelector.LENS_FACING_BACK) lensOptions(steps, others, mainId = id) else emptyList()
-            handle.lens = handle.lenses.firstOrNull { it.factor == 1f }?.id
-        }
-        lenses.factor = if (id == lenses.mainId) 1f else lenses.factors[id] ?: 1f
+        lenses.front = info.lensFacing == CameraSelector.LENS_FACING_FRONT
+        lenses.factor = id?.let { lenses.plan?.factors?.get(it) } ?: 1f
         handle.flashModes = if (info.hasFlashUnit()) setOf(FlashMode.AUTO, FlashMode.ON, FlashMode.TORCH) else emptySet()   // CAM-037
         handle.ready = true
         lenses.stateSource?.removeObserver(stateObserver)
@@ -258,8 +263,9 @@ actual fun CameraPreview(
     val zoomObserver = remember(controller) {
         Observer<ZoomState> { zoom ->
             if (disposed[0]) return@Observer
-            controller.cameraInfo?.let { onCamera(it, zoom) }
-            handle.zoom = zoom.zoomRatio * lenses.factor
+            controller.cameraInfo?.let { onCamera(it) }
+            // The chip names the front camera instead of a zoom factor.
+            handle.zoom = if (lenses.front) null else zoom.zoomRatio * lenses.factor
         }
     }
 
@@ -274,8 +280,13 @@ actual fun CameraPreview(
                 if (disposed[0]) return@addListener
                 try {
                     ready.get()
-                    // CAM-022: the rear camera by default; whatever camera exists otherwise.
+                    // CAM-022: the rear camera by default (a logical multi-camera where it reaches more lenses,
+                    // CAM-028); whatever camera exists otherwise. The front camera is an entry of the lens menu.
+                    val plan = lensPlan(context)
+                    lenses.plan = plan
+                    val rear = plan?.rearId?.let(::cameraWithId)
                     val selector = when {
+                        rear != null && controller.hasCamera(rear) -> rear
                         controller.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
                         controller.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
                         else -> null
@@ -283,6 +294,8 @@ actual fun CameraPreview(
                     if (selector == null) {
                         handle.available = false   // CAM-015
                     } else {
+                        handle.lenses = plan?.lenses.orEmpty()
+                        handle.lens = plan?.initial?.id
                         controller.cameraSelector = selector
                         controller.bindToLifecycle(owner)
                         controller.zoomState.observe(owner, zoomObserver)
@@ -293,7 +306,8 @@ actual fun CameraPreview(
             }, executor)
         }
         handle.lensSwitch = { lens ->
-            // `<camera id>@<zoom ratio>` is a step of the main camera's zoom; a bare id is another camera.
+            // `<camera id>@<zoom ratio>` is a step of the main camera's zoom; a bare id is another camera
+            // (a separate rear lens, or the front camera), opened by rebinding.
             val at = lens.id.lastIndexOf('@')
             val cameraId = if (at > 0) lens.id.substring(0, at) else lens.id
             val ratio = if (at > 0) lens.id.substring(at + 1).toFloatOrNull() else null

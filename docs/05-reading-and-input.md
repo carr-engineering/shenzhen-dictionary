@@ -576,8 +576,14 @@ the user frames is exactly what is recognised.
 
 `CAM-021` `[MUST]` Preview scaling is fit-centre (letterboxed), never cropped.
 
-`CAM-022` `[MUST]` The rear camera is used by default (on Web where the device has one; a desktop
-webcam is used as is). No front/rear toggle in v1; rear lenses are chosen with `CAM-028`.
+`CAM-022` `[MUST]` The rear camera is used by default, on every visit (on Web where the device has
+one, `facingMode: environment`; a desktop webcam is used as is). The **front camera is selectable**
+as a named entry of the lens menu (`CAM-028`): `Front` (zh-Hans / zh-Hant `前置`), after the rear
+lenses with a camera-switch icon; the chip then reads `Front`. Its preview is mirrored as the system
+camera shows it (iOS: the preview layer's automatic mirroring; Web: `scaleX(-1)` on a `user`-facing
+track; Android: `PreviewView`'s own front-camera mirroring), but the captured image used for OCR and
+saving is never mirrored. Flash and torch follow the front camera's own capabilities (`CAM-037`;
+usually none, so the flash button is hidden).
 
 `CAM-023` `[MUST]` A 72 dp circular accent shutter button sits bottom-centre inside the frame. While a
 capture is in flight it is disabled and shows a 30 dp progress indicator.
@@ -602,26 +608,34 @@ browser allows it and otherwise letterboxes and captures the same visible region
 `CAM-027` `[MUST]` Capture failure shows `Could not take a photo. Try again.`; post-processing failure
 shows `Could not process the captured photo.` Both leave the viewfinder usable.
 
-`CAM-028` `[MUST]` **Lens selector.** Where the device offers more than one rear lens, a compact chip
-sits above the shutter (content description `Camera lens`, state = its label); a tap opens a menu of
-the lenses with a check on the active one, and choosing one switches to it. Hidden with fewer than
-two entries; there is no front camera entry (`CAM-022`).
-- Android and iOS label lenses by zoom factor relative to the main wide camera (`0.5×`, `1×`, `2×`,
-  `3×`, `5×` — what the device really has). Android: the back logical multi-camera's zoom ratio range
-  (CameraX `ZoomState`) with the lens steps taken from its physical cameras
-  (`CameraInfo.getPhysicalCameraInfos()` + Camera2 focal length / sensor size, relative to the lens
-  closest to the logical camera's own field of view; telephotos snapped to whole numbers); without
-  physical-camera info the steps are the minimum zoom (if below 1), `1×` and a digital `2×`; other
-  rear cameras not reachable by that zoom are listed by their CameraX intrinsic zoom ratio and
-  selected by camera id. iOS: the back virtual device (triple / dual-wide / dual) and its
+`CAM-028` `[MUST]` **Lens selector.** A compact chip sits just above the shutter (content description
+`Camera lens`, state = its label); a tap opens a menu of the rear lenses and the front camera
+(`CAM-022`) with a check on the active one, and choosing one switches to it. Hidden with fewer than
+two entries.
+- Android and iOS label rear lenses by zoom factor relative to the main wide camera (`0.6×`, `1×`,
+  `2×`, `3×`, `5×` — what the device really has). Android enumerates every camera CameraX can open
+  (`ProcessCameraProvider.availableCameraInfos`, i.e. the ids `CameraManager.getCameraIdList()`
+  returns to the app; some vendors list only the main rear and the front camera to third-party apps,
+  e.g. vivo through `vendor.camera.aux.packagelist`). The rear camera opened is CameraX's default
+  unless a back logical multi-camera reaches more lenses by zoom, which is opened instead. Its steps:
+  the zoom ratio range (Camera2 `CONTROL_ZOOM_RATIO_RANGE`) with the lenses taken from its physical
+  cameras (`CameraInfo.getPhysicalCameraInfos()` + focal length / sensor width, relative to the lens
+  closest to the logical camera's own field of view; the ultra-wide at the minimum zoom, telephotos
+  snapped to whole numbers); without physical-camera info the steps are the minimum zoom (if below
+  1), `1×` and a digital `2×` (where the maximum zoom allows). Other rear cameras that are not its
+  physical lenses and not covered by a step are listed by focal length / sensor width relative to the
+  main camera and opened by rebinding to that camera id; the front camera likewise. iOS: the back virtual device (triple / dual-wide / dual) and its
   `virtualDeviceSwitchOverVideoZoomFactors`, display factor = zoom factor ÷ the wide camera's
   switch-over factor (ultra-wide = `0.5×`, as in the Camera app); without one, the separate rear
-  cameras labelled from their field of view. Both add a digital `2×` when no lens is longer than `1×`.
+  cameras labelled from their field of view. Both add a digital `2×` when no lens is longer than `1×`;
+the front camera is the `builtInWideAngleCamera` at the front position, swapped in as the session input.
 - Pinch zooms continuously across the lenses; the chip then shows the live factor (`1.4×`) and the
-  menu checks the longest lens at or below it.
+  menu checks the longest rear lens at or below it. Pinches and taps on the controls stay with the
+  controls (they are above the preview's gesture layer); a tap elsewhere in the preview focuses (`CAM-030`).
 - Web lists `enumerateDevices()` video inputs by label (`Camera 1`, `Camera 2`… until access is
   granted; the list is refreshed after the stream opens and on `devicechange`); choosing one restarts
-  the stream with that `deviceId`, remembered for the session only.
+  the stream with that `deviceId`, remembered for the session only. User-facing inputs are listed like
+  any other; the default stays `facingMode: environment`.
 - The camera opens at `1×` on every visit; only the Web choice outlives leaving the destination.
 
 #### 3.1 Tap to focus — NEW
@@ -990,7 +1004,7 @@ discarded (`CAM-003`).
 | Camera | CameraX | AVFoundation | `getUserMedia`, browser permission prompt (`CAM-010`) |
 | Tap to focus | supported where the device meters | supported where the device meters | only where the browser exposes focus constraints (`CAM-034`) |
 | Flash | `Off` / `Auto` / `On` / `Flashlight` (`CAM-036`) | `Off` / `Auto` / `On` / `Flashlight`, per active lens | only the supported ones: `Flashlight` (torch), `Auto` / `On` (fill light); else hidden (`CAM-037`) |
-| Lens selector (`CAM-028`) | logical camera zoom steps (`0.5×`, `1×`, `5×`…) | virtual device zoom steps | video inputs by name |
+| Lens selector (`CAM-028`) | zoom steps of the rear camera (logical camera lenses, else `1×` / `2×`), separate rear cameras, `Front` | virtual device zoom steps, `Front` | video inputs by name (front included) |
 | Image picker | Photo Picker; document picker for files (no permission) | PHPicker; document picker for files (no permission) | file input `accept="image/*"` |
 | Drag and drop (`CAM-131`) | `DragAndDropPermissions` (split screen, freeform, ChromeOS) | `UIDropInteraction` (Split View, iPad) | HTML drag and drop |
 | Paste (`CAM-132`, no button) | `ClipboardManager` image clip; Ctrl+V; long-press edit menu | `UIEditMenuInteraction` / paste key command; Cmd+V | document `paste` event; Ctrl/Cmd+V |
