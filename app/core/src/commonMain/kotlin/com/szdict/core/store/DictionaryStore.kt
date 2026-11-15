@@ -823,7 +823,7 @@ internal class DictionaryStore private constructor(
         }
     }
 
-    /** Exact (kind 0) headword hits with each entry's (simplified, traditional) forms: one batched read (PARTS tab). */
+    /** Exact (kind 0) headword hits with each entry's (simplified, traditional) forms: one batched read (Parts section). */
     suspend fun headwordForms(keys: Collection<String>): Map<String, List<Triple<String, String, Proj>>> {
         if (keys.isEmpty()) return emptyMap()
         val out = HashMap<String, MutableList<Triple<String, String, Proj>>>()

@@ -20,7 +20,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** PARTS tab engine (`characterParts`, `appearsIn`): a fixture dataset with a hand-written decomposition pack, then the real data. */
+/** Parts engine (`characterParts`, `appearsIn`): a fixture dataset with a hand-written decomposition pack, then the real data. */
 class PartsTest {
     private val s = Script.SIMPLIFIED
     private val t = Script.TRADITIONAL

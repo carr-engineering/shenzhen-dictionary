@@ -197,7 +197,7 @@ class FakeDictionary(override val mode: DictMode = DictMode.MANDARIN) : Dictiona
     override suspend fun decompose(characters: List<String>, script: Script, headwordEntryId: Int?): List<CharacterDecomposition> =
         throw DictException(DictError.AssetMissing("packs/decomposition.db"))
 
-    // PARTS tab: a few hand-written trees (你 = ⿰亻尔, 尔 = ⿱⺈小; 好 = ⿰女子; 们 = ⿰亻门) and their reverse index.
+    // Parts section: a few hand-written trees (你 = ⿰亻尔, 尔 = ⿱⺈小; 好 = ⿰女子; 们 = ⿰亻门) and their reverse index.
     private val fakeParts = mapOf("你" to ("⿰" to listOf("亻", "尔")), "尔" to ("⿱" to listOf("⺈", "小")), "好" to ("⿰" to listOf("女", "子")), "们" to ("⿰" to listOf("亻", "门")))
     private val fakeRadicals = mapOf("你" to "人", "好" to "女", "们" to "人", "尔" to "小")
 

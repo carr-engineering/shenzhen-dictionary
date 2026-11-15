@@ -101,7 +101,7 @@ val ChipBarHorizontalPadding = 14.dp
 
 /**
  * The floating chip bar over scrolling content (HSK-011…016, GLB-074; the HSK selector and the
- * entry page's WORDS and PARTS chip rows): the page background at [CHIP_BAR_ALPHA] so content
+ * entry page's WORDS chip row and the Parts chip row of DICT): the page background at [CHIP_BAR_ALPHA] so content
  * shows through as it scrolls beneath, no blur, and a bottom-only shadow while [scrolledUnder] (light theme only: in dark theme it reads as a glow).
  * [onBarHeight] reports the bar without its shadow (where content should stop when jumped to).
  */

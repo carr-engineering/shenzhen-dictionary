@@ -132,13 +132,13 @@ interface Dictionary {
     suspend fun decompose(characters: List<String>, script: Script, headwordEntryId: Int? = null): List<CharacterDecomposition>
 
     /**
-     * PARTS tab "Made of": [decompose] with radical marks and inline groups (`PartNode`). Throws
+     * Parts section "Made of": [decompose] with radical marks and inline groups (`PartNode`). Throws
      * [DictError.AssetMissing] when the decomposition pack is absent.
      */
     suspend fun characterParts(characters: List<String>, script: Script, headwordEntryId: Int? = null): List<CharacterParts>
 
     /**
-     * PARTS tab "Appears in": characters built directly from [character], written in [script], in
+     * Parts section "Appears in": characters built directly from [character], written in [script], in
      * projection order (GLB-013), without an entry last. Throws [DictError.AssetMissing] when the
      * pack or its `part_of` index (SCHEMA note 23) is absent.
      */

@@ -39,7 +39,7 @@ import com.szdict.app.ui.theme.LocalDictionaryPalette
  * The expander strip at the foot of a card (ENT-073): a hairline, then [label] (`+ 3 more words
  * within`) and a chevron as one tap target that only toggles; [content] opens beneath it, inside
  * the card, on the card's own background (rows are told apart by hairlines only). Shared by the
- * inside-words footer and the PARTS tab.
+ * inside-words footer and the Parts section of the DICT tab.
  */
 @Composable
 fun ExpandableFooter(

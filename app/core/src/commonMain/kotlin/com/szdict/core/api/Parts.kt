@@ -1,9 +1,9 @@
 package com.szdict.core.api
 
-// ---- PARTS tab: components of a character and the characters built from it ----
+// ---- Parts section of the DICT tab: components of a character and the characters built from it ----
 
 /**
- * One component row of the PARTS tab: the decomposition row ([node], ENT-121…123) plus what the
+ * One component row of the Parts section: the decomposition row ([node], ENT-121…123) plus what the
  * tab marks on it. [children] mirrors `node.children` (same order) with the marks applied; a node
  * with no children is indivisible (a radical, a stroke, an unencoded or unknown component).
  */

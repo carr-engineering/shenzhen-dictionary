@@ -19,7 +19,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * The PARTS tab use cases: the decomposition tree of [Decomposer] with radical marks, and the
+ * The Parts section use cases: the decomposition tree of [Decomposer] with radical marks, and the
  * characters built directly from a component (`part_of`, SCHEMA note 23) in projection order.
  */
 internal class PartsIndex(

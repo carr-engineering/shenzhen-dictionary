@@ -1,5 +1,6 @@
 package com.szdict.app.feature.settings
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -47,6 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -122,10 +127,10 @@ fun SettingsScreen(session: AppSession, onBack: (() -> Unit)?, modifier: Modifie
             item("language") {
                 SettingBlock(strings.text("App language")) {
                     // SET-018: each language is named in itself, whatever the current UI language.
-                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Chips size to their label and wrap onto another row where they do not fit, so no name is clipped.
                         UiLanguageSetting.entries.forEach { option ->
                             ChoiceChip(
-                                modifier = Modifier.weight(1f),
                                 label = uiLanguageLabel(option, strings.text("System")),
                                 selected = settings.uiLanguage == option,
                                 onClick = { session.updateSettings { it.copy(uiLanguage = option) } },
@@ -220,13 +225,23 @@ internal fun SettingBlock(label: String, content: @Composable () -> Unit) {
     }
 }
 
+/** Inner horizontal padding of the clickable rows: the ripple's rounded shape stands clear of the text. */
+private val RowInset = 12.dp
+
+/** Makes the row [extra] wider on both sides, so padding of the same size inside it leaves the content where it was. */
+private fun Modifier.bleedHorizontally(extra: Dp): Modifier = layout { measurable, constraints ->
+    val e = extra.roundToPx()
+    val placeable = measurable.measure(constraints.offset(horizontal = 2 * e))
+    layout(placeable.width - 2 * e, placeable.height) { placeable.place(-e, 0) }
+}
+
 @Composable
 private fun SettingToggle(label: String, checked: Boolean, description: String? = null, onCheckedChange: (Boolean) -> Unit) {
     val palette = LocalDictionaryPalette.current
     Row(
-        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).heightIn(min = 48.dp)
+        Modifier.bleedHorizontally(RowInset).fillMaxWidth().clip(MaterialTheme.shapes.medium).heightIn(min = 48.dp)
             .toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange)
-            .padding(vertical = if (description != null) 6.dp else 0.dp),
+            .padding(horizontal = RowInset, vertical = if (description != null) 6.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -249,7 +264,8 @@ private fun SettingToggle(label: String, checked: Boolean, description: String? 
 internal fun LinkRow(label: String, onClick: () -> Unit) {
     val palette = LocalDictionaryPalette.current
     Row(
-        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick),
+        Modifier.bleedHorizontally(RowInset).fillMaxWidth().clip(MaterialTheme.shapes.medium).heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = RowInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = MaterialTheme.typography.bodyLarge, color = palette.fg, modifier = Modifier.weight(1f))
@@ -264,7 +280,7 @@ private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit, mo
         Surface(
             selected = selected,
             onClick = onClick,
-            modifier = modifier.heightIn(min = 48.dp),
+            modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
             shape = CircleShape,
             color = if (selected) palette.accent else palette.bgSoft,
             contentColor = if (selected) palette.onAccent else palette.muted,

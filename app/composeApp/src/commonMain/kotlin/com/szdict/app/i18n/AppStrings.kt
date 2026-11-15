@@ -376,17 +376,13 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Apache-2.0; SQLite: public domain" to "Apache-2.0；SQLite：公有领域",
     // Entry detail (docs/04)
     "Not available" to "暂不可用",
-    "Collapse {0}" to "收起{0}",
-    "Expand {0}" to "展开{0}",
     "Collapsed" to "已收起",
     "Expanded" to "已展开",
     "Shown" to "已显示",
     "Hidden" to "已隐藏",
     "Show {0} more" to "再显示 {0} 条",
-    "Unencoded component" to "未编码部件",
     "Unknown part" to "未知部件",
     "radical {0}" to "部首{0}",
-    "{0} part" to "{0}部件",
     "left" to "左",
     "right" to "右",
     "top" to "上",
@@ -482,7 +478,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Undo" to "撤销",
     "Undo stroke" to "撤销一笔",
     "recognized" to "识别结果",
-    // PARTS tab
+    // Parts (end of the DICT tab)
     "PARTS" to "部件",
     "Made of" to "组成部件",
     "Appears in" to "含此部件的字",
