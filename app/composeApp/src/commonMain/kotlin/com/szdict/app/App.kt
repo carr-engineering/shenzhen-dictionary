@@ -160,6 +160,17 @@ fun App(session: AppSession) {
                     }
                 }
 
+                // The word sheet takes the bottom of the screen: an open keyboard or handwriting sheet
+                // would cover it, so the field gives them up when a word is tapped.
+                val wordSheetOpen = session.wordSheet != null
+                LaunchedEffect(wordSheetOpen) {
+                    if (wordSheetOpen) {
+                        focusManager.clearFocus(force = true)
+                        softKeyboard?.hide()
+                        session.handwritingVisible = false
+                    }
+                }
+
                 // Back precedence, innermost first (PROD-056, ARCH-052). Later handlers win.
                 BackHandler(enabled = session.routes.isNotEmpty()) { session.routes.lastOrNull()?.let { session.popRoute(it.key) } }
                 BackHandler(enabled = session.destination == Destination.OCR && session.ocrReviewBack != null && session.routes.isEmpty()) {
