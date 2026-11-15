@@ -13,7 +13,16 @@ fun navigationStyle(windowWidth: Dp): NavigationStyle = when {
 }
 
 /** The window is wide enough for a list and its detail side by side (GLB-125). */
-fun fitsTwoPanes(windowWidth: Dp): Boolean = windowWidth >= 840.dp
+fun fitsTwoPanes(windowWidth: Dp): Boolean = windowWidth >= TwoPaneMinWidth
+
+/** Narrowest window with the two-pane layout: a modern phone in landscape (long edge 760 dp and up) has it, a small one does not. */
+val TwoPaneMinWidth: Dp = 760.dp
+
+/** Share of the pane area the list takes, until its minimum or maximum. */
+private const val ListPaneShare = 0.43f
+
+/** The list pane never gets narrower than this: cards still read at that width. */
+val ListPaneMinWidth: Dp = 300.dp
 
 /** Widest a list pane grows: beyond it cards only get longer lines. */
 val ListPaneMaxWidth: Dp = 600.dp
@@ -32,12 +41,12 @@ data class PaneLayout(val start: Dp, val list: Dp, val detail: Dp) {
 val PaneDivider: Dp = 1.dp
 
 /**
- * Two panes share the width equally until the list reaches its maximum, then the detail takes the
- * rest up to the readable width; on wider windows the pair stays that size, centred (GLB-067).
+ * The list takes about 43 % of the width (at least [ListPaneMinWidth], at most [ListPaneMaxWidth]),
+ * then the detail takes the rest up to the readable width; on wider windows the pair stays that size, centred (GLB-067).
  */
 fun paneLayout(contentWidth: Dp): PaneLayout {
     val available = (contentWidth - PaneDivider).coerceAtLeast(0.dp)
-    val list = minOf(available / 2, ListPaneMaxWidth)
+    val list = minOf(maxOf(available * ListPaneShare, ListPaneMinWidth), ListPaneMaxWidth, available)
     val detail = minOf(available - list, ReadablePaneWidth)
     return PaneLayout(start = (available - list - detail) / 2, list = list, detail = detail)
 }

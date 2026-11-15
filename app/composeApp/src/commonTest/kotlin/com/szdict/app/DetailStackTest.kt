@@ -169,14 +169,21 @@ class DetailStackTest {
         assertEquals(NavigationStyle.RAIL, navigationStyle(600.dp))
         assertEquals(NavigationStyle.RAIL, navigationStyle(1199.dp))
         assertEquals(NavigationStyle.EXPANDED_RAIL, navigationStyle(1200.dp))
-        assertFalse(fitsTwoPanes(839.dp))
-        assertTrue(fitsTwoPanes(840.dp))
+        assertFalse(fitsTwoPanes(TwoPaneMinWidth - 1.dp))
+        assertTrue(fitsTwoPanes(TwoPaneMinWidth))
+        assertEquals(760.dp, TwoPaneMinWidth)
+        assertFalse(fitsTwoPanes(740.dp))
 
-        // Narrow two-pane: the panes share the width.
-        paneLayout(761.dp).let {
-            assertEquals(380.dp, it.list)
+        // Narrowest two-pane (a landscape phone beside the rail): the list keeps its minimum width.
+        paneLayout(681.dp).let {
+            assertEquals(ListPaneMinWidth, it.list)
             assertEquals(380.dp, it.detail)
             assertEquals(0.dp, it.start)
+        }
+        // A wider one: about 43 % list.
+        paneLayout(1001.dp).let {
+            assertEquals(430.dp, it.list)
+            assertEquals(570.dp, it.detail)
         }
         // The list stops growing first, then the detail.
         paneLayout(1401.dp).let {

@@ -143,8 +143,8 @@ fun App(session: AppSession) {
                 val imeVisible = imeVisible()
                 val topRoute = session.routes.lastOrNull()
                 val fullScreenRoute = topRoute != null && (!twoPane || topRoute !is DetailRoute.Entry)
-                // Settings-family routes keep the primary navigation visible (SET-005); an entry covers it.
-                val coversNavigation = topRoute is DetailRoute.Entry && !twoPane
+                // A full-screen detail route (an entry in single pane, Settings and its pages) covers the bottom bar; it returns when the route closes.
+                val coversNavigation = fullScreenRoute
                 // The word sheet gets the bar's room too; the sheet reports its own height, so content stays clear of it.
                 val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !coversNavigation && session.wordSheet == null
 

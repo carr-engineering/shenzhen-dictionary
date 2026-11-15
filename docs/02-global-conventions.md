@@ -721,9 +721,9 @@ announces its state. When shown, a character's or word's label includes its read
 
 ## 14. Window size
 
-`GLB-125` `[MUST]` **List-detail layout.** At a window width of at least **840 dp** (Web: 840 CSS px,
-the expanded width class) Search, HSK and Reading use a two-pane list-detail layout: the list or
-passage on one side, the top entry-detail route on the other. Below 840 the layout is single-pane and
+`GLB-125` `[MUST]` **List-detail layout.** At a window width of at least **760 dp** (Web: 760 CSS px;
+the long edge of a modern phone in landscape) Search, HSK and Reading use a two-pane list-detail layout: the list or
+passage on one side, the top entry-detail route on the other. Below 760 the layout is single-pane and
 entry detail is pushed full screen. Window width is used, not screen width, so split screen and
 resized browser windows switch accordingly. Each pane applies its own maximum width (`GLB-067`), and
 the word-candidate sheet anchors to the pane holding the tapped text. `PROD-054`, `ENT-015`,
