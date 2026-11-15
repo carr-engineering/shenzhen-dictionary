@@ -436,7 +436,7 @@ policy` link (`SET-090`), a `Data sources` heading, and one card per bundled dat
 version opens the developer screen (`ARCH-171`); there is no other entry point to it.
 
 `SET-005` `[MUST]` Settings opens as a route pushed over the Search destination: a top bar with the
-`Settings` title and a back/up control; the primary navigation stays visible with Search selected.
+`Settings` title and a back/up control. On compact layouts the bottom navigation bar is hidden while it is open (it covers the bar like any full-screen route); on medium and expanded layouts the rail stays, with Search selected. On Web, Settings is instead a top-level destination (`PROD-050`).
 Back (`PROD-056`) and up pop it, returning to the empty Search screen with its state intact
 (`GLB-050`). Switching primary destination dismisses it (`PROD-055`). Changing the dictionary mode or
 script from Settings keeps Settings open; Search underneath refreshes (`PROD-043`). On expanded

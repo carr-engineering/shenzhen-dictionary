@@ -192,13 +192,13 @@ dictionary entries (`ENT-126`, `SRCH-079`, `DATA-190`).
 
 `PROD-050` `[MUST]` A **flat primary navigation**, in this order:
 - Android and iOS — five destinations: `Search`, `OCR`, `Voice`, `Reading`, `HSK`;
-- Web — four destinations: `Search`, `OCR`, `Reading`, `HSK` (`PROD-022`).
+- Web — five destinations: `Search`, `OCR`, `Reading`, `HSK`, `Settings` (`PROD-022`).
 
 Compact widths (< 600 dp / < 600 px) use a bottom navigation bar; medium and expanded widths use a
 navigation rail on the leading edge.
 
-**Settings is not a destination.** It is reached from the Settings card on the empty Search screen
-(`SRCH-116`, `SET-005`).
+**Settings is not a destination** on Android and iOS. It is reached from the Settings card on the empty Search screen
+(`SRCH-116`, `SET-005`); as a full-screen route it hides the compact bottom bar while open. On Web, Settings is a top-level destination of the navigation.
 
 `PROD-051` `[MUST]` The same destinations are shown in both dictionary modes; HSK is present in
 Cantonese mode too (`HSK-090`…).

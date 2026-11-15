@@ -65,7 +65,7 @@ app-<platform>        entry point, DI wiring, platform integrations (widget, sho
                       share and process-text intents, ARCH-090)
 web-edge              Worker rendering the SEO word pages (ARCH-146); not part of the app bundle
   feature-search      search UI + its state reducer
-  feature-entry       entry detail UI + route stack, incl. the Characters decomposition section of
+  feature-entry       entry detail UI + route stack, incl. the Parts decomposition section of
                       the DICT tab and its glyph-highlight component (ENT-120…, ARCH-200)
   feature-hsk         HSK UI (word grid and Characters section)
   feature-camera      OCR destination UI and the shared image-input layer (all platforms, ARCH-197)
@@ -115,7 +115,7 @@ with its native dependencies (sherpa-onnx, onnxruntime) and the voice model (`PR
 directly.
 
 `ARCH-200` `[MUST]` **Decomposition glyph component** (`feature-entry`, `ENT-120`…, `DATA-191`). The
-Characters section (not collapsible, always last on the DICT tab) draws each character's glyph large
+Parts section (not collapsible, always last on the DICT tab) draws each character's glyph large
 and, for the selected or hovered part of the tree, highlights the strokes or region of the glyph that
 part occupies, linked to its tree row by a matching colour and a connector. The geometry is computed in
 shared `domain` code (`Decompose` returns, per part, either stroke indices or a region) and drawn by one
@@ -621,7 +621,7 @@ a small margin.
 dataset handle, and the restored query's results. The voice model, the handwriting model and the OCR
 recogniser (on Web, the cached OCR model, `ARCH-197`) are loaded only when their surface is first used
 and released when it is left. OpenCC dictionaries are loaded per config on first conversion or
-detection (`ARCH-196`), and decomposition rows only when the DICT tab's Characters section (always
+detection (`ARCH-196`), and decomposition rows only when the DICT tab's Parts section (always
 shown, not collapsible) is rendered, after the rest of the entry (`ENT-120`…).
 
 `ARCH-134` `[MUST]` Header collapse, list scrolling and pager paging (including the EN/ZH result
@@ -684,8 +684,8 @@ Web build (`ARCH-013`); Web uses its own repackaged model (`ARCH-197`).
 pinyin query; single-word results never wait for it), the OpenCC dictionaries per config (`ARCH-196`;
 first text that shows the conversion split button — until the detection sets arrive, detection reports
 low confidence and the main action follows the script setting), the decomposition data with its
-Make Me a Hanzi `matches` file and the stroke graphics the Characters section draws (first display of
-a Characters section, `DATA-191`), and the media families at the granularity defined by the data
+Make Me a Hanzi `matches` file and the stroke graphics the Parts section draws (first display of
+a Parts section, `DATA-191`), and the media families at the granularity defined by the data
 contract (`DATA-170`…`DATA-173`). Every fetched file is verified against the SHA-256
 recorded in the dataset metadata or build manifest before use and discarded on mismatch. These files are
 kept in the browser (HTTP or service-worker) cache but are **not guaranteed offline**, except the
@@ -722,13 +722,13 @@ new directory adds.
 - The Web offline set is exactly: the app shell (code and bundled text such as the privacy policy,
   `ARCH-199`; the CJK font is not part of it, `ARCH-005`), the dataset, the OCR model once first
   used (`ARCH-197`), and the decomposition data — with the Make Me a Hanzi `matches` file and the
-  stroke graphics the Characters section has drawn — once first used (`ENT-120`…, `DATA-191`).
+  stroke graphics the Parts section has drawn — once first used (`ENT-120`…, `DATA-191`).
   Everything else is fetched when needed and only browser-cached (`ARCH-143`).
 - The decomposition files are written to OPFS after their first verified fetch, covered by the same
   `navigator.storage.persist()` request, and **versioned with the dataset**: their hashes are recorded
   in the dataset metadata, so a dataset update that changes them re-fetches them on the next
-  Characters section (the old copies stay in use until then); unchanged files are kept. If the browser
-  evicts them, the next Characters section repeats the first fetch.
+  Parts section (the old copies stay in use until then); unchanged files are kept. If the browser
+  evicts them, the next Parts section repeats the first fetch.
 
 `ARCH-146` `[MUST]` **Edge-rendered SEO word pages** (`GLB-113`):
 - A Cloudflare Worker on szdict.com answers `/zh/word/{natural-key}` and `/yue/word/{natural-key}` —
@@ -783,7 +783,7 @@ in-flight operation must not clobber newer state.
 language, including tone colouring on and off, boundary underlines on and off, and pronunciation shown
 and hidden (`GLB-120`), with and without ruby readings (`GLB-121`), and for converted text
 (`ARCH-196`) with boundaries and tone colouring, so both keep working on Reading passages, OCR text and
-Voice transcripts after conversion. Also snapshot the Characters decomposition section with a part
+Voice transcripts after conversion. Also snapshot the Parts decomposition section with a part
 highlighted (from `matches` and from IDS regions, `ARCH-200`), and the OCR screen — camera feed with
 the pick button, the camera-unavailable state, and the drag-over highlight — at compact and expanded
 width (`ARCH-197`).
@@ -1120,14 +1120,14 @@ enforced by `PERF-004` from that point.
 | Script conversion of a 1,000-character passage (dictionaries loaded) | 10 ms | 30 ms | 60 ms | reference phone and Web |
 | First conversion with a config's dictionaries loaded lazily (mobile, from bundled files) | 60 ms | 120 ms | 250 ms | reference phone |
 | Converted 1,000-character passage re-analysed and rendered | within the `Analyse 500 characters` row of `PERF-050`, scaled linearly | | | reference phone |
-| Characters section shown to large glyph and first decomposition level rendered | 30 ms | 60 ms | 120 ms | reference phone |
+| Parts section shown to large glyph and first decomposition level rendered | 30 ms | 60 ms | 120 ms | reference phone |
 | Expand one component to its sub-components rendered | 20 ms | 50 ms | 100 ms | reference phone |
 | Part selected or hovered to its strokes or region highlighted in the glyph | 8 ms | 16 ms | 33 ms | reference phone and Web |
 
 On Web the first fetch of OpenCC dictionaries or decomposition data (`ARCH-143`) is excluded from the
 conversion and decomposition rows and shown as a loading state; later uses read the decomposition data
 from OPFS (`ARCH-145`) and are within the rows. Conversion and decomposition never block a frame
-(`PERF-022`); the Characters section does not count toward "Tap to content rendered" of `PERF-030`,
+(`PERF-022`); the Parts section does not count toward "Tap to content rendered" of `PERF-030`,
 since it renders after the rest of the entry, at the bottom of the DICT tab.
 
 ---
@@ -1162,7 +1162,7 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | Dataset, per mode (entries and indexes, excluding the items below), installed | 16 MB | mobile: both modes; Web: active mode |
 | Language model + abbreviation index, per mode (`DATA-150`…`DATA-155`) | ≤ 4 MB | mobile: in the dataset; Web: lazy |
 | Recorded audio (words plus syllables) | 65 MB | mobile; Web: lazy |
-| Strokes | 20 MB re-encoded | mobile; Web: lazy (those a Characters section needs are then kept offline, `ARCH-145`) |
+| Strokes | 20 MB re-encoded | mobile; Web: lazy (those a Parts section needs are then kept offline, `ARCH-145`) |
 | Example sentences (Mandarin, and Cantonese per `MED-048`) | 6 MB | mobile; Web: lazy |
 | OCR model (ML Kit Chinese) | 20 MB | Android only (iOS uses Vision; Web uses the next line) |
 | Web OCR model (ML Kit text recognition repackaged for the browser, `DATA-196`) + manifest | ~2.6 MB download | Web only: lazy on first OCR use, then kept offline in OPFS / Cache Storage and replaced only when the manifest version changes (`ARCH-197`) |
@@ -1170,7 +1170,7 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | Voice model (trilingual streaming Paraformer, int8: encoder, decoder, tokens) | ~240 MB | Play: on-demand asset pack; iOS: Background Assets pack; direct APK: bundled (`ARCH-142`) |
 | sherpa-onnx + onnxruntime native libraries | 10–15 MB per ABI | mobile only |
 | OpenCC dictionaries for every config used (`ARCH-196`, `DATA-195`) | ~1.35 MB raw text, < ~0.5 MB gzipped (estimate; measure the compact binaries) | mobile: bundled; Web: lazy per config, browser-cached |
-| Decomposition data (BabelStone IDS + radical mappings, `DATA-191`) plus the Make Me a Hanzi stroke → component `matches` as a separate LGPL-3.0 file (~9k characters) | ≤ 3 MB (estimate; measure when built) | mobile: bundled; Web: lazy on first Characters section, then kept offline in OPFS, versioned with the dataset (`ARCH-145`) |
+| Decomposition data (BabelStone IDS + radical mappings, `DATA-191`) plus the Make Me a Hanzi stroke → component `matches` as a separate LGPL-3.0 file (~9k characters) | ≤ 3 MB (estimate; measure when built) | mobile: bundled; Web: lazy on first Parts section, then kept offline in OPFS, versioned with the dataset (`ARCH-145`) |
 | Unihan data: fallback definitions and Unihan-only entries, per mode (`DATA-190`) | ≤ 2 MB (estimate; measure in the pipeline report) | in the dataset — mobile: both modes; Web: active mode |
 | Rare-character fallback font (OFL CJK, subset to dataset characters the platform fonts may lack; text tagged `zh-Hans` / `zh-Hant` / `zh-HK` — decided: `Q-109`) | ≤ 8 MB (estimate; re-baseline when the subset is built) | all mobile builds |
 
@@ -1194,7 +1194,7 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | Web — dataset update per release (`ARCH-145`) | changeset (`DATA-216`); the full dataset when the changeset would exceed half of it | ≤ 50% of the dataset line | in place in OPFS |
 | Web — on first use | LM + abbreviation data, handwriting model, OpenCC dictionaries, media (`ARCH-143`) | per `PERF-070` line | browser cache, not guaranteed offline |
 | Web — OCR model on first OCR use (`ARCH-197`) | model + manifest; afterwards only a changed version | ~2.6 MB | OPFS / Cache Storage, kept offline |
-| Web — decomposition on first Characters section (`ARCH-143`, `ARCH-145`) | decomposition data, `matches` file and the stroke graphics shown; afterwards only on a dataset version change | per `PERF-070` lines | OPFS, kept offline |
+| Web — decomposition on first Parts section (`ARCH-143`, `ARCH-145`) | decomposition data, `matches` file and the stroke graphics shown; afterwards only on a dataset version change | per `PERF-070` lines | OPFS, kept offline |
 
 The voice model is the largest single asset. Play and iOS installs leave it out and fetch it once,
 through the store's own delivery, when the user first opens Voice; from then on Voice works offline.
@@ -1259,7 +1259,7 @@ never loaded whole.
 timing. Minimum suite: rapid typing, abbreviated and multi-syllable typing (for example `nhao`,
 `wxhn`), blank-query start, entry open plus nested push plus back, HSK cold and warm entry,
 paste-and-analyse, camera capture to overlay, a pasted image to overlay on Web (cold and cached model),
-conversion of a 1,000-character fixture both ways, Characters-section expansion, a scripted handwriting
+conversion of a 1,000-character fixture both ways, Parts-section expansion, a scripted handwriting
 stroke sequence, and voice replay of a recorded fixture through `AudioCapture`'s test implementation.
 
 `PERF-102` `[SHOULD]` Also track the **candidate-set sizes** per query class in the report (for example

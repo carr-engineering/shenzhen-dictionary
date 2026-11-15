@@ -229,7 +229,7 @@ Three cases have a **download or loading state** instead:
   Every other destination works normally. (Android bundles ML Kit and iOS uses Apple Vision, so mobile
   has no OCR download.)
 - **Web.** The Web PWA stores exactly four things for offline use: the app shell (code); the dataset;
-  once downloaded, the versioned OCR model (above); and, once the Characters section has first loaded
+  once downloaded, the versioned OCR model (above); and, once the Parts section of the DICT tab has first loaded
   them, the decomposition data together with the stroke graphics and Make Me a Hanzi stroke-to-component
   `matches` it uses (`ENT-120`…, `DATA-191`), stored persistently and versioned with the dataset. The dataset is kept current by changesets (`ARCH-145`). Every other Web asset
   (handwriting model, abbreviation/combination data, audio, stroke data not stored with the decomposition data,
@@ -450,9 +450,8 @@ them can scroll up.
 
 `GLB-080` `[MUST]` Every icon-only control has a descriptive label: `Play pronunciation`,
 `Stop sentence playback`, `Clear search`, `Paste clipboard into search`, `Previous character`,
-`Next character`, `Close word options`, `Back`, `Close detail`, `Take photo`, `Toggle flash`,
-`Save photo`, the OCR image inputs (`Use camera`, `Choose file`, `Torch` for the torch toggle,
-`CAM-130`…`CAM-135`), the input-method button (`Switch to handwriting` / `Switch to
+`Next character`, `Close word options`, `Back`, `Close detail`, `Take photo`, `Flash` (the flash menu button, its state the current mode: `Flash off` / `Flash auto` / `Flash on` / `Flashlight`),
+`Save photo`, the OCR image inputs (`Use camera`, `Choose file`, `CAM-130`…`CAM-135`), the input-method button (`Switch to handwriting` / `Switch to
 keyboard`, naming the mode a tap switches to), `Close handwriting`, `Undo stroke`,
 `Clear handwriting`, the pronunciation toggle (`Hide pronunciation` / `Show pronunciation`, also
 exposed as a toggle state), the voice control (`Start listening` / `Stop listening`), and the
@@ -461,6 +460,7 @@ script-conversion split button (`GLB-009`): its main action is labelled by what 
 part `Conversion options`. Drag and drop and paste of an image on the OCR screen have no dedicated
 control and so no label; a successful drop or paste is announced to assistive technology (e.g.
 `Image dropped` / `Image pasted`) (`CAM-130`…`CAM-135`).
+Each of these controls also shows its label as a standard Material 3 plain tooltip on pointer hover and on long-press; the tooltip adds no second announcement.
 
 `GLB-081` `[MUST]` Interactive targets are at least 40×40 dp; the compact pills and chips that render
 smaller must expand their touch area to 40 dp. The camera shutter is 72 dp.
