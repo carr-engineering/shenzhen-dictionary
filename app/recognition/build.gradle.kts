@@ -6,6 +6,7 @@ plugins {
 }
 
 val onnxRuntime = "1.23.2"
+val onnxRuntimeFramework = rootProject.file("speech/ios-frameworks/onnxruntime.xcframework")
 
 // On-device text recognition (OCR with per-character alternatives) and handwriting recognition.
 // commonMain holds the platform-neutral contract plus all geometry, image preparation and decoding;
@@ -20,19 +21,27 @@ kotlin {
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
     wasmJs { browser() }
 
-    // iOS: the same pipeline; the graphs run through the TensorFlow Lite C API (iosMain).
-    // The runtime is the static TensorFlowLiteC.xcframework in ios-frameworks/ (tools/fetch_ios_frameworks.sh).
-    // The cinterop klib records `-framework TensorFlowLiteC -lc++`; the framework search path is
-    // added here for this module's own binaries (tests). An app linking a static Kotlin framework
-    // links the xcframework itself.
+    // iOS: handwriting runs through the TensorFlow Lite C API (iosMain), from the static
+    // TensorFlowLiteC.xcframework in ios-frameworks/ (tools/fetch_ios_frameworks.sh); OCR runs through
+    // ONNX Runtime's C API, from the static onnxruntime.xcframework that :speech links
+    // (speech/ios-frameworks/, tools/fetch-voice-model.sh), so the app carries one copy of it.
+    // The cinterop klibs record `-framework <name> -lc++`; the framework search paths are added here
+    // for this module's own binaries (tests). An app linking a static Kotlin framework links the
+    // xcframeworks itself.
     listOf(iosArm64() to "ios-arm64", iosSimulatorArm64() to "ios-arm64_x86_64-simulator").forEach { (target, slice) ->
         val frameworks = file("ios-frameworks/TensorFlowLiteC.xcframework/$slice")
+        val onnxRuntimeSlice = onnxRuntimeFramework.resolve(slice)
         target.compilations.getByName("main").cinterops.create("tflite") {
             definitionFile.set(file("src/nativeInterop/cinterop/tflite.def"))
             packageName("com.szdict.recognition.tflite")
             compilerOpts("-F${frameworks.absolutePath}")
         }
-        target.binaries.all { linkerOpts("-F${frameworks.absolutePath}") }
+        target.compilations.getByName("main").cinterops.create("ort") {
+            definitionFile.set(file("src/nativeInterop/cinterop/ort.def"))
+            packageName("com.szdict.recognition.ort")
+            compilerOpts("-F${onnxRuntimeSlice.absolutePath}")
+        }
+        target.binaries.all { linkerOpts("-F${frameworks.absolutePath}", "-F${onnxRuntimeSlice.absolutePath}") }
     }
 
     sourceSets {
@@ -105,11 +114,20 @@ val fetchIosFrameworks = tasks.register<Exec>("fetchIosFrameworks") {
     description = "Restores TensorFlowLiteC.xcframework (pinned URL and SHA-256) into ios-frameworks/."
     commandLine("sh", file("tools/fetch_ios_frameworks.sh").absolutePath)
 }
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.CInteropProcess>().configureEach { dependsOn(fetchIosFrameworks) }
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.CInteropProcess>().configureEach {
+    dependsOn(fetchIosFrameworks)
+    val framework = onnxRuntimeFramework
+    doFirst {
+        if (!framework.isDirectory) {
+            throw GradleException("OCR on iOS needs ${framework.name}: run VOICE_TARGETS=ios app/tools/fetch-voice-model.sh")
+        }
+    }
+}
 
 // The iOS simulator tests run the real graphs on the reference images and drawings, read from the
 // project directory (the simulator shares the host file system).
 tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
+    // (The OCR test skips itself without the models of tools/fetch_ocr2_models.sh.)
     environment("SIMCTL_CHILD_RECOGNITION_MODEL_DIR", file("src/androidMain/assets/models").absolutePath)
     environment("SIMCTL_CHILD_RECOGNITION_GOLDEN_DIR", file("src/androidUnitTest/resources/golden").absolutePath)
     environment("SIMCTL_CHILD_RECOGNITION_TESTDATA_DIR", file("src/androidInstrumentedTest/assets/testdata").absolutePath)

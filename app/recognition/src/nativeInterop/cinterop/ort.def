@@ -1,0 +1,133 @@
+# ONNX Runtime's C API from the static onnxruntime.xcframework that :speech already links
+# (speech/ios-frameworks/, see tools/fetch-voice-model.sh): the OCR graphs run on the same copy.
+# The framework search path (-F <xcframework slice>) is per target and comes from build.gradle.kts.
+# Only the small session wrapper below is bound; the runtime's own declarations stay out of Kotlin.
+language = C
+headers = onnxruntime/onnxruntime_c_api.h
+headerFilter = nothing/**
+linkerOpts = -framework onnxruntime -lc++ -framework Foundation -framework CoreML
+---
+#include <stdlib.h>
+#include <string.h>
+
+/** One loaded graph with one input and one output, both float tensors. */
+typedef struct SzOrtSession {
+    OrtSession* session;
+    char* input;
+    char* output;
+} SzOrtSession;
+
+/** The result of one run; `data` belongs to `value` and is valid until sz_ort_free_output. */
+typedef struct SzOrtOutput {
+    OrtValue* value;
+    float* data;
+    int rank;
+    int64_t shape[8];
+} SzOrtOutput;
+
+static const OrtApi* sz_ort_api(void) {
+    static const OrtApi* api = NULL;
+    if (!api) api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+    return api;
+}
+
+/** Turns a status into a message the caller frees with free(); NULL for success. */
+static char* sz_ort_error(OrtStatus* status) {
+    if (!status) return NULL;
+    char* message = strdup(sz_ort_api()->GetErrorMessage(status));
+    sz_ort_api()->ReleaseStatus(status);
+    return message ? message : strdup("ONNX Runtime error");
+}
+
+static char* sz_ort_name(OrtSession* session, int input, char** out) {
+    const OrtApi* api = sz_ort_api();
+    OrtAllocator* allocator = NULL;
+    char* name = NULL;
+    char* error = sz_ort_error(api->GetAllocatorWithDefaultOptions(&allocator));
+    if (error) return error;
+    error = sz_ort_error(input ? api->SessionGetInputName(session, 0, allocator, &name) : api->SessionGetOutputName(session, 0, allocator, &name));
+    if (error) return error;
+    *out = strdup(name);
+    return sz_ort_error(api->AllocatorFree(allocator, name));
+}
+
+static void sz_ort_close(SzOrtSession* s) {
+    if (!s) return;
+    if (s->session) sz_ort_api()->ReleaseSession(s->session);
+    free(s->input);
+    free(s->output);
+    free(s);
+}
+
+/**
+ * Loads the graph at `path` for the CPU provider with all graph optimisations, `threads` intra-op
+ * threads and no arena. Returns NULL and sets `*out`, or an error message to free().
+ */
+static char* sz_ort_open(const char* path, int threads, SzOrtSession** out) {
+    static OrtEnv* env = NULL;
+    const OrtApi* api = sz_ort_api();
+    if (!api) return strdup("This ONNX Runtime does not provide the expected API version");
+    char* error = NULL;
+    if (!env && (error = sz_ort_error(api->CreateEnv(ORT_LOGGING_LEVEL_ERROR, "szdict", &env)))) return error;
+    OrtSessionOptions* options = NULL;
+    if ((error = sz_ort_error(api->CreateSessionOptions(&options)))) return error;
+    SzOrtSession* s = (SzOrtSession*)calloc(1, sizeof(SzOrtSession));
+    if (!(error = sz_ort_error(api->SetSessionGraphOptimizationLevel(options, ORT_ENABLE_ALL)))
+        && !(error = sz_ort_error(api->SetIntraOpNumThreads(options, threads)))
+        && !(error = sz_ort_error(api->SetInterOpNumThreads(options, 1)))
+        && !(error = sz_ort_error(api->DisableCpuMemArena(options)))
+        && !(error = sz_ort_error(api->CreateSession(env, path, options, &s->session)))
+        && !(error = sz_ort_name(s->session, 1, &s->input))) {
+        error = sz_ort_name(s->session, 0, &s->output);
+    }
+    api->ReleaseSessionOptions(options);
+    if (error) {
+        sz_ort_close(s);
+        return error;
+    }
+    *out = s;
+    return NULL;
+}
+
+static void sz_ort_free_output(SzOrtOutput* output) {
+    if (output->value) sz_ort_api()->ReleaseValue(output->value);
+    output->value = NULL;
+    output->data = NULL;
+}
+
+/** Runs the graph on `input` (not copied) of the given shape. Returns NULL and fills `output`, or an error message to free(). */
+static char* sz_ort_run(SzOrtSession* s, float* input, const int64_t* shape, int rank, SzOrtOutput* output) {
+    const OrtApi* api = sz_ort_api();
+    memset(output, 0, sizeof(*output));
+    size_t count = 1;
+    for (int i = 0; i < rank; i++) count *= (size_t)shape[i];
+    OrtMemoryInfo* memory = NULL;
+    char* error = sz_ort_error(api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory));
+    if (error) return error;
+    OrtValue* tensor = NULL;
+    error = sz_ort_error(api->CreateTensorWithDataAsOrtValue(memory, input, count * sizeof(float), shape, (size_t)rank, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &tensor));
+    api->ReleaseMemoryInfo(memory);
+    if (error) return error;
+    const char* inputs[] = { s->input };
+    const char* outputs[] = { s->output };
+    const OrtValue* values[] = { tensor };
+    error = sz_ort_error(api->Run(s->session, NULL, inputs, values, 1, outputs, 1, &output->value));
+    api->ReleaseValue(tensor);
+    if (error) return error;
+    OrtTensorTypeAndShapeInfo* info = NULL;
+    size_t dimensions = 0;
+    if (!(error = sz_ort_error(api->GetTensorTypeAndShape(output->value, &info)))) {
+        if (!(error = sz_ort_error(api->GetDimensionsCount(info, &dimensions)))) {
+            if (dimensions > 8) error = strdup("Unexpected output rank");
+            else error = sz_ort_error(api->GetDimensions(info, output->shape, dimensions));
+        }
+        api->ReleaseTensorTypeAndShapeInfo(info);
+    }
+    if (!error) error = sz_ort_error(api->GetTensorMutableData(output->value, (void**)&output->data));
+    if (error) {
+        sz_ort_free_output(output);
+        return error;
+    }
+    output->rank = (int)dimensions;
+    return NULL;
+}

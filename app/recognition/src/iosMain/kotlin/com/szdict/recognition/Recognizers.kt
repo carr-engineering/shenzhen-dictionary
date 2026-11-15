@@ -2,8 +2,8 @@ package com.szdict.recognition
 
 import com.szdict.recognition.ink.InkPipeline
 import com.szdict.recognition.ink.ScriptClasses
-import com.szdict.recognition.ocr.OcrOptions
-import com.szdict.recognition.ocr.OcrPipeline
+import com.szdict.recognition.ocr2.Ocr2Options
+import com.szdict.recognition.ocr2.Ocr2Pipeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -16,13 +16,13 @@ import kotlin.concurrent.Volatile
 import kotlin.coroutines.coroutineContext
 
 /**
- * Entry points for the bundled recognisers on iOS. Both run fully offline on the TensorFlow Lite C
- * runtime. `modelDir` is the absolute path of the directory holding `ocr/` and `ink/` (the same files
- * as the Android `assets/models/`).
+ * Entry points for the bundled recognisers on iOS. Both run fully offline: OCR on ONNX Runtime,
+ * handwriting on the TensorFlow Lite C runtime. `modelDir` is the absolute path of the directory
+ * holding `ocr2/` and `ink/` (the same files as the Android `assets/models/`).
  */
 object Recognizers {
     /**
-     * OCR with per-character alternatives. Models (about 1.9 MB) are loaded on the first
+     * OCR with per-character alternatives. Models (16 MB, `ocr2/`) are loaded on the first
      * [TextRecognizer.recognize] call and released by [TextRecognizer.close].
      *
      * @param alternatives how many candidates to keep per character, including the best one.
@@ -79,21 +79,13 @@ private class Guarded<T : Any>(private val load: () -> T, private val release: (
 }
 
 internal class IosTextRecognizer(private val modelDir: String, private val alternatives: Int) : TextRecognizer {
-    private class Loaded(val nets: TfLiteOcrNets, val pipeline: OcrPipeline)
+    private class Loaded(val nets: OrtOcr2Nets, val pipeline: Ocr2Pipeline)
 
     private val guarded = Guarded(
         load = {
-            val nets = TfLiteOcrNets(modelDir, workerThreads())
+            val nets = OrtOcr2Nets(modelDir, workerThreads())
             try {
-                Loaded(
-                    nets,
-                    OcrPipeline(
-                        nets,
-                        readLabels("$modelDir/ocr/hani-labels.txt"),
-                        readLabels("$modelDir/ocr/latn-labels.txt"),
-                        OcrOptions(alternatives = alternatives),
-                    ),
-                )
+                Loaded(nets, Ocr2Pipeline(nets, readLabels("$modelDir/ocr2/rec-labels.txt"), Ocr2Options(alternatives = alternatives)))
             } catch (e: Throwable) {
                 nets.close()
                 throw e
@@ -109,7 +101,11 @@ internal class IosTextRecognizer(private val modelDir: String, private val alter
     override suspend fun recognize(image: OcrImage): OcrResult = withContext(Dispatchers.Default) {
         val context = coroutineContext
         guarded.use { loaded ->
-            loaded.pipeline.recognize(image) { context.ensureActive() }.also { lastTimings = loaded.pipeline.timings.toMap() }
+            try {
+                loaded.pipeline.recognize(image) { context.ensureActive() }
+            } finally {
+                lastTimings = loaded.pipeline.timings.toMap()
+            }
         }
     }
 

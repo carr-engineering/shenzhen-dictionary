@@ -3,8 +3,6 @@
 package com.szdict.recognition
 
 import com.szdict.recognition.ink.SingleCharCtc
-import com.szdict.recognition.ocr.CtcDecoder
-import com.szdict.recognition.ocr.SequenceModel
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.toKString
@@ -44,8 +42,8 @@ import kotlin.test.assertTrue
 import kotlin.time.TimeSource
 
 /**
- * Both recognisers end to end on the iOS simulator: the bundled models through the TensorFlow Lite C
- * runtime, on the reference implementation's tensors, test images and ink drawings (the same cases
+ * Both recognisers end to end on the iOS simulator: the bundled models through ONNX Runtime (OCR)
+ * and the TensorFlow Lite C runtime (handwriting), on the reference tensors, test images and ink drawings (the same cases
  * as the Android unit and instrumented tests). The directories come from the environment, see
  * build.gradle.kts; the simulator reads them straight from the host file system.
  */
@@ -105,53 +103,6 @@ class IosRecognizersTest {
     // ---- the graphs against tensors exported from the host reference interpreter -------------
 
     @Test
-    fun lineRecogniserReproducesHostLogits() = runBlocking {
-        val (nets, loadMs) = timed { TfLiteOcrNets(modelDir, 2) }
-        val (labels, labelMs) = timed { readLabels("$modelDir/ocr/hani-labels.txt") }
-        println("OCR graphs loaded in ${fixed(loadMs.toFloat(), 1)} ms, label table in ${fixed(labelMs.toFloat(), 1)} ms")
-        try {
-            for (row in text("$goldenDir/hani-lines.tsv").split('\n').filter { it.isNotBlank() }) {
-                val f = row.split('\t')
-                val frames = f[1].toInt()
-                val classes = f[2].toInt()
-                val width = f[5].toInt()
-                val bytes = gunzip("$goldenDir/hani-line-${f[0]}.bin.gz")
-                assertEquals(frames * classes + width * 24, bytes.size)
-                val (out, ms) = timed { nets.sequence(SequenceModel.HANI, bytes.copyOfRange(frames * classes, bytes.size), width) }
-                println("LINE ${f[6]} width $width: ${fixed(ms.toFloat(), 1)} ms")
-                assertEquals(frames, out.frames)
-                assertEquals(classes, out.classes)
-                assertEquals(f[3].toFloat(), out.scale)
-                assertEquals(f[4].toInt(), out.zeroPoint)
-                // The iOS build of the runtime computes these quantised graphs exactly as TensorFlow
-                // Lite's reference kernels do; the host goldens come from the NEON-optimised kernels,
-                // whose rounding differs in the last bits. The decoded line must be the same.
-                val expected = bytes.copyOfRange(0, frames * classes)
-                var worst = 0
-                var sum = 0L
-                for (i in expected.indices) {
-                    val d = abs((out.data[i].toInt() and 0xFF) - (expected[i].toInt() and 0xFF))
-                    worst = maxOf(worst, d)
-                    sum += d
-                }
-                println("LINE ${f[6]}: largest logit difference $worst, mean ${fixed(sum.toFloat() / expected.size, 3)} (8-bit steps)")
-                assertTrue(worst <= 6 && sum < expected.size, "logits differ from the host interpreter: largest $worst, sum $sum")
-                fun decode(logits: ByteArray) = CtcDecoder.decode(logits, frames, classes, labels.size, out.scale, 8, labels.indexOf(" "))
-                val reference = decode(expected)
-                val actual = decode(out.data)
-                assertEquals(reference.map { it.label }, actual.map { it.label })
-                // The first alternatives agree as a set wherever the reference separates them clearly.
-                for (i in reference.indices) {
-                    assertEquals(reference[i].peakFrame, actual[i].peakFrame)
-                    assertTrue(abs(reference[i].scores[0] - actual[i].scores[0]) < .08f, "confidence of symbol $i: ${reference[i].scores[0]} vs ${actual[i].scores[0]}")
-                }
-            }
-        } finally {
-            nets.close()
-        }
-    }
-
-    @Test
     fun inkNetworkReproducesHostLogitsAndScores() = runBlocking {
         val golden = InkGolden.parse(text("$testdataDir/ink-fixtures.txt"))
         val labels = readLabels("$modelDir/ink/labels.txt")
@@ -201,7 +152,7 @@ class IosRecognizersTest {
             println("OCR first call including model load: ${fixed(cold.toFloat(), 0)} ms")
             val failures = ArrayList<String>()
             var total = 0.0
-            for (case in OcrCases.all) {
+            for (case in Ocr2Cases.all) {
                 val img = image(case.file)
                 val (result, ms) = timed { recognizer.recognize(img) }
                 total += ms
@@ -217,7 +168,7 @@ class IosRecognizersTest {
                     for (c in line.chars) {
                         assertEquals(c.text, c.alternatives.first().text)
                         assertEquals(c.confidence, c.alternatives.first().score)
-                        assertTrue(c.alternatives.size in 5..8, "five to eight candidates per character")
+                        assertEquals(8, c.alternatives.size, "eight candidates per character")
                         assertTrue(c.confidence > 0f && c.confidence <= 1f)
                         assertTrue(c.alternatives.zipWithNext().all { (a, b) -> a.score >= b.score }, "alternatives are best first")
                         for (p in c.box.points) {
@@ -228,7 +179,7 @@ class IosRecognizersTest {
                     }
                 }
             }
-            println("OCR ${OcrCases.all.size} images in ${fixed(total.toFloat(), 0)} ms")
+            println("OCR ${Ocr2Cases.all.size} images in ${fixed(total.toFloat(), 0)} ms")
             assertEquals(emptyList(), failures)
         } finally {
             recognizer.close()
@@ -242,15 +193,16 @@ class IosRecognizersTest {
             val result = recognizer.recognize(image("similar.png"))
             assertEquals(2, result.lines.size)
             fun alternatives(line: Int, index: Int) = result.lines[line].chars[index].alternatives.map { it.text }
-            assertTrue(alternatives(0, 1).take(4).containsAll(listOf("已", "己", "巳")), "已/己/巳: ${alternatives(0, 1)}")
-            assertTrue(alternatives(1, 0).containsAll(listOf("未", "末")), "未/末: ${alternatives(1, 0)}")
-            assertTrue(alternatives(1, 3).take(3).containsAll(listOf("土", "士")), "土/士: ${alternatives(1, 3)}")
+            assertEquals(listOf("已", "己", "巳"), alternatives(0, 1).take(3))
+            assertTrue(alternatives(1, 0).take(4).containsAll(listOf("未", "末")), "未/末: ${alternatives(1, 0)}")
+            assertTrue(alternatives(1, 3).containsAll(listOf("土", "士")), "土/士: ${alternatives(1, 3)}")
             for (line in result.lines) {
                 val centres = line.chars.map { it.box.center.x }
                 assertEquals(centres.sorted(), centres)
             }
 
-            val vertical = recognizer.recognize(image("pipeline-vertical.png"))
+            val vertical = recognizer.recognize(image("vertical-tight.png"))
+            assertEquals(4, vertical.lines.size)
             assertTrue(vertical.lines.all { it.vertical })
             for (line in vertical.lines) {
                 val ys = line.chars.map { it.box.center.y }
