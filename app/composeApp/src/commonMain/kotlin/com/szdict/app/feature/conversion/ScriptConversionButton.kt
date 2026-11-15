@@ -1,5 +1,6 @@
 package com.szdict.app.feature.conversion
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -96,15 +97,17 @@ fun ScriptConversionButton(
             // The visible text is the accessibility label: it names what a tap does (GLB-080).
             Text(strings.text(action.label), style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
-        SplitSegment(
-            onClick = { dialogOpen = true },
-            enabled = enabled,
-            shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 20.dp, bottomEnd = 20.dp),
-            border = border,
-            contentColor = content,
-            contentPadding = PaddingValues(start = 8.dp, end = 10.dp),
-        ) {
-            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = strings.text("Conversion options"), modifier = Modifier.size(22.dp))
+        WithTooltip(strings.text("Conversion options")) {
+            SplitSegment(
+                onClick = { dialogOpen = true },
+                enabled = enabled,
+                shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 20.dp, bottomEnd = 20.dp),
+                border = border,
+                contentColor = content,
+                contentPadding = PaddingValues(start = 8.dp, end = 10.dp),
+            ) {
+                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = strings.text("Conversion options"), modifier = Modifier.size(22.dp))
+            }
         }
     }
 

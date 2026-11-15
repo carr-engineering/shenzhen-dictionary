@@ -1,5 +1,6 @@
 package com.szdict.app.feature.entry
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -187,11 +188,13 @@ internal fun strokeFeedback(mode: StrokePaneMode, controller: StrokeOrderControl
 @Composable
 private fun PaneButton(icon: ImageVector, description: String, enabled: Boolean = true, onClick: () -> Unit) {
     val palette = LocalDictionaryPalette.current
-    OutlinedIconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.size(40.dp),
-        colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = palette.accent, disabledContentColor = palette.accent.copy(alpha = 0.35f)),
-        border = BorderStroke(1.dp, palette.border),
-    ) { Icon(icon, contentDescription = description, modifier = Modifier.size(21.dp)) }
+    WithTooltip(description) {
+        OutlinedIconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(40.dp),
+            colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = palette.accent, disabledContentColor = palette.accent.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, palette.border),
+        ) { Icon(icon, contentDescription = description, modifier = Modifier.size(21.dp)) }
+    }
 }

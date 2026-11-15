@@ -1,5 +1,6 @@
 package com.szdict.app.feature.entry
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -212,11 +213,15 @@ private fun EntryFrame(
                 },
                 navigationIcon = {
                     if (frame.showBack) {
-                        IconButton(onClick = frame.onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = strings.text("Back")) }
+                        WithTooltip(strings.text("Back")) {
+                            IconButton(onClick = frame.onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = strings.text("Back")) }
+                        }
                     }
                 },
                 actions = {
-                    if (twoPane) IconButton(onClick = frame.onClose) { Icon(Icons.Rounded.Close, contentDescription = strings.text("Close detail")) }
+                    if (twoPane) WithTooltip(strings.text("Close detail")) {
+                        IconButton(onClick = frame.onClose) { Icon(Icons.Rounded.Close, contentDescription = strings.text("Close detail")) }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = palette.bg,

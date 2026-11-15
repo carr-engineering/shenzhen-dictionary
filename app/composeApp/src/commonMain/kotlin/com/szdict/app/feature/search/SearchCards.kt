@@ -54,6 +54,7 @@ import com.szdict.app.ui.kit.PassageText
 import com.szdict.app.ui.kit.passageTextStyle
 import com.szdict.app.ui.kit.TonedHanziText
 import com.szdict.app.ui.kit.TonedReadingText
+import com.szdict.app.ui.kit.WithTooltip
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.AnalysedPassage
 import com.szdict.core.api.Combination
@@ -111,7 +112,7 @@ internal fun SentenceActions(
 ) {
     val strings = appStrings()
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        ActionButton(enabled, onSpeak) {
+        ActionButton(strings.text(if (speaking) "Stop sentence playback" else "Play sentence"), enabled, onSpeak) {
             AnimatedContent(
                 targetState = speaking,
                 transitionSpec = {
@@ -127,8 +128,8 @@ internal fun SentenceActions(
                 )
             }
         }
-        ActionButton(enabled, onTranslate) { ActionIcon(Icons.Rounded.Translate, strings.text("Translate sentence")) }
-        ActionButton(enabled, onCopy) { ActionIcon(Icons.Rounded.ContentCopy, strings.text("Copy sentence")) }
+        ActionButton(strings.text("Translate sentence"), enabled, onTranslate) { ActionIcon(Icons.Rounded.Translate, strings.text("Translate sentence")) }
+        ActionButton(strings.text("Copy sentence"), enabled, onCopy) { ActionIcon(Icons.Rounded.ContentCopy, strings.text("Copy sentence")) }
     }
 }
 
@@ -136,19 +137,21 @@ internal fun SentenceActions(
 private fun ActionIcon(icon: ImageVector, label: String) = Icon(icon, contentDescription = label, modifier = Modifier.size(21.dp))
 
 @Composable
-private fun ActionButton(enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun ActionButton(label: String, enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
     val palette = LocalDictionaryPalette.current
-    OutlinedIconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.size(40.dp),
-        colors = IconButtonDefaults.outlinedIconButtonColors(
-            contentColor = palette.accent,
-            disabledContentColor = palette.accent.copy(alpha = 0.35f),
-        ),
-        border = BorderStroke(1.dp, palette.border),
-        content = content,
-    )
+    WithTooltip(label) {
+        OutlinedIconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(40.dp),
+            colors = IconButtonDefaults.outlinedIconButtonColors(
+                contentColor = palette.accent,
+                disabledContentColor = palette.accent.copy(alpha = 0.35f),
+            ),
+            border = BorderStroke(1.dp, palette.border),
+            content = content,
+        )
+    }
 }
 
 /**

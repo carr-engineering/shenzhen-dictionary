@@ -1,5 +1,6 @@
 package com.szdict.app.feature.settings
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -163,7 +164,9 @@ internal fun LibraryLicencesDialog(onDismiss: () -> Unit, onOpen: (String) -> Un
                         Text(strings.text("Open-source libraries"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = palette.fg)
                         Text(strings.text("Direct runtime dependencies used by this build"), style = MaterialTheme.typography.bodySmall, color = palette.muted)
                     }
-                    IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = strings.text("Close licenses"), tint = palette.fg) }
+                    WithTooltip(strings.text("Close licenses")) {
+                        IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = strings.text("Close licenses"), tint = palette.fg) }
+                    }
                 }
                 HorizontalDivider(color = palette.border)
                 LazyColumn(

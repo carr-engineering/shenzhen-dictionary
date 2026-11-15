@@ -2,6 +2,7 @@
 
 package com.szdict.app
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -61,11 +62,13 @@ internal fun DatasetUpdatedNotice(session: AppSession, datasets: WebDatasets) {
                     modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button) { session.flushNow(); jsReloadPage() }
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                 )
-                Icon(
-                    Icons.Filled.Close, contentDescription = strings.text("Close"), tint = palette.muted,
-                    modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button) { datasets.dismissUpdate() }
-                        .padding(10.dp).size(18.dp),
-                )
+                WithTooltip(strings.text("Close")) {
+                    Icon(
+                        Icons.Filled.Close, contentDescription = strings.text("Close"), tint = palette.muted,
+                        modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button) { datasets.dismissUpdate() }
+                            .padding(10.dp).size(18.dp),
+                    )
+                }
             }
         }
     }

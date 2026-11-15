@@ -1,5 +1,6 @@
 package com.szdict.app.feature.handwriting
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -150,8 +151,10 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
                         } }
                     }
                 }
-                IconButton(onClick = { session.handwritingVisible = false }) {
-                    Icon(Icons.Rounded.Close, contentDescription = strings.text("Close handwriting"), tint = palette.muted)
+                WithTooltip(strings.text("Close handwriting")) {
+                    IconButton(onClick = { session.handwritingVisible = false }) {
+                        Icon(Icons.Rounded.Close, contentDescription = strings.text("Close handwriting"), tint = palette.muted)
+                    }
                 }
             }
             if (state.busy || state.modelDownload is ModelDownload.InProgress) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = palette.accent, trackColor = Color.Transparent)

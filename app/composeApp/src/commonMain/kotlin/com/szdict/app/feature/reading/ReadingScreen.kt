@@ -1,5 +1,6 @@
 package com.szdict.app.feature.reading
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -42,8 +43,6 @@ import androidx.compose.material.icons.rounded.Draw
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -288,12 +287,15 @@ private fun ReadingField(
                 placeholder = { Text(strings.text("Paste or type a Chinese passage…")) },
                 trailingIcon = {
                     // The icon shows the method a tap switches TO (HW-003).
-                    IconButton(onClick = onSwitchInputMethod) {
-                        Icon(
-                            imageVector = if (handwriting) Icons.Rounded.Keyboard else Icons.Rounded.Draw,
-                            contentDescription = strings.text(if (handwriting) "Switch to keyboard" else "Switch to handwriting"),
-                            tint = palette.muted,
-                        )
+                    val switchLabel = strings.text(if (handwriting) "Switch to keyboard" else "Switch to handwriting")
+                    WithTooltip(switchLabel) {
+                        IconButton(onClick = onSwitchInputMethod) {
+                            Icon(
+                                imageVector = if (handwriting) Icons.Rounded.Keyboard else Icons.Rounded.Draw,
+                                contentDescription = switchLabel,
+                                tint = palette.muted,
+                            )
+                        }
                     }
                 },
                 shape = RoundedCornerShape(12.dp),
@@ -346,7 +348,7 @@ private fun SentenceActionsRow(
 ) {
     val strings = appStrings()
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        ActionButton(enabled, onPlay) {
+        ActionButton(strings.text(if (playing) "Stop sentence playback" else "Play sentence"), enabled, onPlay) {
             AnimatedContent(
                 targetState = playing,
                 transitionSpec = {
@@ -362,8 +364,8 @@ private fun SentenceActionsRow(
                 )
             }
         }
-        ActionButton(enabled, onTranslate) { ActionIcon(Icons.Rounded.Translate, strings.text("Translate sentence")) }
-        ActionButton(enabled, onCopy) { ActionIcon(Icons.Rounded.ContentCopy, strings.text("Copy sentence")) }
+        ActionButton(strings.text("Translate sentence"), enabled, onTranslate) { ActionIcon(Icons.Rounded.Translate, strings.text("Translate sentence")) }
+        ActionButton(strings.text("Copy sentence"), enabled, onCopy) { ActionIcon(Icons.Rounded.ContentCopy, strings.text("Copy sentence")) }
     }
 }
 
@@ -373,16 +375,18 @@ private fun ActionIcon(icon: ImageVector, description: String) {
 }
 
 @Composable
-private fun ActionButton(enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun ActionButton(label: String, enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
     val palette = LocalDictionaryPalette.current
-    OutlinedIconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.size(40.dp),
-        colors = IconButtonDefaults.outlinedIconButtonColors(
-            contentColor = palette.accent,
-            disabledContentColor = palette.accent.copy(alpha = 0.35f),
-        ),
-        border = BorderStroke(1.dp, palette.border),
-    ) { content() }
+    WithTooltip(label) {
+        OutlinedIconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(40.dp),
+            colors = IconButtonDefaults.outlinedIconButtonColors(
+                contentColor = palette.accent,
+                disabledContentColor = palette.accent.copy(alpha = 0.35f),
+            ),
+            border = BorderStroke(1.dp, palette.border),
+        ) { content() }
+    }
 }

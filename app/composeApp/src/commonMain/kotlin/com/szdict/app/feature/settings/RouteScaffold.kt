@@ -1,5 +1,6 @@
 package com.szdict.app.feature.settings
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,8 +46,10 @@ internal fun RouteScaffold(title: String, onBack: (() -> Unit)?, modifier: Modif
                 Modifier.widthIn(max = ReadableWidth).fillMaxWidth().height(56.dp).padding(start = 6.dp, end = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (onBack != null) IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = strings.text("Back"), tint = palette.fg)
+                if (onBack != null) WithTooltip(strings.text("Back")) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = strings.text("Back"), tint = palette.fg)
+                    }
                 }
                 Text(
                     title,

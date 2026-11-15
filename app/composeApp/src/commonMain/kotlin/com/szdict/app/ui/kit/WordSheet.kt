@@ -183,14 +183,20 @@ fun WordSheet(
                     if (request.fixedCards == null) {
                         val prev = current?.previousCovered ?: request.passage.previousCovered(request.offset)
                         val next = current?.nextCovered ?: request.passage.nextCovered(request.offset)
-                        IconButton(onClick = { prev?.let(session::moveWordSheet) }, enabled = prev != null) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, strings.text("Previous character"))
+                        WithTooltip(strings.text("Previous character")) {
+                            IconButton(onClick = { prev?.let(session::moveWordSheet) }, enabled = prev != null) {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, strings.text("Previous character"))
+                            }
                         }
-                        IconButton(onClick = { next?.let(session::moveWordSheet) }, enabled = next != null) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, strings.text("Next character"))
+                        WithTooltip(strings.text("Next character")) {
+                            IconButton(onClick = { next?.let(session::moveWordSheet) }, enabled = next != null) {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, strings.text("Next character"))
+                            }
                         }
                     }
-                    IconButton(onClick = { session.closeWordSheet() }) { Icon(Icons.Filled.Close, strings.text("Close word options")) }
+                    WithTooltip(strings.text("Close word options")) {
+                        IconButton(onClick = { session.closeWordSheet() }) { Icon(Icons.Filled.Close, strings.text("Close word options")) }
+                    }
                 }
                 if (showBar) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = palette.accent, trackColor = palette.border)
                 else Spacer(Modifier.height(2.dp))

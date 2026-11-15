@@ -1,5 +1,6 @@
 package com.szdict.app.feature.ocr
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -167,18 +168,20 @@ internal fun FlashControl(mode: FlashMode, supported: Set<FlashMode>, onSelect: 
     val label = strings.text("Flash")
     val state = strings.text(mode.label)
     Box(modifier) {
-        Surface(
-            onClick = { open = true },
-            shape = CircleShape,
-            color = Color.Black.copy(alpha = 0.42f),
-            contentColor = Color.White,
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
-            modifier = Modifier.size(44.dp).semantics {
-                contentDescription = label
-                stateDescription = state
-            },
-        ) {
-            Box(contentAlignment = Alignment.Center) { Icon(mode.icon(), contentDescription = null, modifier = Modifier.size(22.dp)) }
+        WithTooltip(label) {
+            Surface(
+                onClick = { open = true },
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.42f),
+                contentColor = Color.White,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                modifier = Modifier.size(44.dp).semantics {
+                    contentDescription = label
+                    stateDescription = state
+                },
+            ) {
+                Box(contentAlignment = Alignment.Center) { Icon(mode.icon(), contentDescription = null, modifier = Modifier.size(22.dp)) }
+            }
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = palette.panel, border = BorderStroke(1.dp, palette.border)) {
             for (entry in entries) {

@@ -1,5 +1,6 @@
 package com.szdict.app.feature.entry
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -342,7 +343,7 @@ internal fun SentenceActionsRow(text: String, key: Any, actions: EntryActions, m
     val enabled = text.isNotBlank()
     val speaking = playing == key
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        ActionButton(enabled, onClick = { session.speak(key, text.trim(), actions.route.mode) }) {
+        ActionButton(strings.text(if (speaking) "Stop sentence playback" else "Play sentence"), enabled, onClick = { session.speak(key, text.trim(), actions.route.mode) }) {
             AnimatedContent(
                 targetState = speaking,
                 transitionSpec = {
@@ -357,10 +358,10 @@ internal fun SentenceActionsRow(text: String, key: Any, actions: EntryActions, m
                 )
             }
         }
-        ActionButton(enabled, onClick = { session.env.translator.translate(text.trim(), translateSourceTag(actions.route.mode, actions.script)) }) {
+        ActionButton(strings.text("Translate sentence"), enabled, onClick = { session.env.translator.translate(text.trim(), translateSourceTag(actions.route.mode, actions.script)) }) {
             SmallIcon(Icons.Rounded.Translate, strings.text("Translate sentence"))
         }
-        ActionButton(enabled, onClick = { session.env.clipboard.writeText(text.trim()) }) {
+        ActionButton(strings.text("Copy sentence"), enabled, onClick = { session.env.clipboard.writeText(text.trim()) }) {
             SmallIcon(Icons.Rounded.ContentCopy, strings.text("Copy sentence"))
         }
     }
@@ -372,14 +373,16 @@ private fun SmallIcon(icon: ImageVector, description: String) {
 }
 
 @Composable
-private fun ActionButton(enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun ActionButton(label: String, enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
     val palette = LocalDictionaryPalette.current
-    OutlinedIconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.size(40.dp),
-        colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = palette.accent, disabledContentColor = palette.accent.copy(alpha = 0.35f)),
-        border = BorderStroke(1.dp, palette.border),
-        content = content,
-    )
+    WithTooltip(label) {
+        OutlinedIconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(40.dp),
+            colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = palette.accent, disabledContentColor = palette.accent.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, palette.border),
+            content = content,
+        )
+    }
 }

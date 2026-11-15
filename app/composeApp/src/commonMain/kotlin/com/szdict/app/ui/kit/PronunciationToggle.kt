@@ -31,25 +31,27 @@ fun PronunciationToggle(session: AppSession, modifier: Modifier = Modifier) {
     val shown = settings.showPronunciation
     val label = strings.text(if (shown) "Hide pronunciation" else "Show pronunciation")
     val state = strings.text(if (shown) "Pronunciation shown" else "Pronunciation hidden")
-    OutlinedIconToggleButton(
-        checked = shown,
-        onCheckedChange = { session.updateSettings { it.copy(showPronunciation = !it.showPronunciation) } },
-        modifier = modifier.size(40.dp).semantics {
-            contentDescription = label
-            stateDescription = state
-        },
-        colors = IconButtonDefaults.outlinedIconToggleButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = palette.muted,
-            checkedContainerColor = palette.accentSoft,
-            checkedContentColor = palette.accent,
-        ),
-        border = BorderStroke(1.dp, palette.border),
-    ) {
-        Icon(
-            imageVector = if (shown) PinyinShownIcon else PinyinHiddenIcon,
-            contentDescription = null,
-            modifier = Modifier.size(21.dp),
-        )
+    WithTooltip(label, modifier) {
+        OutlinedIconToggleButton(
+            checked = shown,
+            onCheckedChange = { session.updateSettings { it.copy(showPronunciation = !it.showPronunciation) } },
+            modifier = Modifier.size(40.dp).semantics {
+                contentDescription = label
+                stateDescription = state
+            },
+            colors = IconButtonDefaults.outlinedIconToggleButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = palette.muted,
+                checkedContainerColor = palette.accentSoft,
+                checkedContentColor = palette.accent,
+            ),
+            border = BorderStroke(1.dp, palette.border),
+        ) {
+            Icon(
+                imageVector = if (shown) PinyinShownIcon else PinyinHiddenIcon,
+                contentDescription = null,
+                modifier = Modifier.size(21.dp),
+            )
+        }
     }
 }

@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.InputMethodGate
+import com.szdict.app.ui.kit.WithTooltip
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 
 /** One category chip of the visible page (SRCH-090): label, count, and the list item it scrolls to. */
@@ -209,10 +210,12 @@ internal fun SearchControl(
 
 @Composable
 private fun ControlIcon(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        Surface(onClick = onClick, shape = CircleShape, color = Color.Transparent, modifier = Modifier.size(40.dp)) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+    WithTooltip(label) {
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+            Surface(onClick = onClick, shape = CircleShape, color = Color.Transparent, modifier = Modifier.size(40.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+                }
             }
         }
     }

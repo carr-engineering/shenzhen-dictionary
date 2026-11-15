@@ -1,5 +1,6 @@
 package com.szdict.app.feature.ocr
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -289,32 +290,36 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
 
                 // CAM-023: 72 dp accent shutter, bottom-centre; a 30 dp spinner while a capture is in flight.
                 if (live) {
-                    FilledIconButton(
-                        onClick = handle::takePicture,
-                        enabled = handle.ready && !capturing,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = palette.accent,
-                            contentColor = palette.onAccent,
-                            disabledContainerColor = palette.accent.copy(alpha = 0.7f),
-                            disabledContentColor = palette.onAccent,
-                        ),
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp).size(72.dp),
-                    ) {
-                        if (capturing) CircularProgressIndicator(color = palette.onAccent, modifier = Modifier.size(30.dp))
-                        else Icon(Icons.Rounded.PhotoCamera, contentDescription = strings.text("Take photo"), modifier = Modifier.size(34.dp))
+                    WithTooltip(strings.text("Take photo"), Modifier.align(Alignment.BottomCenter).padding(20.dp)) {
+                        FilledIconButton(
+                            onClick = handle::takePicture,
+                            enabled = handle.ready && !capturing,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = palette.accent,
+                                contentColor = palette.onAccent,
+                                disabledContainerColor = palette.accent.copy(alpha = 0.7f),
+                                disabledContentColor = palette.onAccent,
+                            ),
+                            modifier = Modifier.size(72.dp),
+                        ) {
+                            if (capturing) CircularProgressIndicator(color = palette.onAccent, modifier = Modifier.size(30.dp))
+                            else Icon(Icons.Rounded.PhotoCamera, contentDescription = strings.text("Take photo"), modifier = Modifier.size(34.dp))
+                        }
                     }
                 }
 
                 // CAM-007: the image picker, bottom-leading beside the shutter, in every capture-phase state.
                 Box(Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 32.dp)) {
                     val label = strings.text("Choose from gallery")
-                    OverlayButton(
-                        icon = Icons.Rounded.PhotoLibrary,
-                        onClick = { pickMenu = true },
-                        live = live,
-                        size = 48,
-                        modifier = Modifier.semantics { contentDescription = label },
-                    )
+                    WithTooltip(label) {
+                        OverlayButton(
+                            icon = Icons.Rounded.PhotoLibrary,
+                            onClick = { pickMenu = true },
+                            live = live,
+                            size = 48,
+                            modifier = Modifier.semantics { contentDescription = label },
+                        )
+                    }
                     PickMenu(pickMenu, { pickMenu = false }, pickers)
                 }
 

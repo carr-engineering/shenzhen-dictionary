@@ -1,5 +1,6 @@
 package com.szdict.app.feature.ocr
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
@@ -237,15 +238,19 @@ private fun ReviewHeader(holder: OcrStateHolder, pickers: ImagePickers, onHeight
                         Text(label, color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 } else {
-                    IconButton(onClick = onClick, modifier = Modifier.padding(start = 4.dp)) {
-                        Icon(icon, contentDescription = label, tint = palette.accent, modifier = Modifier.size(22.dp))
+                    WithTooltip(label, Modifier.padding(start = 4.dp)) {
+                        IconButton(onClick = onClick) {
+                            Icon(icon, contentDescription = label, tint = palette.accent, modifier = Modifier.size(22.dp))
+                        }
                     }
                 }
                 PickMenu(menu, { menu = false }, pickers)
             }
             if (!camera) {
-                IconButton(onClick = { holder.backToInput() }) {
-                    Icon(Icons.Rounded.PhotoCamera, contentDescription = strings.text("Camera"), tint = palette.accent, modifier = Modifier.size(22.dp))
+                WithTooltip(strings.text("Camera")) {
+                    IconButton(onClick = { holder.backToInput() }) {
+                        Icon(Icons.Rounded.PhotoCamera, contentDescription = strings.text("Camera"), tint = palette.accent, modifier = Modifier.size(22.dp))
+                    }
                 }
             }
             SaveButton(holder)
@@ -316,18 +321,20 @@ private fun SaveButton(holder: OcrStateHolder) {
     val palette = LocalDictionaryPalette.current
     val state = holder.saveState
     val save = rememberSaveAction(holder::savePhoto)
-    IconButton(
-        onClick = save,
-        enabled = holder.canSave && state != SaveState.SAVING && state != SaveState.SAVED,
-        colors = IconButtonDefaults.iconButtonColors(
-            contentColor = palette.accent,
-            disabledContentColor = if (state == SaveState.SAVED) palette.accent else palette.muted.copy(alpha = 0.45f),
-        ),
-    ) {
-        when (state) {
-            SaveState.SAVING -> CircularProgressIndicator(color = palette.accent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-            SaveState.SAVED -> Icon(Icons.Rounded.Check, contentDescription = strings.text("Photo saved"), modifier = Modifier.size(22.dp))
-            else -> Icon(Icons.Rounded.SaveAlt, contentDescription = strings.text("Save photo"), modifier = Modifier.size(22.dp))
+    WithTooltip(strings.text(if (state == SaveState.SAVED) "Photo saved" else "Save photo")) {
+        IconButton(
+            onClick = save,
+            enabled = holder.canSave && state != SaveState.SAVING && state != SaveState.SAVED,
+            colors = IconButtonDefaults.iconButtonColors(
+                contentColor = palette.accent,
+                disabledContentColor = if (state == SaveState.SAVED) palette.accent else palette.muted.copy(alpha = 0.45f),
+            ),
+        ) {
+            when (state) {
+                SaveState.SAVING -> CircularProgressIndicator(color = palette.accent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                SaveState.SAVED -> Icon(Icons.Rounded.Check, contentDescription = strings.text("Photo saved"), modifier = Modifier.size(22.dp))
+                else -> Icon(Icons.Rounded.SaveAlt, contentDescription = strings.text("Save photo"), modifier = Modifier.size(22.dp))
+            }
         }
     }
 }
@@ -570,18 +577,24 @@ private fun SentenceActions(holder: OcrStateHolder, line: Int?, playing: Boolean
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         val colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = palette.accent, disabledContentColor = palette.accent.copy(alpha = 0.35f))
         val border = BorderStroke(1.dp, palette.border)
-        OutlinedIconButton(onClick = { holder.togglePlayback(line) }, enabled = enabled, modifier = Modifier.size(40.dp), colors = colors, border = border) {
-            Icon(
-                if (playing) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.VolumeUp,
-                contentDescription = strings.text(if (playing) "Stop sentence playback" else "Play sentence"),
-                modifier = Modifier.size(21.dp),
-            )
+        WithTooltip(strings.text(if (playing) "Stop sentence playback" else "Play sentence")) {
+            OutlinedIconButton(onClick = { holder.togglePlayback(line) }, enabled = enabled, modifier = Modifier.size(40.dp), colors = colors, border = border) {
+                Icon(
+                    if (playing) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.VolumeUp,
+                    contentDescription = strings.text(if (playing) "Stop sentence playback" else "Play sentence"),
+                    modifier = Modifier.size(21.dp),
+                )
+            }
         }
-        OutlinedIconButton(onClick = { holder.translate(line) }, enabled = enabled, modifier = Modifier.size(40.dp), colors = colors, border = border) {
-            Icon(Icons.Rounded.Translate, contentDescription = strings.text("Translate sentence"), modifier = Modifier.size(21.dp))
+        WithTooltip(strings.text("Translate sentence")) {
+            OutlinedIconButton(onClick = { holder.translate(line) }, enabled = enabled, modifier = Modifier.size(40.dp), colors = colors, border = border) {
+                Icon(Icons.Rounded.Translate, contentDescription = strings.text("Translate sentence"), modifier = Modifier.size(21.dp))
+            }
         }
-        OutlinedIconButton(onClick = { holder.copy(line) }, enabled = enabled, modifier = Modifier.size(40.dp), colors = colors, border = border) {
-            Icon(Icons.Rounded.ContentCopy, contentDescription = strings.text("Copy sentence"), modifier = Modifier.size(21.dp))
+        WithTooltip(strings.text("Copy sentence")) {
+            OutlinedIconButton(onClick = { holder.copy(line) }, enabled = enabled, modifier = Modifier.size(40.dp), colors = colors, border = border) {
+                Icon(Icons.Rounded.ContentCopy, contentDescription = strings.text("Copy sentence"), modifier = Modifier.size(21.dp))
+            }
         }
     }
 }

@@ -34,25 +34,26 @@ fun PlayButton(
 ) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    OutlinedIconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier
-            .size(40.dp),
-        colors = IconButtonDefaults.outlinedIconButtonColors(
-            contentColor = palette.accent,
-            disabledContentColor = palette.accent.copy(alpha = 0.35f)
-        ),
-        border = BorderStroke(1.dp, palette.border)
-    ) {
-        if (playing) {
-            PlayingSpeakerIcon()
-        } else {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
-                contentDescription = strings.text("Play pronunciation"),
-                modifier = Modifier.size(21.dp)
-            )
+    WithTooltip(strings.text(if (playing) "Pronunciation playing" else "Play pronunciation"), modifier) {
+        OutlinedIconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(40.dp),
+            colors = IconButtonDefaults.outlinedIconButtonColors(
+                contentColor = palette.accent,
+                disabledContentColor = palette.accent.copy(alpha = 0.35f)
+            ),
+            border = BorderStroke(1.dp, palette.border)
+        ) {
+            if (playing) {
+                PlayingSpeakerIcon()
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
+                    contentDescription = strings.text("Play pronunciation"),
+                    modifier = Modifier.size(21.dp)
+                )
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.szdict.app.feature.voice
 
+import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -313,20 +314,22 @@ private fun ListenButton(enabled: Boolean, onClick: () -> Unit) {
     val label = strings.text("Start listening")
     val accent = palette.accent
     Box(modifier = Modifier.size(104.dp), contentAlignment = Alignment.Center) {
-        Surface(
-            onClick = onClick,
-            enabled = enabled,
-            shape = CircleShape,
-            color = if (enabled) accent else accent.copy(alpha = 0.35f),
-            contentColor = palette.onAccent,
-            shadowElevation = if (enabled) 3.dp else 0.dp,
-            modifier = Modifier.size(72.dp).semantics {
-                contentDescription = label
-                role = Role.Button
-            },
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(imageVector = Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(32.dp))
+        WithTooltip(label) {
+            Surface(
+                onClick = onClick,
+                enabled = enabled,
+                shape = CircleShape,
+                color = if (enabled) accent else accent.copy(alpha = 0.35f),
+                contentColor = palette.onAccent,
+                shadowElevation = if (enabled) 3.dp else 0.dp,
+                modifier = Modifier.size(72.dp).semantics {
+                    contentDescription = label
+                    role = Role.Button
+                },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(imageVector = Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(32.dp))
+                }
             }
         }
     }
@@ -480,16 +483,18 @@ private fun PanelButton(text: String, onClick: () -> Unit) {
 @Composable
 private fun HeaderAction(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
     val palette = LocalDictionaryPalette.current
-    OutlinedIconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.size(40.dp),
-        colors = IconButtonDefaults.outlinedIconButtonColors(
-            contentColor = palette.accent,
-            disabledContentColor = palette.accent.copy(alpha = 0.35f),
-        ),
-        border = BorderStroke(1.dp, palette.border),
-    ) { Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(21.dp)) }
+    WithTooltip(label) {
+        OutlinedIconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(40.dp),
+            colors = IconButtonDefaults.outlinedIconButtonColors(
+                contentColor = palette.accent,
+                disabledContentColor = palette.accent.copy(alpha = 0.35f),
+            ),
+            border = BorderStroke(1.dp, palette.border),
+        ) { Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(21.dp)) }
+    }
 }
 
 /** `238 MB`, `1.2 GB` — decimal units, as stores report download sizes. */
