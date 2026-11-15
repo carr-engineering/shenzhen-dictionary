@@ -8,7 +8,7 @@ Kotlin Multiplatform + Compose Multiplatform. Targets: Android, iOS (iPhone and 
 | `composeApp` | UI, state holders, Android platform layer (widget, shortcuts, share targets), iOS platform layer (`iosMain`), Web platform layer (`wasmJsMain`) |
 | `iosApp` | Xcode project hosting the `composeApp` framework: Swift entry point, Info.plist, icon, entitlements |
 | `speech` | iOS only: sherpa-onnx through its C API |
-| `recognition` | OCR with per-character alternatives and handwriting, run from the extracted graphs: LiteRT on Android, the TFLite Web runtime in a worker on Web |
+| `recognition` | OCR with per-character alternatives and handwriting. OCR on Android and iOS: PP-OCRv4 detector, orientation classifier and PP-OCRv6 Small recogniser on ONNX Runtime (`ocr2`); OCR on Web: the extracted graphs on the TFLite Web runtime in a worker (`ocr`). Handwriting: LiteRT on Android, TensorFlow Lite C on iOS, the TFLite Web runtime on Web |
 | `voice` | sherpa-onnx streaming Paraformer wrapper |
 
 ## One-time setup (large files are not in git)
@@ -17,6 +17,7 @@ Kotlin Multiplatform + Compose Multiplatform. Targets: Android, iOS (iPhone and 
 uv run pipeline/fetch.py && uv run pipeline/packs/build_packs.py && uv run pipeline/build.py   # datasets + packs -> pipeline/out
 app/tools/publish-animator.sh        # stroke-order library (Android, JVM, Wasm, iOS) -> app/local-maven (needs ../shenzhen_hanzi_animator_kmp; ANIMATOR_SKIP_IOS=1 without Xcode)
 (cd app && ./gradlew :recognition:fetchModels)   # handwriting model (needs ../chinese-handwritting) and the TFLite Web runtime
+(cd app && ./gradlew :recognition:fetchOcr2Models)   # OCR models of the Android and iOS apps (16 MB; downloads 31 MB from ModelScope, needs uv)
 app/tools/fetch-voice-model.sh       # sherpa-onnx library + voice model (~280 MB)
 (cd app && uv run --no-project --with fonttools --with cffsubr tools/stage-app-fonts.py)   # iOS/Android interface font with rare characters (below)
 ```
@@ -31,6 +32,17 @@ cd app
 ./gradlew :composeApp:assembleDebug      # or assembleRelease (R8, debug-signed)
 ```
 
+- **OCR on Android and iOS.** `recognition/tools/fetch_ocr2_models.sh` restores `det.onnx`,
+  `cls.onnx`, `rec.onnx` and `rec-labels.txt` into `recognition/src/androidMain/assets/models/ocr2/`
+  (pinned URLs and SHA-256; the recogniser is repacked with float16 weight storage, byte-identical
+  to the evaluated file). Android packages them as assets and runs them with
+  `com.microsoft.onnxruntime:onnxruntime-android` 1.23.2 (19 MB of native code, arm64); iOS gets them
+  through `stageIosAssets` and runs them on the onnxruntime xcframework that `speech` links. The
+  TensorFlow Lite OCR graphs in `assets/models/ocr/` are the Web build's and are left out of the
+  Android package and the iOS bundle. Without the models the apps build with a warning and OCR fails
+  with an error. `RECOGNITION_OCR2_IMAGES=<dir of png> RECOGNITION_OCR2_OUT=<dir> ./gradlew
+  :recognition:testDebugUnitTest --tests '*Ocr2BenchmarkRun*'` runs the pipeline on the host and
+  writes results that `ocr-baseline/tools/score.py` scores.
 - **Rare characters on Android.** Android's system CJK font (AOSP's Noto Sans CJK) has no glyph for
   2,435 of the 25,451 characters in the datasets, packs and interface text (the same set as the Web
   rare tier; `gen3` → 𫖱), and the system fallback never reaches a font the app brings, so — as on
@@ -122,8 +134,10 @@ from the `PrivacyPolicy*.kt` sources).
 Needs Xcode 26 or later with an iOS simulator runtime (licence accepted: `sudo xcodebuild -license`),
 and the one-time setup above — `publish-animator.sh` publishes the iOS variants of the stroke
 library, `fetch-voice-model.sh` fetches the voice model and the sherpa-onnx / onnxruntime
-xcframeworks into `speech/ios-frameworks/`, and `./gradlew :recognition:fetchIosFrameworks` the
-TensorFlow Lite C runtime into `recognition/ios-frameworks/`. No CocoaPods, no Swift packages.
+xcframeworks into `speech/ios-frameworks/` (OCR runs on that onnxruntime too, so the iOS build
+needs it: `VOICE_TARGETS=ios app/tools/fetch-voice-model.sh`), and `./gradlew
+:recognition:fetchIosFrameworks` the TensorFlow Lite C runtime into `recognition/ios-frameworks/`.
+No CocoaPods, no Swift packages.
 
 ```bash
 cd app

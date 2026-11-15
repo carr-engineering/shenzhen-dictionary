@@ -424,7 +424,7 @@ handled without index errors.
 
 **Android, iOS and Web** (`PROD-021`, `PROD-022`, `PROD-052`). Every platform offers the same image
 inputs — live camera feed, picking a local file, drag and drop, and paste (`CAM-130`) — and only the
-recognition engine differs: ML Kit (bundled) on Android, Apple Vision on iOS, and the ML Kit model
+recognition engine differs: the bundled PP-OCR models on Android and iOS, and the ML Kit model
 repackaged for the browser on Web (`CAM-051`, `CAM-134`). Read
 [02 — Global Conventions](02-global-conventions.md) and the Text Analysis part of this document first
 — the tap-to-word behaviour is shared.
@@ -772,9 +772,12 @@ without a webcam) or access is denied, the camera area shows the permission or u
 header and view toggle remain usable.
 
 `CAM-051` `[MUST]` The recogniser must be a **Chinese-capable, on-device, offline** text recogniser;
-images and recognised text never leave the device. Android: ML Kit Chinese text recognition in its
-**bundled** variant (model inside the app, never downloaded at runtime; mobile builds have no network
-permission, `ARCH-104`). iOS: Apple Vision (`VNRecognizeTextRequest` with `zh-Hans`/`zh-Hant`). Web:
+images and recognised text never leave the device. Android and iOS: the PP-OCRv4 mobile text
+detector, the PP-OCR text-line orientation classifier and the PP-OCRv6 Small recogniser (weights
+stored as 16-bit floats), **bundled** (models inside the app, never downloaded at runtime; mobile
+builds have no network permission, `ARCH-104`) and run on the CPU with ONNX Runtime; the apps depend
+on neither ML Kit nor Apple Vision. Every recognised character carries the recogniser's next-best
+readings (up to 8, best first), which the review offers as alternatives for that character. Web:
 the ML Kit Chinese text-recognition model **repackaged for the browser**, run locally in the page;
 its one-time download and version checks are the only network requests OCR makes on Web and carry no
 user data (`CAM-134`). The 20 s timeout of `CAM-050` covers recognition only, never the model
