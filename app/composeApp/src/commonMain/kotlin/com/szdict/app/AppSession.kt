@@ -46,6 +46,8 @@ class AppEnv(
     /** Platform-specific services looked up by feature modules (recognisers, camera, voice…). */
     val services: Map<String, Any> = emptyMap(),
     val voiceAvailable: Boolean = true,
+    /** Settings is a primary destination (Web, where there is room for six) rather than a page opened from Search. */
+    val settingsIsDestination: Boolean = false,
     val systemLocaleTag: () -> String = { "en" },
     val appVersion: String = "",
 ) {
@@ -53,7 +55,7 @@ class AppEnv(
     fun <T : Any> service(key: String): T? = services[key] as? T
 }
 
-enum class Destination { SEARCH, OCR, VOICE, READING, HSK }
+enum class Destination { SEARCH, OCR, VOICE, READING, HSK, SETTINGS }
 
 /** One route of the detail stack (ENT-010, SET-005, ARCH-199). [key] is unique per visit (GLB-051). */
 sealed interface DetailRoute {
@@ -242,7 +244,11 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     /** A route pushed from another route inherits that route's mode (ENT-010). */
     fun routeMode(): DictMode = (routes.lastOrNull() as? DetailRoute.Entry)?.mode ?: mode
 
-    fun openSettings() { handwritingVisible = false; routes += DetailRoute.SettingsRoute(nextRouteKey++) }
+    fun openSettings() {
+        if (env.settingsIsDestination) { selectDestination(Destination.SETTINGS); return }
+        handwritingVisible = false
+        routes += DetailRoute.SettingsRoute(nextRouteKey++)
+    }
     fun openPrivacy() { routes += DetailRoute.Privacy(nextRouteKey++) }
     fun openAttribution() { routes += DetailRoute.Attribution(nextRouteKey++) }
 

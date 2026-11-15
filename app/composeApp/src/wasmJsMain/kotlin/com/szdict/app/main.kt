@@ -75,6 +75,7 @@ fun main() {
         links = WebLinkOpener(),
         services = webServices(scope),
         voiceAvailable = false,
+        settingsIsDestination = true,
         systemLocaleTag = ::browserLanguageTag,
         appVersion = WebBuild.VERSION_NAME,
     )

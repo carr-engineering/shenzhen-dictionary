@@ -106,6 +106,7 @@ class WebHistory(private val session: AppSession) {
             Destination.READING -> Routes.build(Route.Reading)
             Destination.OCR -> Routes.build(Route.Ocr)
             Destination.VOICE -> Routes.build(Route.Home(null))
+            Destination.SETTINGS -> Routes.build(Route.Settings)
         }
     }
 

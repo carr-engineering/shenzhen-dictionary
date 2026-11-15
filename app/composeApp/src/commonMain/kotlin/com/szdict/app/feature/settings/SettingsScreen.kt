@@ -3,6 +3,7 @@ package com.szdict.app.feature.settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -45,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -68,7 +70,7 @@ internal const val SETTINGS_SERVICE_NO_GALLERY = "settings.noGallery"
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(session: AppSession, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun SettingsScreen(session: AppSession, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val settings by session.settings.collectAsState()
@@ -89,6 +91,9 @@ fun SettingsScreen(session: AppSession, onBack: () -> Unit, modifier: Modifier =
             item("dictionary") {
                 SettingBlock(strings.text("Dictionary")) {
                     SegmentedPillRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        equalWidth = true,
+                        minHeight = 48.dp,
                         options = listOf("中文 Mandarin", "粵語 Cantonese"),
                         selectedIndex = if (mode == DictMode.MANDARIN) 0 else 1,
                         onSelect = { index ->
@@ -102,6 +107,9 @@ fun SettingsScreen(session: AppSession, onBack: () -> Unit, modifier: Modifier =
                 // SET-011: the script is stored per dictionary mode; this control edits the active mode's.
                 SettingBlock(strings.text("Default script")) {
                     SegmentedPillRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        equalWidth = true,
+                        minHeight = 48.dp,
                         options = listOf("简体", "繁體"),
                         selectedIndex = if (settings.script == Script.SIMPLIFIED) 0 else 1,
                         onSelect = { index ->
@@ -114,9 +122,10 @@ fun SettingsScreen(session: AppSession, onBack: () -> Unit, modifier: Modifier =
             item("language") {
                 SettingBlock(strings.text("App language")) {
                     // SET-018: each language is named in itself, whatever the current UI language.
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                         UiLanguageSetting.entries.forEach { option ->
                             ChoiceChip(
+                                modifier = Modifier.weight(1f),
                                 label = uiLanguageLabel(option, strings.text("System")),
                                 selected = settings.uiLanguage == option,
                                 onClick = { session.updateSettings { it.copy(uiLanguage = option) } },
@@ -129,6 +138,9 @@ fun SettingsScreen(session: AppSession, onBack: () -> Unit, modifier: Modifier =
                 SettingBlock(strings.text("Theme")) {
                     val order = listOf(ThemeMode.LIGHT, ThemeMode.DARK, ThemeMode.SYSTEM)
                     SegmentedPillRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        equalWidth = true,
+                        minHeight = 48.dp,
                         options = listOf(strings.text("Light"), strings.text("Dark"), strings.text("Auto")),
                         selectedIndex = order.indexOf(settings.themeMode),
                         onSelect = { index -> session.updateSettings { it.copy(themeMode = order[index]) } },
@@ -178,7 +190,7 @@ fun SettingsScreen(session: AppSession, onBack: () -> Unit, modifier: Modifier =
                 }
             }
             item("licences") {
-                OutlinedButton(onClick = { showLicences = true }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { showLicences = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Icon(Icons.Rounded.Policy, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(strings.text("Open-source library licenses"))
@@ -212,10 +224,12 @@ internal fun SettingBlock(label: String, content: @Composable () -> Unit) {
 private fun SettingToggle(label: String, checked: Boolean, description: String? = null, onCheckedChange: (Boolean) -> Unit) {
     val palette = LocalDictionaryPalette.current
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange),
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).heightIn(min = 48.dp)
+            .toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(vertical = if (description != null) 6.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f).padding(vertical = if (description != null) 6.dp else 0.dp)) {
+        Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyLarge, color = palette.fg)
             if (description != null) Text(description, style = MaterialTheme.typography.bodySmall, color = palette.muted)
         }
@@ -235,7 +249,7 @@ private fun SettingToggle(label: String, checked: Boolean, description: String? 
 internal fun LinkRow(label: String, onClick: () -> Unit) {
     val palette = LocalDictionaryPalette.current
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick),
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = MaterialTheme.typography.bodyLarge, color = palette.fg, modifier = Modifier.weight(1f))
@@ -244,19 +258,22 @@ internal fun LinkRow(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val palette = LocalDictionaryPalette.current
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
         Surface(
             selected = selected,
             onClick = onClick,
+            modifier = modifier.heightIn(min = 48.dp),
             shape = CircleShape,
             color = if (selected) palette.accent else palette.bgSoft,
             contentColor = if (selected) palette.onAccent else palette.muted,
             border = BorderStroke(1.dp, if (selected) palette.accent else palette.border),
         ) {
-            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            Box(contentAlignment = Alignment.Center) {
+                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
         }
     }
 }

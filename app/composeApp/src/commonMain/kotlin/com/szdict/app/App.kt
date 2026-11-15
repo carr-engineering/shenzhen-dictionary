@@ -48,6 +48,13 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.MicNone
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -126,8 +133,8 @@ fun App(session: AppSession) {
                 val navigation = navigationStyle(maxWidth)
                 val compact = navigation == NavigationStyle.BOTTOM_BAR
                 val twoPane = fitsTwoPanes(maxWidth) && session.destination in setOf(Destination.SEARCH, Destination.HSK, Destination.READING)
-                val destinations = remember(session.env.voiceAvailable) {
-                    Destination.entries.filter { it != Destination.VOICE || session.env.voiceAvailable }
+                val destinations = remember(session.env.voiceAvailable, session.env.settingsIsDestination) {
+                    navigationDestinations(session.env.voiceAvailable, session.env.settingsIsDestination)
                 }
                 var wordSheetHeight by remember { mutableStateOf(0.dp) }
                 var handwritingHeight by remember { mutableStateOf(0.dp) }
@@ -193,13 +200,22 @@ fun App(session: AppSession) {
                                 Row(Modifier.fillMaxSize().then(covered)) {
                                     Spacer(Modifier.width(if (twoPane) panes.start else 0.dp))
                                     Box((if (twoPane) Modifier.width(panes.list) else Modifier.weight(1f)).fillMaxHeight()) {
-                                        stateHolder.SaveableStateProvider("dest-${session.destination}-${session.dataGeneration}") {
-                                            when (session.destination) {
-                                                Destination.SEARCH -> SearchScreen(session, twoPane)
-                                                Destination.OCR -> OcrScreen(session)
-                                                Destination.VOICE -> VoiceScreen(session)
-                                                Destination.READING -> ReadingScreen(session)
-                                                Destination.HSK -> HskScreen(session)
+                                        // A short fade through between destinations; each keeps its saved state.
+                                        AnimatedContent(
+                                            targetState = session.destination,
+                                            transitionSpec = { destinationFade() },
+                                            modifier = Modifier.fillMaxSize(),
+                                            label = "destination",
+                                        ) { destination ->
+                                            stateHolder.SaveableStateProvider("dest-$destination-${session.dataGeneration}") {
+                                                when (destination) {
+                                                    Destination.SEARCH -> SearchScreen(session, twoPane)
+                                                    Destination.OCR -> OcrScreen(session)
+                                                    Destination.VOICE -> VoiceScreen(session)
+                                                    Destination.READING -> ReadingScreen(session)
+                                                    Destination.HSK -> HskScreen(session)
+                                                    Destination.SETTINGS -> SettingsScreen(session, onBack = null)
+                                                }
                                             }
                                         }
                                     }
@@ -325,12 +341,24 @@ private fun StatusBarScrim(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(top + 12.dp).background(Brush.verticalGradient(listOf(palette.bg, palette.bg.copy(alpha = 0f)))))
 }
 
-private fun icon(destination: Destination): ImageVector = when (destination) {
-    Destination.SEARCH -> Icons.Filled.Search
-    Destination.OCR -> Icons.Filled.CameraAlt
-    Destination.VOICE -> Icons.Filled.Mic
-    Destination.READING -> Icons.AutoMirrored.Filled.MenuBook
-    Destination.HSK -> Icons.Filled.School
+/** The destinations of the bar and rails, in order: Voice only where there is a recogniser, Settings only where it is one. */
+fun navigationDestinations(voiceAvailable: Boolean, settingsIsDestination: Boolean): List<Destination> =
+    Destination.entries.filter {
+        (it != Destination.VOICE || voiceAvailable) && (it != Destination.SETTINGS || settingsIsDestination)
+    }
+
+/** Fade through between destinations: the old one out, then the new one in, no movement (~150 ms). */
+private fun destinationFade(): androidx.compose.animation.ContentTransform =
+    fadeIn(tween(90, delayMillis = 60)) togetherWith fadeOut(tween(60))
+
+/** Outlined when unselected, filled when selected. */
+private fun icon(destination: Destination, selected: Boolean): ImageVector = when (destination) {
+    Destination.SEARCH -> if (selected) Icons.Filled.Search else Icons.Outlined.Search
+    Destination.OCR -> if (selected) Icons.Filled.CameraAlt else Icons.Outlined.CameraAlt
+    Destination.VOICE -> if (selected) Icons.Filled.Mic else Icons.Outlined.MicNone
+    Destination.READING -> if (selected) Icons.AutoMirrored.Filled.MenuBook else Icons.AutoMirrored.Outlined.MenuBook
+    Destination.HSK -> if (selected) Icons.Filled.School else Icons.Outlined.School
+    Destination.SETTINGS -> if (selected) Icons.Filled.Settings else Icons.Outlined.Settings
 }
 
 private fun label(destination: Destination): String = when (destination) {
@@ -339,6 +367,7 @@ private fun label(destination: Destination): String = when (destination) {
     Destination.VOICE -> "Voice"
     Destination.READING -> "Reading"
     Destination.HSK -> "HSK"
+    Destination.SETTINGS -> "Settings"
 }
 
 @Composable
@@ -352,7 +381,7 @@ private fun AppBottomBar(destinations: List<Destination>, selected: Destination,
                 NavigationBarItem(
                     selected = destination == selected,
                     onClick = { onSelect(destination) },
-                    icon = { Icon(icon(destination), null) },
+                    icon = { Icon(icon(destination, destination == selected), null) },
                     label = { Text(strings.text(label(destination))) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = palette.accent, selectedTextColor = palette.accent,
@@ -374,7 +403,7 @@ private fun AppRail(destinations: List<Destination>, selected: Destination, onSe
             NavigationRailItem(
                 selected = destination == selected,
                 onClick = { onSelect(destination) },
-                icon = { Icon(icon(destination), null) },
+                icon = { Icon(icon(destination, destination == selected), null) },
                 label = { Text(strings.text(label(destination))) },
                 colors = NavigationRailItemDefaults.colors(
                     selectedIconColor = palette.accent, selectedTextColor = palette.accent,
@@ -415,7 +444,7 @@ private fun AppExpandedRail(destinations: List<Destination>, selected: Destinati
         destinations.forEach { destination ->
             NavigationDrawerItem(
                 label = { Text(strings.text(label(destination)), maxLines = 1) },
-                icon = { Icon(icon(destination), null) },
+                icon = { Icon(icon(destination, destination == selected), null) },
                 selected = destination == selected,
                 onClick = { onSelect(destination) },
                 modifier = Modifier.padding(vertical = 2.dp).height(48.dp),

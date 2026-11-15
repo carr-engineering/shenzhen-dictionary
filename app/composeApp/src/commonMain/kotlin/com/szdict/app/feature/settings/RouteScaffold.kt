@@ -36,7 +36,7 @@ internal val ReadableWidth: Dp = 720.dp
  * the title, drawn below the status bar, over a single centred pane of readable width.
  */
 @Composable
-internal fun RouteScaffold(title: String, onBack: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+internal fun RouteScaffold(title: String, onBack: (() -> Unit)?, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val palette = LocalDictionaryPalette.current
     val strings = appStrings()
     Column(modifier.fillMaxSize().background(palette.bg)) {
@@ -45,7 +45,7 @@ internal fun RouteScaffold(title: String, onBack: () -> Unit, modifier: Modifier
                 Modifier.widthIn(max = ReadableWidth).fillMaxWidth().height(56.dp).padding(start = 6.dp, end = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
+                if (onBack != null) IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = strings.text("Back"), tint = palette.fg)
                 }
                 Text(
@@ -55,7 +55,7 @@ internal fun RouteScaffold(title: String, onBack: () -> Unit, modifier: Modifier
                     color = palette.fg,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 4.dp).semantics { heading() },
+                    modifier = Modifier.padding(start = if (onBack != null) 4.dp else 14.dp).semantics { heading() },
                 )
             }
         }

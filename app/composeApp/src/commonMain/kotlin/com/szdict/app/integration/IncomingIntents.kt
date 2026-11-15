@@ -168,14 +168,10 @@ object IncomingRouter {
                     IncomingIntents.deliverRoute(route)
                 } else show(session, Destination.SEARCH)
             }
-            Route.Settings -> {
-                show(session, Destination.SEARCH)
-                session.openSettings()
-            }
+            Route.Settings -> showSettings(session)
             Route.Privacy -> {
                 // SET-090: the policy is a route pushed over Settings.
-                show(session, Destination.SEARCH)
-                session.openSettings()
+                showSettings(session)
                 session.openPrivacy()
             }
         }
@@ -196,6 +192,15 @@ object IncomingRouter {
                 id != null -> session.openEntry(id, mode)
                 fromWidget -> session.openEntry(UNKNOWN_ENTRY_ID, mode)
             }
+        }
+    }
+
+    /** Settings with an empty detail stack: its own destination where there is one, else a route over Search. */
+    private fun showSettings(session: AppSession) {
+        if (session.env.settingsIsDestination) show(session, Destination.SETTINGS)
+        else {
+            show(session, Destination.SEARCH)
+            session.openSettings()
         }
     }
 
