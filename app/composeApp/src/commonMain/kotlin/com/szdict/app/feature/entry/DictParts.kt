@@ -258,7 +258,7 @@ private fun CharacterHeading(state: PartsState, index: Int, character: String, a
                     // Unihan-only or HSK-patch characters say where the sense comes from (ENT-126).
                     card.provenance?.let { Text(it.text(strings.lang), style = MaterialTheme.typography.labelSmall, color = palette.muted) }
                 }
-                card.definitions.firstOrNull()?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.muted) }
+                card.gloss.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.muted) }
             }
             val facts = buildList {
                 // In words: the IDS operators (⿰…) are not in every bundled font.
@@ -369,7 +369,7 @@ private fun partLabel(part: PartNode): String = when {
 private fun isTappable(part: PartNode): Boolean =
     !part.isGroup && part.node.entryIds.isNotEmpty() && (part.node.kind == PartKind.CHARACTER || part.node.kind == PartKind.RADICAL_FORM)
 
-/** Glyph, reading, short meaning and marks of one part; opens the part's entry when it has one. */
+/** Glyph, reading, full meaning (all senses, never cut) and marks of one part; opens the part's entry when it has one. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PartRow(part: PartNode, depth: Int, actions: EntryActions, note: String? = null) {
@@ -416,7 +416,7 @@ private fun PartRow(part: PartNode, depth: Int, actions: EntryActions, note: Str
                 val gloss = when {
                     part.isGroup -> node.operator?.let { strings.text(operatorName(it)) }?.let { strings.text("Group of parts, {0}", it) }
                     node.kind == PartKind.UNKNOWN -> strings.text("Unknown part")
-                    else -> card?.definitions?.firstOrNull()
+                    else -> card?.gloss?.takeIf { it.isNotBlank() }
                 }
                 gloss?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.muted) }
             }
@@ -514,7 +514,7 @@ private fun AppearsTile(item: AppearsInItem, modifier: Modifier, actions: EntryA
                     TonedReadingText(card.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium, color = palette.accent)
                 }
             }
-            card?.definitions?.firstOrNull()?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = palette.muted) }
+            card?.gloss?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = palette.muted) }
         }
     }
     if (card != null) Surface(onClick = { actions.openEntry(card.id) }, modifier = modifier, shape = shape, color = palette.panel, border = border, content = content)
