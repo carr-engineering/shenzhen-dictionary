@@ -11,7 +11,6 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.szdict.core.api.AnalysedPassage
-import com.szdict.core.api.CharacterDecomposition
 import com.szdict.core.api.EntryCard
 import com.szdict.core.api.EntryDetail
 import com.szdict.core.api.Example
@@ -24,13 +23,6 @@ internal sealed interface EntryLoad {
     data object Loading : EntryLoad
     data class Ready(val detail: EntryDetail) : EntryLoad
     data class Error(val message: String) : EntryLoad
-}
-
-/** Decomposition read state (ENT-125). */
-internal sealed interface DecompLoad {
-    data object Loading : DecompLoad
-    data object Unavailable : DecompLoad
-    data class Ready(val characters: List<CharacterDecomposition>) : DecompLoad
 }
 
 /** One WORDS-tab section with its loaded pages (ENT-064). */
@@ -61,7 +53,6 @@ internal class RelatedSection(first: RelatedPage) {
 internal class EntryDerived(val detail: EntryDetail) {
     var examples by mutableStateOf<List<Example>?>(null)
     val passages = HashMap<Int, AnalysedPassage>()
-    var decomp by mutableStateOf<DecompLoad>(DecompLoad.Loading)
     val related: List<RelatedSection> = detail.related.filter { it.total > 0 && it.cards.isNotEmpty() }.map { page ->
         // ENT-062: one entry never appears twice in a section.
         RelatedSection(page.copy(cards = page.cards.distinctBy { it.id }))

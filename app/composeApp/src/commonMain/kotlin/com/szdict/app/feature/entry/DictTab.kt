@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -74,15 +75,19 @@ import com.szdict.core.api.Script
 import com.szdict.core.api.SegmentationMode
 import com.szdict.core.api.Sense
 import com.szdict.core.api.SourceBlock
-import engineering.carr.hanzianimator.core.StrokeOrder
 import kotlin.coroutines.cancellation.CancellationException
 
-/** DICT tab content in ENT-040 order: senses and notes, Examples, then the Characters section. */
+/**
+ * DICT tab content in ENT-040 order: senses and notes, Examples, then the Parts section ([parts],
+ * null for a headword without Hanzi). Item positions are [PartsLayout]'s; no chip row at the top —
+ * the Parts chip row starts the Parts section.
+ */
 internal fun LazyListScope.dictTabItems(
     detail: EntryDetail,
     derived: EntryDerived,
-    strokes: Map<String, StrokeOrder>?,
+    parts: PartsState?,
     actions: EntryActions,
+    list: LazyListState,
 ) {
     item(key = "dict-senses") {
         Column(Modifier.padding(horizontal = 16.dp)) {
@@ -91,8 +96,8 @@ internal fun LazyListScope.dictTabItems(
         }
     }
     item(key = "dict-examples") { ExamplesSection(detail, derived, actions, Modifier.padding(horizontal = 16.dp)) }
-    // ENT-127 (v2): a Grammar section slots in here, between Examples and Characters.
-    item(key = "dict-characters") { CharactersSection(detail, derived, strokes, actions, Modifier.padding(horizontal = 16.dp)) }
+    // ENT-127 (v2): a Grammar section slots in here, between Examples and Parts.
+    if (parts != null) partsSectionItems(parts, actions, list)
 }
 
 /** One section per member with definitions (ENT-042…044); a non-merged entry has exactly one. */

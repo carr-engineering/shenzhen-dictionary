@@ -17,7 +17,7 @@ class PartsStateTest {
     private val dict = FakeDictionary()
     private val s = Script.SIMPLIFIED
 
-    private fun state(characters: List<String>, pageSize: Int = PartsTabState.PAGE_SIZE) = PartsTabState(
+    private fun state(characters: List<String>, pageSize: Int = PartsState.PAGE_SIZE) = PartsState(
         characters = characters,
         loadParts = { dict.characterParts(it, s) },
         loadAppears = { c, offset, limit -> dict.appearsIn(c, s, offset, limit) },
@@ -42,7 +42,7 @@ class PartsStateTest {
 
     @Test
     fun unavailablePackIsANoteNotAFailure() = runTest {
-        val st = PartsTabState(listOf("好"), { throw DictException(DictError.AssetMissing("packs/decomposition.db")) },
+        val st = PartsState(listOf("好"), { throw DictException(DictError.AssetMissing("packs/decomposition.db")) },
             { _, _, _ -> throw DictException(DictError.AssetMissing("packs/decomposition.db")) })
         st.ensureParts()
         assertIs<PartsLoad.Unavailable>(st.made)
@@ -107,17 +107,33 @@ class PartsStateTest {
     }
 
     @Test
-    fun chipTargetsAndTheSectionAtTheTop() {
-        // Sticky chip row at 0, then heading / made of / appears in per character.
-        assertEquals(1, PartsLayout.itemIndex(0, PartsSection.HEAD, hasNav = true))
-        assertEquals(2, PartsLayout.itemIndex(0, PartsSection.MADE_OF, hasNav = true))
-        assertEquals(6, PartsLayout.itemIndex(1, PartsSection.APPEARS_IN, hasNav = true))
-        assertEquals(0 to PartsSection.HEAD, PartsLayout.at(0, 2, hasNav = true))
-        assertEquals(0 to PartsSection.APPEARS_IN, PartsLayout.at(3, 2, hasNav = true))
-        assertEquals(1 to PartsSection.HEAD, PartsLayout.at(4, 2, hasNav = true))
-        assertEquals(1 to PartsSection.APPEARS_IN, PartsLayout.at(99, 2, hasNav = true))
-        for (c in 0..2) for (sec in PartsSection.entries) assertEquals(c to sec, PartsLayout.at(PartsLayout.itemIndex(c, sec, true), 3, true))
+    fun partsEndTheDictListAfterSensesAndExamples() {
+        // DICT list: senses 0, examples 1, `PARTS` label 2, sticky chip row 3, then per character
+        // heading / made of / appears in.
+        assertEquals(listOf(0, 1, 2, 3), listOf(PartsLayout.SENSES_INDEX, PartsLayout.EXAMPLES_INDEX, PartsLayout.LABEL_INDEX, PartsLayout.NAV_INDEX))
+        assertEquals(4, PartsLayout.itemIndex(0, PartsSection.HEAD))
+        assertEquals(5, PartsLayout.itemIndex(0, PartsSection.MADE_OF))
+        assertEquals(9, PartsLayout.itemIndex(1, PartsSection.APPEARS_IN))
+        // Above the blocks (senses, examples, label, the row itself) the first block is current.
+        for (i in 0..4) assertEquals(0 to PartsSection.HEAD, PartsLayout.at(i, 2))
+        assertEquals(0 to PartsSection.APPEARS_IN, PartsLayout.at(6, 2))
+        assertEquals(1 to PartsSection.HEAD, PartsLayout.at(7, 2))
+        assertEquals(1 to PartsSection.APPEARS_IN, PartsLayout.at(99, 2))
+        for (c in 0..2) for (sec in PartsSection.entries) assertEquals(c to sec, PartsLayout.at(PartsLayout.itemIndex(c, sec), 3))
         assertEquals("parts-made_of-1", PartsLayout.key(1, PartsSection.MADE_OF))
+    }
+
+    @Test
+    fun chipRowScrollsInFlowThenSticks() {
+        // In flow while the senses, examples or label are at the top, and while the row itself is.
+        assertFalse(PartsLayout.isStuck(0, 0))
+        assertFalse(PartsLayout.isStuck(1, 500))
+        assertFalse(PartsLayout.isStuck(PartsLayout.LABEL_INDEX, 30))
+        assertFalse(PartsLayout.isStuck(PartsLayout.NAV_INDEX, 0))
+        // Stuck as soon as its own place scrolls under the top, for the rest of the list.
+        assertTrue(PartsLayout.isStuck(PartsLayout.NAV_INDEX, 1))
+        assertTrue(PartsLayout.isStuck(PartsLayout.itemIndex(0, PartsSection.HEAD), 0))
+        assertTrue(PartsLayout.isStuck(PartsLayout.itemIndex(4, PartsSection.APPEARS_IN), 200))
     }
 
     @Test
@@ -136,22 +152,31 @@ class PartsStateTest {
         assertEquals(1, PartsLayout.selectedChip(both, 0 to a))
         assertEquals(2, PartsLayout.selectedChip(both, 1 to PartsSection.HEAD))
         assertEquals(3, PartsLayout.selectedChip(both, 1 to a))
+        // Before the row sticks (senses at the top) the first chip is selected.
+        assertEquals(0, PartsLayout.selectedChip(both, PartsLayout.at(PartsLayout.SENSES_INDEX, 2)))
         // Without a chip of its own the block keeps the one before it (or the first).
         val sparse = listOf(PartsChip(0, a), PartsChip(1, a))
         assertEquals(0, PartsLayout.selectedChip(sparse, 0 to m))
         assertEquals(0, PartsLayout.selectedChip(sparse, 1 to m))
         assertEquals(1, PartsLayout.selectedChip(sparse, 1 to a))
-        // "Made of" jumps to the character's heading, "Appears in" to its section.
-        assertEquals(PartsLayout.itemIndex(1, PartsSection.HEAD, true), PartsLayout.chipTarget(PartsChip(1, m)))
-        assertEquals(PartsLayout.itemIndex(1, a, true), PartsLayout.chipTarget(PartsChip(1, a)))
+        // Targets are DICT list items: "Made of" jumps to the character's heading, "Appears in" to its section.
+        assertEquals(7, PartsLayout.chipTarget(PartsChip(1, m)))
+        assertEquals(PartsLayout.itemIndex(1, PartsSection.HEAD), PartsLayout.chipTarget(PartsChip(1, m)))
+        assertEquals(PartsLayout.itemIndex(1, a), PartsLayout.chipTarget(PartsChip(1, a)))
+        assertTrue(both.all { PartsLayout.chipTarget(it) > PartsLayout.NAV_INDEX }, "every target lies below the sticky row")
     }
 
     @Test
-    fun partsTabNeedsHanzi() {
-        assertEquals(listOf(EntryTab.DICT, EntryTab.WORDS, EntryTab.PARTS), entryTabs(hasStrokes = false, hasParts = true))
-        assertEquals(listOf(EntryTab.DICT, EntryTab.STROKES, EntryTab.WORDS, EntryTab.PARTS), entryTabs(hasStrokes = true, hasParts = true))
-        assertEquals(listOf(EntryTab.DICT, EntryTab.WORDS), entryTabs(hasStrokes = false, hasParts = false))
-        assertEquals(EntryTab.PARTS, restoredTab(entryTabs(true, true), "PARTS"))
-        assertEquals(EntryTab.DICT, restoredTab(entryTabs(true, false), "PARTS"))
+    fun noPartsSectionWithoutHanzi() {
+        assertFalse(hasPartsSection(emptyList()), "a Latin-only headword (T, OK…) lists no Hanzi")
+        assertTrue(hasPartsSection(listOf("你", "好")))
+    }
+
+    @Test
+    fun partsIsNoLongerATab() {
+        assertEquals(listOf(EntryTab.DICT, EntryTab.STROKES, EntryTab.WORDS), entryTabs(hasStrokes = true))
+        // A route or deep link saved on the old PARTS tab opens DICT, where Parts now lives.
+        assertEquals(EntryTab.DICT, restoredTab(entryTabs(true), "PARTS"))
+        assertEquals(0, pageForTab(entryTabs(false), restoredTab(entryTabs(false), "PARTS")))
     }
 }

@@ -11,10 +11,10 @@ import com.szdict.core.api.CharacterParts
 import com.szdict.core.api.PartNode
 import kotlin.coroutines.cancellation.CancellationException
 
-/** "Made of" read state of the PARTS tab. */
+/** "Made of" read state of the DICT tab's Parts section. */
 internal sealed interface PartsLoad {
     data object Loading : PartsLoad
-    /** The decomposition pack is absent or could not be fetched (Web offline): the tab says so. */
+    /** The decomposition pack is absent or could not be fetched (Web offline): the section says so. */
     data object Unavailable : PartsLoad
     data class Ready(val characters: List<CharacterParts>) : PartsLoad
 }
@@ -45,12 +45,14 @@ internal class AppearsInSection(val character: String) {
 }
 
 /**
- * State of one route's PARTS tab: the decomposition of every listed character, the expanded parts
- * (`character/path` keys, level by level) and each character's "Appears in" pages. Kept for the
- * route's life by [PartsStates] so coming back from a nested entry shows it at once.
+ * State of one route's Parts section (end of the DICT tab): the decomposition of every listed
+ * character, the expanded parts (`character/path` keys, level by level) and each character's
+ * "Appears in" pages. Read only once the section is shown, never as part of the entry read, so
+ * senses and examples never wait for it. Kept for the route's life by [PartsStates] so coming back
+ * from a nested entry shows it at once.
  */
 @Stable
-internal class PartsTabState(
+internal class PartsState(
     val characters: List<String>,
     private val loadParts: suspend (List<String>) -> List<CharacterParts>,
     private val loadAppears: suspend (character: String, offset: Int, limit: Int) -> AppearsInPage,
@@ -62,7 +64,7 @@ internal class PartsTabState(
     var expanded by mutableStateOf<Set<String>>(emptySet())
         private set
 
-    /** Reads the trees once; failures leave the tab usable with an "unavailable" note (GLB-035). */
+    /** Reads the trees once; failures leave the section with an "unavailable" note (GLB-035). */
     private var partsLoading = false
 
     suspend fun ensureParts() {
@@ -121,12 +123,18 @@ internal class PartsTabState(
     }
 }
 
-/** Route-scoped PARTS states, bounded like [EntryRouteCache]; main-thread only. */
+/**
+ * Whether the DICT tab ends with a Parts section: only when the displayed headword has Hanzi
+ * ([characters] is the entry's distinct Hanzi; a Latin-only headword has none).
+ */
+internal fun hasPartsSection(characters: List<String>): Boolean = characters.isNotEmpty()
+
+/** Route-scoped Parts states, bounded like [EntryRouteCache]; main-thread only. */
 internal object PartsStates {
     private const val MAX = 12
-    private val states = LinkedHashMap<EntryDerived, PartsTabState>()
+    private val states = LinkedHashMap<EntryDerived, PartsState>()
 
-    fun of(derived: EntryDerived, create: () -> PartsTabState): PartsTabState {
+    fun of(derived: EntryDerived, create: () -> PartsState): PartsState {
         states.remove(derived)?.let { states[derived] = it; return it }
         val created = create()
         states[derived] = created
@@ -135,22 +143,36 @@ internal object PartsStates {
     }
 }
 
-// ---- Navigation chips: which list item each chip targets (pure, tested) ----
+// ---- Place in the DICT list and navigation chips (pure, tested) ----
 
-/** One block per character: its heading, its "Made of" and its "Appears in" items, after the chip row. */
+/** One block per character: its heading, its "Made of" and its "Appears in" items. */
 internal enum class PartsSection { HEAD, MADE_OF, APPEARS_IN }
 
+/**
+ * The Parts section is the end of the DICT list ([dictTabItems]): after the senses and Examples
+ * items come the `PARTS` label, the chip row (a sticky header: it scrolls in with the section and
+ * then stays at the top of the list, which the section ends) and the character blocks.
+ */
 internal object PartsLayout {
-    /** Index of the sticky chip row; present only when [hasNav]. */
-    fun itemIndex(characterIndex: Int, section: PartsSection, hasNav: Boolean): Int =
-        (if (hasNav) 1 else 0) + characterIndex * PartsSection.entries.size + section.ordinal
+    const val SENSES_INDEX = 0
+    const val EXAMPLES_INDEX = 1
+    const val LABEL_INDEX = 2
+    /** The chip row's item (a sticky header, a hairline when there is no row). */
+    const val NAV_INDEX = 3
 
-    /** The (character index, section) shown at the top of the list for the first visible item. */
-    fun at(firstVisible: Int, characters: Int, hasNav: Boolean): Pair<Int, PartsSection> {
-        val i = (firstVisible - if (hasNav) 1 else 0).coerceAtLeast(0)
+    fun itemIndex(characterIndex: Int, section: PartsSection): Int =
+        NAV_INDEX + 1 + characterIndex * PartsSection.entries.size + section.ordinal
+
+    /** The (character index, section) shown under the chip row for the first item below it; above the blocks, the first. */
+    fun at(firstVisible: Int, characters: Int): Pair<Int, PartsSection> {
+        val i = (firstVisible - NAV_INDEX - 1).coerceAtLeast(0)
         val per = PartsSection.entries.size
         return (i / per).coerceIn(0, (characters - 1).coerceAtLeast(0)) to PartsSection.entries[i % per]
     }
+
+    /** The chip row is stuck at the top of the list (content passes beneath it) once its own place has scrolled under. */
+    fun isStuck(firstVisibleIndex: Int, firstVisibleOffset: Int): Boolean =
+        firstVisibleIndex > NAV_INDEX || (firstVisibleIndex == NAV_INDEX && firstVisibleOffset > 0)
 
     fun key(characterIndex: Int, section: PartsSection): String = "parts-${section.name.lowercase()}-$characterIndex"
 
@@ -173,10 +195,10 @@ internal object PartsLayout {
         return chips.indexOfLast { order(it.character, it.section) <= here }.coerceAtLeast(0)
     }
 
-    /** List item a chip scrolls to: a "Made of" chip brings its character's heading under the row. */
+    /** DICT list item a chip scrolls to (just under the stuck row): a "Made of" chip brings its character's heading. */
     fun chipTarget(chip: PartsChip): Int =
-        itemIndex(chip.character, if (chip.section == PartsSection.APPEARS_IN) PartsSection.APPEARS_IN else PartsSection.HEAD, hasNav = true)
+        itemIndex(chip.character, if (chip.section == PartsSection.APPEARS_IN) PartsSection.APPEARS_IN else PartsSection.HEAD)
 }
 
-/** One chip of the PARTS chip row ([PartsLayout.chips]). */
+/** One chip of the Parts chip row ([PartsLayout.chips]). */
 internal data class PartsChip(val character: Int, val section: PartsSection)
