@@ -237,7 +237,7 @@ internal fun SettingsCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
             Icon(Icons.Rounded.Settings, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(12.dp))
             Text(
-                strings.text("Settings"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                strings.text("App Settings"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                 color = palette.fg, modifier = Modifier.weight(1f),
             )
             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = palette.muted)

@@ -202,7 +202,19 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
     val reselect = session.reselect.value
     val initialReselect = remember { reselect }
     LaunchedEffect(reselect) {
-        if (reselect != initialReselect && reselect.second == Destination.SEARCH) activeList().animateScrollToItem(0)
+        if (reselect == initialReselect || reselect.second != Destination.SEARCH) return@LaunchedEffect
+        val list = activeList()
+        when (searchReselectAction(!list.canScrollBackward, session.settings.value.inputMethod)) {
+            SearchReselectAction.SCROLL_TO_TOP -> list.animateScrollToItem(0)
+            SearchReselectAction.OPEN_HANDWRITING -> {
+                runCatching { fieldFocus.requestFocus() }
+                showHandwriting()
+            }
+            SearchReselectAction.FOCUS_KEYBOARD -> {
+                runCatching { fieldFocus.requestFocus() }
+                keyboardShowTick++
+            }
+        }
     }
 
     // ---- insets (GLB-072, GLB-073) ----
@@ -596,7 +608,7 @@ private fun EmptyStatePage(
                 Text(
                     strings.text(
                         if (cantonese) "Type English, Jyutping (neihou, nh or nei5 hou2), Hanzi, or paste a sentence."
-                        else "Type English, Pinyin (nihao, nh or nǐ hǎo), Hanzi, or paste a sentence.",
+                        else "Type English, Pinyin (nihao, nh, ni3hao3 or nǐ hǎo), Hanzi, or paste a sentence.",
                     ),
                     style = MaterialTheme.typography.bodyMedium, color = palette.muted,
                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
@@ -625,7 +637,9 @@ private fun EmptyStatePage(
                 }
             }
         }
-        item(key = "settings", contentType = "settings") { SettingsCard(onSettings, Modifier.padding(top = 6.dp)) }
+        if (!context.session.env.settingsIsDestination) {
+            item(key = "settings", contentType = "settings") { SettingsCard(onSettings, Modifier.padding(top = 6.dp)) }
+        }
         if (popular.isNotEmpty()) {
             item(key = "popular", contentType = "heading") { EmptyHeading("Popular words") }
             items(popular, key = { "p:${it.id}" }, contentType = { "card" }) { card ->
