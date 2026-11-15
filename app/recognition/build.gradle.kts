@@ -80,6 +80,7 @@ android {
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("consumer-rules.pro")
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     compileOptions {
@@ -87,7 +88,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     // Models are memory-mapped straight out of the APK.
-    androidResources { noCompress += listOf("tflite", "onnx") }
+    androidResources {
+        noCompress += listOf("tflite", "onnx")
+        // assets/models/ocr/ holds the Web build's OCR graphs (staged from here by :composeApp);
+        // Android reads with models/ocr2/, so they stay out of the package. The rest is aapt's default.
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:<dir>ocr"
+    }
 }
 
 tasks.withType<Test>().configureEach {
@@ -131,6 +137,8 @@ tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimu
     environment("SIMCTL_CHILD_RECOGNITION_MODEL_DIR", file("src/androidMain/assets/models").absolutePath)
     environment("SIMCTL_CHILD_RECOGNITION_GOLDEN_DIR", file("src/androidUnitTest/resources/golden").absolutePath)
     environment("SIMCTL_CHILD_RECOGNITION_TESTDATA_DIR", file("src/androidInstrumentedTest/assets/testdata").absolutePath)
+    // Optional OCR timing run over a directory of images (IosRecognizersTest.ocrTimingsOverADirectory).
+    System.getenv("RECOGNITION_BENCH_DIR")?.let { environment("SIMCTL_CHILD_RECOGNITION_BENCH_DIR", it); outputs.upToDateWhen { false } }
 }
 
 // Restores the OCR models of the Android and iOS apps (see tools/fetch_ocr2_models.sh); a no-op once in place.
@@ -139,6 +147,15 @@ tasks.register<Exec>("fetchOcr2Models") {
     description = "Restores the PP-OCR detector, classifier and recogniser (pinned URLs and SHA-256) into assets/models/ocr2/."
     commandLine("sh", file("tools/fetch_ocr2_models.sh").absolutePath)
 }
+
+// The Android and iOS apps cannot read images without the OCR models; a build without them only warns.
+val checkOcr2Models by tasks.registering {
+    val missing = listOf("det.onnx", "cls.onnx", "rec.onnx", "rec-labels.txt").filter { !file("src/androidMain/assets/models/ocr2/$it").isFile }
+    doLast {
+        if (missing.isNotEmpty()) logger.warn("WARNING: OCR models missing ($missing); run ./gradlew :recognition:fetchOcr2Models")
+    }
+}
+tasks.named("preBuild") { dependsOn(checkOcr2Models) }
 
 // Restores the model binaries that are too large for git (see tools/fetch_models.sh).
 tasks.register<Exec>("fetchModels") {

@@ -257,8 +257,9 @@ val stageIosAssets by tasks.registering(Sync::class) {
     }
     from(stageOpenccData)
     from({ strokeIosData.files.map { zipTree(it) } }) { include("strokes/**", "licenses/**") }
+    // OCR reads with the ONNX models (ocr2/); the TensorFlow Lite OCR graphs (ocr/) are the Web build's.
     from(project(":recognition").file("src/androidMain/assets/models")) {
-        include("ocr/*.tflite", "ocr/*-labels.txt", "ink/*.tflite", "ink/labels.txt", "ink/script-classes.txt")
+        include("ocr2/*.onnx", "ocr2/rec-labels.txt", "ink/*.tflite", "ink/labels.txt", "ink/script-classes.txt")
         into("models")
     }
     // The voice model is bundled when present (VOICE-095: without it Voice shows its unavailable state).
