@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -101,8 +102,14 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
         shadowElevation = 6.dp,
     ) {
         Column(Modifier.padding(bottom = navigationInset)) {
-            // Candidate row + close.
-            Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Switch to keyboard, candidate row, close.
+            Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                WithTooltip(strings.text("Switch to keyboard")) {
+                    IconButton(onClick = session::switchHandwritingToKeyboard) {
+                        Icon(Icons.Rounded.Keyboard, contentDescription = strings.text("Switch to keyboard"), tint = palette.muted)
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
                 val candidates = state.candidates
                 val download = state.modelDownload
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {

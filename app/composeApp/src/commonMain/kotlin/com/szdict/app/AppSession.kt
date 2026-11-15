@@ -303,6 +303,20 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     /** Receives a committed candidate / a delete request from the handwriting sheet. */
     var handwritingSink: HandwritingSink? = null
 
+    /** Bumped when the soft keyboard should come up for the field that keeps focus (shell shows it, see App). */
+    var keyboardRequest by mutableIntStateOf(0)
+        private set
+
+    /**
+     * The handwriting sheet's "Switch to keyboard": the setting becomes keyboard, the sheet closes and the
+     * keyboard is requested for whichever field was receiving handwriting (it keeps its focus).
+     */
+    fun switchHandwritingToKeyboard() {
+        updateSettings { it.copy(inputMethod = com.szdict.core.api.InputMethod.KEYBOARD) }
+        handwritingVisible = false
+        keyboardRequest++
+    }
+
     // ---- OCR review back handling (PROD-056 item 3) ----
     var ocrReviewBack: (() -> Boolean)? by mutableStateOf(null)
 

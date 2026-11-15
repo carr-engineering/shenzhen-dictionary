@@ -71,6 +71,19 @@ class HandwritingStateTest {
     }
 
     @Test
+    fun switchToKeyboardSetsTheMethodClosesTheSheetAndRequestsTheKeyboard() = runTest {
+        val f = Fixture(this)
+        f.session.updateSettings { it.copy(inputMethod = com.szdict.core.api.InputMethod.HANDWRITING) }
+        f.session.handwritingVisible = true
+        val before = f.session.keyboardRequest
+        f.session.switchHandwritingToKeyboard()
+        assertEquals(com.szdict.core.api.InputMethod.KEYBOARD, f.session.settings.value.inputMethod)
+        assertFalse(f.session.handwritingVisible)
+        assertEquals(before + 1, f.session.keyboardRequest)
+        assertTrue(f.session.handwritingSink === f.sink, "the field keeps receiving input")
+    }
+
+    @Test
     fun aStrokeIsRecordedWithItsSamplesAndRecognisedOnPointerUp() = runTest {
         val f = Fixture(this)
         f.state.beginStroke(1f, 2f, 100)

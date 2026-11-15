@@ -66,6 +66,7 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -265,6 +266,15 @@ fun App(session: AppSession) {
                                     onVisibleHeight = { wordSheetHeight = it },
                                     modifier = Modifier.align(Alignment.BottomCenter),
                                 )
+                            }
+                            // "Switch to keyboard" in the handwriting sheet: the platform input session restarts
+                            // when the interceptor changes, so the keyboard is shown once it has.
+                            val keyboardForRequest = LocalSoftwareKeyboardController.current
+                            LaunchedEffect(session.keyboardRequest) {
+                                if (session.keyboardRequest == 0) return@LaunchedEffect
+                                withFrameNanos { }
+                                withFrameNanos { }
+                                keyboardForRequest?.show()
                             }
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = session.handwritingVisible,
