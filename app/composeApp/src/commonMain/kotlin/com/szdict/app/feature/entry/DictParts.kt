@@ -98,7 +98,7 @@ internal fun LazyListScope.partsSectionItems(state: PartsState, actions: EntryAc
     item(key = "parts-label") {
         SectionLabel("PARTS", modifier = sidePadding.padding(top = 26.dp, bottom = 2.dp))
     }
-    stickyHeader(key = "parts-nav") { PartsNav(state, list) }
+    stickyHeader(key = "parts-nav") { PartsNav(state, list, actions) }
     state.characters.forEachIndexed { index, character ->
         item(key = PartsLayout.key(index, PartsSection.HEAD)) { CharacterHeading(state, index, character, actions) }
         item(key = PartsLayout.key(index, PartsSection.MADE_OF)) { MadeOf(state, character, actions) }
@@ -125,12 +125,14 @@ private fun PartsState.partsOf(character: String): CharacterParts? =
 // ---- Chip navigation (sticky and translucent: the HSK selector's bar and chips) ----
 
 @Composable
-private fun PartsNav(state: PartsState, list: LazyListState) {
+private fun PartsNav(state: PartsState, list: LazyListState, actions: EntryActions) {
     val strings = appStrings()
     // Which sections are worth a chip needs every character's parts and "Appears in" total.
+    // Reads run in the session scope: an item composed in passing (prefetch, a fling) and disposed
+    // must not cancel a read the other items are waiting on.
     LaunchedEffect(state) {
-        launch { state.ensureParts() }
-        state.characters.forEach { c -> launch { state.ensureAppears(c) } }
+        actions.session.scope.launch { state.ensureParts() }
+        state.characters.forEach { c -> actions.session.scope.launch { state.ensureAppears(c) } }
     }
     val chips by remember(state) {
         derivedStateOf {
@@ -219,7 +221,7 @@ private fun CharacterHeading(state: PartsState, index: Int, character: String, a
     val palette = LocalDictionaryPalette.current
     val prefs = LocalDisplayPrefs.current
     val scope = rememberCoroutineScope()
-    LaunchedEffect(state) { state.ensureParts() }
+    LaunchedEffect(state) { actions.session.scope.launch { state.ensureParts() } }
     val parts = state.partsOf(character)
     val root = parts?.root
     val node = root?.node
@@ -453,7 +455,7 @@ private fun PartTags(part: PartNode) {
 private fun AppearsIn(state: PartsState, character: String, actions: EntryActions) {
     val strings = appStrings()
     val section = state.appears[character] ?: return
-    LaunchedEffect(section) { state.ensureAppears(character) }
+    LaunchedEffect(section) { actions.session.scope.launch { state.ensureAppears(character) } }
     Column(sidePadding.fillMaxWidth().padding(top = 20.dp)) {
         SectionLabel("Appears in", count = section.total.takeIf { section.loaded && it > 0 })
         Spacer(Modifier.height(8.dp))
