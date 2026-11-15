@@ -577,7 +577,7 @@ the user frames is exactly what is recognised.
 `CAM-021` `[MUST]` Preview scaling is fit-centre (letterboxed), never cropped.
 
 `CAM-022` `[MUST]` The rear camera is used by default (on Web where the device has one; a desktop
-webcam is used as is). No front/rear toggle in v1.
+webcam is used as is). No front/rear toggle in v1; rear lenses are chosen with `CAM-028`.
 
 `CAM-023` `[MUST]` A 72 dp circular accent shutter button sits bottom-centre inside the frame. While a
 capture is in flight it is disabled and shows a 30 dp progress indicator.
@@ -602,6 +602,28 @@ browser allows it and otherwise letterboxes and captures the same visible region
 `CAM-027` `[MUST]` Capture failure shows `Could not take a photo. Try again.`; post-processing failure
 shows `Could not process the captured photo.` Both leave the viewfinder usable.
 
+`CAM-028` `[MUST]` **Lens selector.** Where the device offers more than one rear lens, a compact chip
+sits above the shutter (content description `Camera lens`, state = its label); a tap opens a menu of
+the lenses with a check on the active one, and choosing one switches to it. Hidden with fewer than
+two entries; there is no front camera entry (`CAM-022`).
+- Android and iOS label lenses by zoom factor relative to the main wide camera (`0.5×`, `1×`, `2×`,
+  `3×`, `5×` — what the device really has). Android: the back logical multi-camera's zoom ratio range
+  (CameraX `ZoomState`) with the lens steps taken from its physical cameras
+  (`CameraInfo.getPhysicalCameraInfos()` + Camera2 focal length / sensor size, relative to the lens
+  closest to the logical camera's own field of view; telephotos snapped to whole numbers); without
+  physical-camera info the steps are the minimum zoom (if below 1), `1×` and a digital `2×`; other
+  rear cameras not reachable by that zoom are listed by their CameraX intrinsic zoom ratio and
+  selected by camera id. iOS: the back virtual device (triple / dual-wide / dual) and its
+  `virtualDeviceSwitchOverVideoZoomFactors`, display factor = zoom factor ÷ the wide camera's
+  switch-over factor (ultra-wide = `0.5×`, as in the Camera app); without one, the separate rear
+  cameras labelled from their field of view. Both add a digital `2×` when no lens is longer than `1×`.
+- Pinch zooms continuously across the lenses; the chip then shows the live factor (`1.4×`) and the
+  menu checks the longest lens at or below it.
+- Web lists `enumerateDevices()` video inputs by label (`Camera 1`, `Camera 2`… until access is
+  granted; the list is refreshed after the stream opens and on `devicechange`); choosing one restarts
+  the stream with that `deviceId`, remembered for the session only.
+- The camera opens at `1×` on every visit; only the Web choice outlives leaving the destination.
+
 #### 3.1 Tap to focus — NEW
 
 `CAM-030` `[MUST]` Tapping a point in the preview requests **autofocus and auto-exposure metering at
@@ -623,24 +645,31 @@ applies.
 
 #### 3.2 Flash / torch — NEW
 
-`CAM-035` `[MUST]` A flash control in the viewfinder's top-trailing corner cycles or toggles the
-illumination mode. Minimum required behaviour: an explicit **on/off** toggle that the user controls.
+`CAM-035` `[MUST]` A flash icon button in the viewfinder's top-trailing corner shows the current
+mode's icon (flash off / auto / on, flashlight) and opens a menu of icon + label rows with a check on
+the current mode. Content description `Flash`, state = the mode's label.
 
-`CAM-036` `[SHOULD]` Offer three states — `Off`, `On`, `Auto` — with icons, cycling on tap, and label
-the current state for accessibility.
+`CAM-036` `[MUST]` Modes, in menu order: `Flash off`, `Flash auto`, `Flash on` (capture flash) and
+`Flashlight` (torch: the light stays on continuously while framing and through the capture, with the
+capture flash off). Android: `ImageCapture` flash mode OFF / AUTO / ON, and `enableTorch(true)` with
+flash mode OFF for `Flashlight`. iOS: `AVCapturePhotoSettings.flashMode` off / auto / on, and
+`torchMode` on for `Flashlight`.
 
-`CAM-037` `[MUST]` The control is hidden when the active camera reports no flash unit. On Web the only
-illumination control is the **torch** (`torch` track constraint), offered as an `Off` / `On` toggle
-labelled `Torch` (`Toggle flash` for accessibility) only where `getCapabilities()` reports it; there
-is no capture flash and no `Auto` on Web, and the control is hidden elsewhere (`PROD-023`).
+`CAM-037` `[MUST]` Only the modes the **active camera** supports are listed (a separate ultra-wide
+camera may have no flash); a chosen mode it cannot do applies as `Off` and comes back with a lens that
+can. The button is hidden when nothing besides `Off` is supported (no flash unit and no torch). On
+Web: `Flashlight` where the track's `getCapabilities()` reports `torch`, `Flash auto` / `Flash on`
+where `ImageCapture.getPhotoCapabilities().fillLightMode` reports `auto` / `flash`; hidden elsewhere
+(`PROD-023`).
 
 `CAM-038` `[MUST]` The chosen state persists for the session and is re-applied when the camera is
 rebound after backgrounding or after returning to the destination. It is **not** persisted across
 launches: every launch starts at `Off`, matching platform camera apps (decided: `Q-040`).
 
-`CAM-039` `[MUST]` `On` means the flash fires at capture. If a torch mode is offered for framing in
-low light it must be visually distinct from capture-flash and must be turned off whenever the camera
-is released (`CAM-025`).
+`CAM-039` `[MUST]` `Flash on` means the flash fires at capture. The torch is lit only in
+`Flashlight`, and is put out when the destination is left, when the app goes to the background (it is
+relit on return) and whenever the camera is released (`CAM-025`); other modes never leave it on after
+a capture.
 
 ---
 
@@ -960,7 +989,8 @@ discarded (`CAM-003`).
 | Recogniser delivery | inside the app | system framework | ~2.61 MB download on first OCR use, stored offline, versioned by manifest (`CAM-134`) |
 | Camera | CameraX | AVFoundation | `getUserMedia`, browser permission prompt (`CAM-010`) |
 | Tap to focus | supported where the device meters | supported where the device meters | only where the browser exposes focus constraints (`CAM-034`) |
-| Flash | `Off` / `On` / `Auto` (`CAM-036`) | `Off` / `On` / `Auto` | torch on/off only where supported, else hidden (`CAM-037`) |
+| Flash | `Off` / `Auto` / `On` / `Flashlight` (`CAM-036`) | `Off` / `Auto` / `On` / `Flashlight`, per active lens | only the supported ones: `Flashlight` (torch), `Auto` / `On` (fill light); else hidden (`CAM-037`) |
+| Lens selector (`CAM-028`) | logical camera zoom steps (`0.5×`, `1×`, `5×`…) | virtual device zoom steps | video inputs by name |
 | Image picker | Photo Picker; document picker for files (no permission) | PHPicker; document picker for files (no permission) | file input `accept="image/*"` |
 | Drag and drop (`CAM-131`) | `DragAndDropPermissions` (split screen, freeform, ChromeOS) | `UIDropInteraction` (Split View, iPad) | HTML drag and drop |
 | Paste (`CAM-132`, no button) | `ClipboardManager` image clip; Ctrl+V; long-press edit menu | `UIEditMenuInteraction` / paste key command; Cmd+V | document `paste` event; Ctrl/Cmd+V |

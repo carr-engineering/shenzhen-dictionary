@@ -23,9 +23,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.FlashAuto
-import androidx.compose.material.icons.rounded.FlashOff
-import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,7 +67,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
@@ -265,7 +261,7 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
                     cameraActive -> {
                         CameraPreview(
                             handle = handle,
-                            flash = holder.flash,
+                            flash = effectiveFlash(holder.flash, handle.flashModes),
                             onFocus = { position, outcome ->
                                 focusMark = if (outcome == FocusOutcome.PENDING) FocusMark(++focusId, position, outcome)
                                 else focusMark?.let { FocusMark(it.id, it.position, outcome) }
@@ -279,23 +275,16 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
                     }
                 }
 
-                // CAM-035…CAM-037: flash control, hidden when the camera has no flash unit.
-                if (live && handle.hasFlash) {
-                    val label = strings.text("Toggle flash")
-                    val state = strings.text(holder.flash.label)
-                    OverlayButton(
-                        icon = when (holder.flash) {
-                            FlashMode.OFF -> Icons.Rounded.FlashOff
-                            FlashMode.ON -> Icons.Rounded.FlashOn
-                            FlashMode.AUTO -> Icons.Rounded.FlashAuto
-                        },
-                        onClick = { holder.flash = holder.flash.next() },
-                        live = true,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).semantics {
-                            contentDescription = label
-                            stateDescription = state
-                        },
+                // CAM-035…CAM-037: flash menu, hidden when the active camera has neither flash nor torch.
+                if (live) {
+                    FlashControl(
+                        mode = effectiveFlash(holder.flash, handle.flashModes),
+                        supported = handle.flashModes,
+                        onSelect = { holder.flash = it },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                     )
+                    // CAM-028: lens chip above the shutter, with two or more lenses.
+                    LensControl(handle, Modifier.align(Alignment.BottomCenter).padding(bottom = 104.dp))
                 }
 
                 // CAM-023: 72 dp accent shutter, bottom-centre; a 30 dp spinner while a capture is in flight.

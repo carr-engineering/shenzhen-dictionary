@@ -113,11 +113,9 @@ interface OcrPlatform {
     }
 }
 
-/** Capture illumination (CAM-036); session-only (CAM-038). */
+/** Capture illumination (CAM-036): menu order; [TORCH] is the continuous light (`Flashlight`). Session-only (CAM-038). */
 enum class FlashMode(val label: String) {
-    OFF("Flash off"), ON("Flash on"), AUTO("Flash auto");
-
-    fun next(): FlashMode = entries[(ordinal + 1) % entries.size]
+    OFF("Flash off"), AUTO("Flash auto"), ON("Flash on"), TORCH("Flashlight");
 }
 
 enum class OcrViewMode { IMAGE, TEXT }

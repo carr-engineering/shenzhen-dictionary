@@ -22,6 +22,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import com.szdict.app.i18n.appStrings
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
 import kotlin.js.ExperimentalWasmJsInterop
@@ -51,15 +52,23 @@ private fun jsCameraCreate(): JsAny = js(
         video.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
         host.appendChild(video);
         document.body.insertBefore(host, document.body.firstChild);
-        return { host: host, video: video, stream: null, track: null, capture: null, torch: false, focus: false, closed: false };
+        return { host: host, video: video, stream: null, track: null, capture: null, torch: false, fill: [], focus: false, deviceId: null, closed: false };
     })()"""
 )
 
-// Rear camera preferred (CAM-022); 'ok', 'denied' or 'unavailable'.
-private fun jsCameraOpen(camera: JsAny): Promise<JsString> = js(
+// Rear camera preferred (CAM-022), or the camera picked from the lens menu this session (CAM-028);
+// 'ok', 'denied' or 'unavailable'. A picked camera that is gone falls back to the default.
+private fun jsCameraOpen(camera: JsAny, deviceId: String?): Promise<JsString> = js(
     """(async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } } });
+            const size = { width: { ideal: 2560 }, height: { ideal: 1920 } };
+            let stream = null;
+            if (deviceId) {
+                try { stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ deviceId: { exact: deviceId } }, size) }); } catch (e) {
+                    if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) throw e;
+                }
+            }
+            if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ facingMode: { ideal: 'environment' } }, size) });
             if (camera.closed) {
                 stream.getTracks().forEach((track) => track.stop());
                 return 'closed';
@@ -67,11 +76,24 @@ private fun jsCameraOpen(camera: JsAny): Promise<JsString> = js(
             const track = stream.getVideoTracks()[0];
             camera.stream = stream;
             camera.track = track;
-            camera.capture = null;
             camera.video.srcObject = stream;
             try { await camera.video.play(); } catch (e) { /* autoplay starts it */ }
             const capabilities = track.getCapabilities ? track.getCapabilities() : {};
             camera.torch = !!capabilities.torch;
+            camera.deviceId = (track.getSettings ? track.getSettings().deviceId : null) || null;
+            // CAM-037: a capture flash exists only where ImageCapture reports fill-light modes.
+            camera.fill = [];
+            if (typeof ImageCapture !== 'undefined') {
+                try {
+                    camera.capture = new ImageCapture(track);
+                    const photo = await Promise.race([camera.capture.getPhotoCapabilities(), new Promise((resolve) => setTimeout(() => resolve(null), 1500))]);
+                    camera.fill = (photo && photo.fillLightMode) || [];
+                } catch (e) { camera.capture = null; }
+            }
+            if (camera.closed) {
+                stream.getTracks().forEach((t) => t.stop());
+                return 'closed';
+            }
             const modes = capabilities.focusMode || [];
             camera.focus = 'pointsOfInterest' in capabilities && (modes.includes('single-shot') || modes.includes('manual'));
             camera.host.style.display = 'block';
@@ -94,64 +116,71 @@ private fun jsCameraPlace(camera: JsAny, left: Double, top: Double, width: Doubl
     "{ const s = camera.host.style; s.left = left + 'px'; s.top = top + 'px'; s.width = width + 'px'; s.height = height + 'px'; }"
 )
 
-private fun jsCameraTorch(camera: JsAny): Boolean = js("camera.torch")
+// The illumination the open camera offers besides 'off' (CAM-037): 'auto' and 'flash' (fill light at capture), 'torch'.
+private fun jsCameraLights(camera: JsAny): String = js(
+    "[camera.fill.includes('auto') ? 'auto' : '', camera.fill.includes('flash') ? 'flash' : '', camera.torch ? 'torch' : ''].filter((x) => x).join(',')"
+)
+
+// CAM-039: the continuous light of `Flashlight`.
+private fun jsCameraSetTorch(camera: JsAny, on: Boolean): Unit = js(
+    "{ if (camera.track && camera.torch) camera.track.applyConstraints({ advanced: [{ torch: on }] }).catch(() => {}); }"
+)
+
+private fun jsCameraDeviceId(camera: JsAny): String? = js("camera.deviceId")
+
+// CAM-028: the video inputs as `id<TAB>label` lines; labels are empty until camera access is granted.
+private fun jsVideoInputs(): Promise<JsString> = js(
+    """(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices
+        ? navigator.mediaDevices.enumerateDevices().then((devices) => devices.filter((d) => d.kind === 'videoinput' && d.deviceId).map((d) => d.deviceId + '\t' + (d.label || '').replace(/[\t\n]/g, ' ')).join('\n'), () => '')
+        : Promise.resolve(''))"""
+)
+
+private fun jsOnDeviceChange(handler: () -> Unit): JsAny = js(
+    "(() => { const md = navigator.mediaDevices; if (!md || !md.addEventListener) return () => {}; md.addEventListener('devicechange', handler); return () => md.removeEventListener('devicechange', handler); })()"
+)
 
 private fun jsCameraFocus(camera: JsAny): Boolean = js("camera.focus")
 
 // A full-resolution still: ImageCapture.takePhoto() where the browser has it, otherwise the current
 // video frame. Always answered as JPEG bytes (the shared code keeps them for saving, CAM-074).
-// `flash` is 'off', 'on' or 'auto'; light only exists where the track reports a torch (CAM-037).
+// `flash` is 'off', 'auto', 'on' or 'torch' (CAM-036): the fill light of takePhoto() where the camera
+// reports it; `Flashlight` is the torch, already lit, which is lit again should the photo turn it off.
 private fun jsCameraCapture(camera: JsAny, flash: String): Promise<JsAny> = js(
     """(async () => {
         const track = camera.track;
         const video = camera.video;
         if (!track) throw new Error('The camera is not open');
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        let lit = false;
-        try {
-            let blob = null;
-            if (typeof ImageCapture !== 'undefined') {
-                try {
-                    const capture = camera.capture || (camera.capture = new ImageCapture(track));
-                    const settings = {};
-                    if (camera.torch && flash !== 'off') {
-                        let fill = [];
-                        try { fill = (await capture.getPhotoCapabilities()).fillLightMode || []; } catch (e) { /* no photo capabilities */ }
-                        if (flash === 'auto' && fill.includes('auto')) settings.fillLightMode = 'auto';
-                        else if (flash === 'on' && fill.includes('flash')) settings.fillLightMode = 'flash';
-                        else if (flash === 'on') {
-                            await track.applyConstraints({ advanced: [{ torch: true }] });
-                            lit = true;
-                            await sleep(300);
-                        }
-                    }
-                    blob = await Promise.race([capture.takePhoto(settings), sleep(4000).then(() => { throw new Error('timeout'); })]);
-                } catch (e) {
-                    blob = null;
-                    camera.capture = null;
-                }
+        let blob = null;
+        if (typeof ImageCapture !== 'undefined') {
+            try {
+                const capture = camera.capture || (camera.capture = new ImageCapture(track));
+                const settings = {};
+                if (flash === 'auto' && camera.fill.includes('auto')) settings.fillLightMode = 'auto';
+                else if (flash === 'on' && camera.fill.includes('flash')) settings.fillLightMode = 'flash';
+                else if (flash === 'off' && camera.fill.includes('off')) settings.fillLightMode = 'off';
+                blob = await Promise.race([capture.takePhoto(settings), sleep(4000).then(() => { throw new Error('timeout'); })]);
+            } catch (e) {
+                blob = null;
+                camera.capture = null;
             }
-            if (!blob && camera.torch && flash === 'on' && !lit) {
-                try { await track.applyConstraints({ advanced: [{ torch: true }] }); lit = true; await sleep(300); } catch (e) { /* no light */ }
-            }
-            const jpeg = async (source, width, height) => {
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                canvas.getContext('2d').drawImage(source, 0, 0, width, height);
-                return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode'))), 'image/jpeg', 0.95));
-            };
-            if (!blob) {
-                if (!(video.videoWidth > 0 && video.videoHeight > 0)) throw new Error('No video frame');
-                blob = await jpeg(video, video.videoWidth, video.videoHeight);
-            } else if (blob.type !== 'image/jpeg') {
-                const bitmap = await createImageBitmap(blob);
-                try { blob = await jpeg(bitmap, bitmap.width, bitmap.height); } finally { bitmap.close(); }
-            }
-            return new Uint8Array(await blob.arrayBuffer());
-        } finally {
-            if (lit) track.applyConstraints({ advanced: [{ torch: false }] }).catch(() => {});
+            if (flash === 'torch' && camera.torch) track.applyConstraints({ advanced: [{ torch: true }] }).catch(() => {});
         }
+        const jpeg = async (source, width, height) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext('2d').drawImage(source, 0, 0, width, height);
+            return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode'))), 'image/jpeg', 0.95));
+        };
+        if (!blob) {
+            if (!(video.videoWidth > 0 && video.videoHeight > 0)) throw new Error('No video frame');
+            blob = await jpeg(video, video.videoWidth, video.videoHeight);
+        } else if (blob.type !== 'image/jpeg') {
+            const bitmap = await createImageBitmap(blob);
+            try { blob = await jpeg(bitmap, bitmap.width, bitmap.height); } finally { bitmap.close(); }
+        }
+        return new Uint8Array(await blob.arrayBuffer());
     })()"""
 )
 
@@ -182,6 +211,21 @@ private fun jsOnVisibility(handler: (Boolean) -> Unit): JsAny = js(
 )
 
 private fun jsInvoke(callback: JsAny): Unit = js("callback()")
+
+/** The camera picked from the lens menu, for the rest of the session (CAM-028); null is the default rear camera. */
+private object WebCameraChoice {
+    var deviceId: String? = null
+}
+
+/** `auto`, `flash` (fill light at capture) and `torch`, as the open camera reports them (CAM-037). */
+private fun webFlashModes(lights: String): Set<FlashMode> = lights.split(',').mapNotNull {
+    when (it) {
+        "auto" -> FlashMode.AUTO
+        "flash" -> FlashMode.ON
+        "torch" -> FlashMode.TORCH
+        else -> null
+    }
+}.toSet()
 
 /** Camera access as the browser reports it (CAM-010…CAM-014); the browser's own prompt is the request. */
 private object WebCameraAccess {
@@ -237,6 +281,8 @@ actual fun CameraPreview(
     val longPress by rememberUpdatedState(onLongPress)
     val flashMode by rememberUpdatedState(flash)
     var camera by remember { mutableStateOf<JsAny?>(null) }
+    val strings = appStrings()
+    val unnamed by rememberUpdatedState { index: Int -> strings.text("Camera {0}", index) }
 
     // CAM-025: open while composed and the page is visible; tracks are stopped when OCR is left or the page is hidden.
     DisposableEffect(Unit) {
@@ -248,14 +294,30 @@ actual fun CameraPreview(
         camera = created
         var disposed = false
 
+        // CAM-028: the video inputs by name (`Camera 1`, `Camera 2`… while the browser withholds labels).
+        fun refreshCameras() {
+            scope.launch {
+                val lines = jsVideoInputs().await<JsString>().toString().split('\n').filter { it.isNotBlank() }
+                if (disposed) return@launch
+                handle.lenses = lines.mapIndexed { index, line ->
+                    val id = line.substringBefore('\t')
+                    val label = line.substringAfter('\t', "").trim()
+                    CameraLens(id, factor = null, name = label.ifEmpty { unnamed(index + 1) })
+                }
+            }
+        }
+
         fun open() {
             scope.launch {
-                val outcome = jsCameraOpen(created).await<JsString>().toString()
+                val outcome = jsCameraOpen(created, WebCameraChoice.deviceId).await<JsString>().toString()
                 if (disposed) return@launch
                 when (outcome) {
                     "ok" -> {
-                        handle.hasFlash = jsCameraTorch(created)
+                        handle.flashModes = webFlashModes(jsCameraLights(created))   // CAM-037
+                        handle.lens = jsCameraDeviceId(created)
                         handle.ready = true
+                        if (flashMode == FlashMode.TORCH) jsCameraSetTorch(created, true)
+                        refreshCameras()   // labels are only listed once access is granted
                     }
                     "denied" -> WebCameraAccess.denied()
                     "closed" -> Unit
@@ -264,6 +326,16 @@ actual fun CameraPreview(
             }
         }
         open()
+        val unlistenDevices = jsOnDeviceChange { if (!disposed) refreshCameras() }
+        handle.lensSwitch = { lens ->
+            // Remembered for the session; the stream restarts on that camera.
+            WebCameraChoice.deviceId = lens.id
+            if (lens.id != jsCameraDeviceId(created)) {
+                handle.ready = false
+                jsCameraStop(created)
+                open()
+            }
+        }
         val unlisten = jsOnVisibility { hidden ->
             if (disposed) return@jsOnVisibility
             if (hidden) {
@@ -290,13 +362,17 @@ actual fun CameraPreview(
         onDispose {
             disposed = true
             jsInvoke(unlisten)
-            handle.shutter = null
-            handle.capturing = false
-            handle.hasFlash = false
-            handle.ready = false
-            jsCameraClose(created)
+            jsInvoke(unlistenDevices)
+            handle.reset()
+            jsCameraClose(created)   // stopping the track also puts out the torch (CAM-039)
             camera = null
         }
+    }
+
+    // CAM-038: the chosen mode is applied as it changes; the torch only exists in `Flashlight`.
+    LaunchedEffect(camera, flash) {
+        val open = camera ?: return@LaunchedEffect
+        if (handle.ready) jsCameraSetTorch(open, flash == FlashMode.TORCH)
     }
 
     Box(

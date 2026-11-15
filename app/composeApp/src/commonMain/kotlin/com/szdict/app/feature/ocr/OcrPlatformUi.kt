@@ -40,17 +40,49 @@ class CameraHandle {
     /** The camera is open: the shutter works. */
     var ready: Boolean by mutableStateOf(false)
 
-    /** The active camera has a flash unit (CAM-037). */
-    var hasFlash: Boolean by mutableStateOf(false)
+    /** The illumination modes the active camera supports besides `Off` (CAM-037); empty without flash or torch. */
+    var flashModes: Set<FlashMode> by mutableStateOf(emptySet())
+
+    /** The active camera has a flash unit or a torch: the flash control is shown (CAM-037). */
+    val hasFlash: Boolean get() = flashMenu(flashModes).isNotEmpty()
 
     /** A capture is in flight (CAM-023). */
     var capturing: Boolean by mutableStateOf(false)
 
+    /** The lens menu (CAM-028): shown with two or more entries. */
+    var lenses: List<CameraLens> by mutableStateOf(emptyList())
+
+    /** Id of the lens last picked (or opened with). */
+    var lens: String? by mutableStateOf(null)
+
+    /** Live zoom relative to the main camera, where the platform knows it; follows pinches. */
+    var zoom: Float? by mutableStateOf(null)
+
     /** Set by the platform preview while it is bound. */
     var shutter: (() -> Unit)? = null
 
+    /** Set by the platform preview: switches to a lens of [lenses]. */
+    var lensSwitch: ((CameraLens) -> Unit)? = null
+
     fun takePicture() {
         if (ready && !capturing) shutter?.invoke()
+    }
+
+    fun selectLens(lens: CameraLens) {
+        this.lens = lens.id
+        lensSwitch?.invoke(lens)
+    }
+
+    /** Back to the closed state when the preview is released. */
+    fun reset() {
+        shutter = null
+        lensSwitch = null
+        capturing = false
+        flashModes = emptySet()
+        ready = false
+        lenses = emptyList()
+        lens = null
+        zoom = null
     }
 }
 

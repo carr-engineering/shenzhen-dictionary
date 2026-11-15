@@ -13,7 +13,14 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import android.hardware.camera2.CameraCharacteristics
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraState
+import androidx.camera.core.ZoomState
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -25,6 +32,7 @@ import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -54,8 +62,11 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.delay
+import kotlin.math.abs
+import kotlin.math.ln
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -112,6 +123,53 @@ actual fun rememberCameraPermission(): CameraPermissionState {
     )
 }
 
+@OptIn(ExperimentalCamera2Interop::class)
+private fun CameraInfo.cameraIdOrNull(): String? = runCatching { Camera2CameraInfo.from(this).cameraId }.getOrNull()
+
+/** Focal length over the active sensor width: proportional to the zoom a lens gives (as CameraX's own FovUtil computes it). */
+@OptIn(ExperimentalCamera2Interop::class)
+private fun CameraInfo.normalizedFocal(): Float? = runCatching {
+    val info = Camera2CameraInfo.from(this)
+    val focal = info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+    val size = info.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+    val active = info.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+    val pixels = info.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+    if (focal == null || size == null || focal <= 0f) return@runCatching null
+    val width = if (active != null && pixels != null && pixels.width > 0) size.width * active.width() / pixels.width else size.width
+    if (width > 0f) focal / width else null
+}.getOrNull()
+
+/**
+ * CAM-028: zoom ratios of a logical multi-camera's physical lenses (CameraX 1.5
+ * `getPhysicalCameraInfos()` + Camera2 characteristics), relative to its `1×`: the physical lens
+ * closest to the logical camera's own field of view. Empty when the camera exposes no lenses.
+ */
+private fun physicalLensRatios(main: CameraInfo): List<Float> {
+    val physical = runCatching { main.physicalCameraInfos }.getOrDefault(emptySet())
+    if (physical.size < 2) return emptyList()
+    val reference = main.normalizedFocal() ?: return emptyList()
+    val focals = physical.mapNotNull { it.normalizedFocal() }
+    if (focals.size < 2) return emptyList()
+    val anchor = focals.minBy { abs(ln(it / reference)) }
+    return focals.map { it / anchor }
+}
+
+@OptIn(ExperimentalCamera2Interop::class)
+private fun cameraWithId(id: String): CameraSelector =
+    CameraSelector.Builder().addCameraFilter { infos -> infos.filter { it.cameraIdOrNull() == id } }.build()
+
+/** Which camera is open and how its zoom relates to the main camera's (CAM-028). */
+private class LensTracker {
+    var mainId: String? = null
+    var currentId: String? = null
+    var info: CameraInfo? = null
+    var factor = 1f
+    var pendingZoom: Float? = null
+    val factors = HashMap<String, Float>()
+    var stateSource: LiveData<CameraState>? = null
+}
+
+@OptIn(ExperimentalCamera2Interop::class)
 @Composable
 actual fun CameraPreview(
     handle: CameraHandle,
@@ -129,6 +187,7 @@ actual fun CameraPreview(
     val captureError by rememberUpdatedState(onCaptureError)
     val focus by rememberUpdatedState(onFocus)
     val longPress by rememberUpdatedState(onLongPress)
+    val flashMode by rememberUpdatedState(flash)
     val disposed = remember { booleanArrayOf(false) }
     val focusSequence = remember { intArrayOf(0) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
@@ -141,6 +200,66 @@ actual fun CameraPreview(
             previewResolutionSelector = selector
             imageCaptureResolutionSelector = selector
             isTapToFocusEnabled = false   // handled below, with the reticle
+            isPinchToZoomEnabled = false  // likewise: the Compose layer above the preview takes the touches
+        }
+    }
+    val lenses = remember(controller) { LensTracker() }
+
+    // CAM-036 / CAM-039: capture flash through ImageCapture; `Flashlight` is the torch with the flash off. A torch
+    // request only takes while the camera is open, so this runs again whenever it (re)opens.
+    fun applyIllumination() {
+        val mode = flashMode
+        controller.imageCaptureFlashMode = when (captureFlash(mode)) {
+            FlashMode.AUTO -> ImageCapture.FLASH_MODE_AUTO
+            FlashMode.ON -> ImageCapture.FLASH_MODE_ON
+            else -> ImageCapture.FLASH_MODE_OFF
+        }
+        if (controller.cameraInfo != null) runCatching { controller.enableTorch(mode == FlashMode.TORCH) }
+    }
+
+    val stateObserver = remember(controller) {
+        Observer<CameraState> { state -> if (!disposed[0] && state.type == CameraState.Type.OPEN) applyIllumination() }
+    }
+
+    // A camera was bound (first open, or a switch to another camera of the lens menu).
+    fun onCamera(info: CameraInfo, zoom: ZoomState?) {
+        if (info === lenses.info) return
+        lenses.info = info
+        val id = info.cameraIdOrNull()
+        lenses.currentId = id
+        if (lenses.mainId == null && id != null && zoom != null) {
+            // CAM-028: the main camera's lens steps, plus other back cameras that are not reachable by its zoom.
+            lenses.mainId = id
+            val steps = zoomSteps(zoom.minZoomRatio, zoom.maxZoomRatio, physicalLensRatios(info))
+            val others = runCatching {
+                ProcessCameraProvider.getInstance(context).get().availableCameraInfos
+                    .filter { it.lensFacing == CameraSelector.LENS_FACING_BACK }
+                    .mapNotNull { other ->
+                        val otherId = other.cameraIdOrNull() ?: return@mapNotNull null
+                        if (otherId == id) return@mapNotNull null
+                        otherId to other.intrinsicZoomRatio
+                    }
+            }.getOrDefault(emptyList())
+            others.forEach { (otherId, factor) -> lenses.factors[otherId] = factor }
+            handle.lenses = if (info.lensFacing == CameraSelector.LENS_FACING_BACK) lensOptions(steps, others, mainId = id) else emptyList()
+            handle.lens = handle.lenses.firstOrNull { it.factor == 1f }?.id
+        }
+        lenses.factor = if (id == lenses.mainId) 1f else lenses.factors[id] ?: 1f
+        handle.flashModes = if (info.hasFlashUnit()) setOf(FlashMode.AUTO, FlashMode.ON, FlashMode.TORCH) else emptySet()   // CAM-037
+        handle.ready = true
+        lenses.stateSource?.removeObserver(stateObserver)
+        lenses.stateSource = info.cameraState.also { source -> owner?.let { source.observe(it, stateObserver) } }
+        lenses.pendingZoom?.let { ratio ->
+            lenses.pendingZoom = null
+            runCatching { controller.setZoomRatio(ratio) }
+        }
+    }
+
+    val zoomObserver = remember(controller) {
+        Observer<ZoomState> { zoom ->
+            if (disposed[0]) return@Observer
+            controller.cameraInfo?.let { onCamera(it, zoom) }
+            handle.zoom = zoom.zoomRatio * lenses.factor
         }
     }
 
@@ -166,11 +285,24 @@ actual fun CameraPreview(
                     } else {
                         controller.cameraSelector = selector
                         controller.bindToLifecycle(owner)
+                        controller.zoomState.observe(owner, zoomObserver)
                     }
                 } catch (e: Exception) {
                     handle.available = false
                 }
             }, executor)
+        }
+        handle.lensSwitch = { lens ->
+            // `<camera id>@<zoom ratio>` is a step of the main camera's zoom; a bare id is another camera.
+            val at = lens.id.lastIndexOf('@')
+            val cameraId = if (at > 0) lens.id.substring(0, at) else lens.id
+            val ratio = if (at > 0) lens.id.substring(at + 1).toFloatOrNull() else null
+            if (cameraId == lenses.currentId) {
+                ratio?.let { runCatching { controller.setZoomRatio(it) } }
+            } else {
+                lenses.pendingZoom = ratio
+                runCatching { controller.cameraSelector = cameraWithId(cameraId) }
+            }
         }
         handle.shutter = {
             handle.capturing = true
@@ -204,33 +336,17 @@ actual fun CameraPreview(
         }
         onDispose {
             disposed[0] = true
-            handle.shutter = null
-            handle.capturing = false
-            handle.hasFlash = false
-            handle.ready = false
+            // CAM-039: the torch goes out with the camera.
+            if (controller.cameraInfo != null) runCatching { controller.enableTorch(false) }
+            controller.zoomState.removeObserver(zoomObserver)
+            lenses.stateSource?.removeObserver(stateObserver)
+            handle.reset()
             controller.unbind()
         }
     }
 
-    // CAM-037 / CAM-038: the flash unit is known once the camera is open; the session's state is re-applied on every bind.
-    LaunchedEffect(controller) {
-        while (true) {
-            val info = controller.cameraInfo
-            if (info != null) {
-                handle.hasFlash = info.hasFlashUnit()
-                handle.ready = true
-                return@LaunchedEffect
-            }
-            delay(200)
-        }
-    }
-    LaunchedEffect(controller, flash) {
-        controller.imageCaptureFlashMode = when (flash) {
-            FlashMode.OFF -> ImageCapture.FLASH_MODE_OFF
-            FlashMode.ON -> ImageCapture.FLASH_MODE_ON
-            FlashMode.AUTO -> ImageCapture.FLASH_MODE_AUTO
-        }
-    }
+    // CAM-037 / CAM-038: the session's flash state is applied on every change and on every (re)open.
+    LaunchedEffect(controller, flash) { applyIllumination() }
 
     Box(modifier) {
         AndroidView(
@@ -246,7 +362,17 @@ actual fun CameraPreview(
             modifier = Modifier.fillMaxSize(),
         )
         Box(
-            Modifier.fillMaxSize().pointerInput(controller) {
+            Modifier.fillMaxSize()
+                .pointerInput(controller) {
+                    // CAM-028: pinch zooms continuously across the lenses; the lens chip follows the live factor.
+                    detectTransformGestures { _, _, zoomChange, _ ->
+                        val zoom = controller.zoomState.value ?: return@detectTransformGestures
+                        if (zoomChange != 1f) {
+                            runCatching { controller.setZoomRatio((zoom.zoomRatio * zoomChange).coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)) }
+                        }
+                    }
+                }
+                .pointerInput(controller) {
                 detectTapGestures(
                     onLongPress = { longPress() },
                     onTap = { position ->
