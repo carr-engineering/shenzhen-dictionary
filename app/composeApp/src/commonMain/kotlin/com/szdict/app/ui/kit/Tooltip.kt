@@ -1,5 +1,6 @@
 package com.szdict.app.ui.kit
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
@@ -19,11 +20,14 @@ import androidx.compose.ui.Modifier
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WithTooltip(label: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    TooltipBox(
-        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-        tooltip = { PlainTooltip { Text(label) } },
-        state = rememberTooltipState(),
-        modifier = modifier,
-        content = content,
-    )
+    // TooltipBox applies its own modifier to an inner anchor, where parent-scoped modifiers such as
+    // `align` / `weight` have no effect: the outer Box carries them to the parent layout instead.
+    Box(modifier) {
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+            tooltip = { PlainTooltip { Text(label) } },
+            state = rememberTooltipState(),
+            content = content,
+        )
+    }
 }
