@@ -49,6 +49,13 @@ internal class Ocr2Options(
      * slightly better on every measure (line F 59.0 against 58.3 %, Han top-1 86.9 against 86.6 %).
      */
     val detectorMaxGrow: Double = 2.0,
+    /**
+     * The detector sees the image reduced so that its longer side is at most this long; lines are
+     * still cut from the full image for the recogniser. No limit by default, as evaluated: at 1,280
+     * a 2,560-pixel photograph is detected four times faster and the labelled set scores the same
+     * (line F 59.5 %), but small text in street photographs is lost (12 lines become 2 on a road sign).
+     */
+    val detectorMaxSide: Int = Int.MAX_VALUE,
     /** Probability above which a pixel of the detector's map is text. */
     val pixelThreshold: Float = 0.3f,
     /** Mean probability inside a candidate box under which it is dropped. */
@@ -65,8 +72,10 @@ internal class Ocr2Options(
     /** Lines per recogniser (and classifier) batch; a batch is padded to its widest line. */
     val batch: Int = 6,
     /**
-     * Upper bound of `lines x frames x classes` per recogniser call. A batch above it is run in
-     * several calls, each padded to the whole batch's width, which leaves the results unchanged.
+     * Lines per recogniser call. Every line is padded to the width of its whole batch whatever this
+     * is, so the results do not depend on it (to 1e-6 in the probabilities); one line per call is
+     * 12 to 17 % faster than six on ONNX Runtime's CPU provider and keeps the output tensor
+     * (`lines x frames x 18,710 classes`) small.
      */
-    val maxOutputElements: Int = 6_000_000,
+    val linesPerCall: Int = 1,
 )

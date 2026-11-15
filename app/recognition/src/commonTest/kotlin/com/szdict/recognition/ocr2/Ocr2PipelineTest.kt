@@ -172,14 +172,17 @@ class Ocr2PipelineTest {
         assertEquals(8, result.lines.size)
         assertEquals(listOf(false, false, false, false, false, false, false, true), result.lines.map { it.vertical })
         assertEquals(result.lines.take(7).map { it.box.topLeft.y }.sorted(), result.lines.take(7).map { it.box.topLeft.y })
-        // Six lines, then the two widest; each batch is as wide as its widest line needs.
-        assertEquals(listOf(6, 2), nets.recogniserCalls.map { it.first })
-        assertTrue(nets.recogniserCalls[1].second > nets.recogniserCalls[0].second)
-        // A small output budget splits a batch into calls of the same width.
-        val split = Scripted(kernels)
-        Ocr2Pipeline(split, labels, Ocr2Options(maxOutputElements = 500)).recognize(white(736, 736))
-        assertEquals(listOf(2, 2, 2, 2), split.recogniserCalls.map { it.first })
-        assertEquals(1, split.recogniserCalls.take(3).map { it.second }.toSet().size)
+        // One line per call, each padded to its batch: six lines, then the two widest.
+        assertEquals(List(8) { 1 }, nets.recogniserCalls.map { it.first })
+        val widths = nets.recogniserCalls.map { it.second }
+        assertEquals(1, widths.take(6).toSet().size)
+        assertEquals(1, widths.drop(6).toSet().size)
+        assertTrue(widths[6] > widths[0])
+        // Whole batches per call read the same.
+        val batched = Scripted(kernels)
+        val same = Ocr2Pipeline(batched, labels, Ocr2Options(linesPerCall = 6)).recognize(white(736, 736))
+        assertEquals(listOf(6 to widths[0], 2 to widths[6]), batched.recogniserCalls)
+        assertEquals(result, same)
     }
 
     @Test

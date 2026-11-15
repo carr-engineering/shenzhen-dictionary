@@ -93,6 +93,38 @@ class RecognizersInstrumentedTest {
         assertEquals(emptyList(), failures)
     }
 
+    /**
+     * Stage timings over a directory of images on the device, logged as `OCR bench`:
+     *   adb push <images> /data/local/tmp/ocr-bench
+     *   ./gradlew :recognition:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.ocrBenchDir=/data/local/tmp/ocr-bench
+     * Images whose name starts with `photo-` are averaged separately. Skipped without the argument.
+     */
+    @Test
+    fun ocrTimingsOverADirectory() = runBlocking {
+        val dir = InstrumentationRegistry.getArguments().getString("ocrBenchDir")?.let { java.io.File(it) } ?: return@runBlocking
+        val files = dir.listFiles().orEmpty().filter { it.extension in setOf("png", "jpg") }.sortedBy { it.name }
+        check(files.isNotEmpty()) { "No images in $dir" }
+        text.recognize(image("hello-world-zh.png"))
+        for ((group, images) in files.groupBy { if (it.name.startsWith("photo-")) "photos" else "images" }) {
+            val totals = LinkedHashMap<String, Double>()
+            var wall = 0L
+            var lines = 0
+            for (file in images) {
+                val img = BitmapFactory.decodeFile(file.path).toOcrImage()
+                val start = SystemClock.elapsedRealtime()
+                val result = text.recognize(img)
+                val ms = SystemClock.elapsedRealtime() - start
+                wall += ms
+                lines += result.lines.size
+                val stages = (text as AndroidTextRecognizer).lastTimings
+                stages.forEach { (stage, v) -> totals[stage] = (totals[stage] ?: 0.0) + v }
+                Log.i(TAG, "OCR bench ${file.name} ${img.width}x${img.height}: $ms ms, ${result.lines.size} lines, " + stages.entries.joinToString(" ") { "${it.key}=${"%.0f".format(it.value)}" })
+            }
+            Log.i(TAG, "OCR bench $group: ${images.size} images, ${"%.1f".format(lines.toDouble() / images.size)} lines/image, ${wall / images.size} ms/image; " +
+                totals.entries.joinToString(" ") { "${it.key}=${"%.0f".format(it.value / images.size)}" })
+        }
+    }
+
     @Test
     fun ocrOffersLookAlikeCharactersAsAlternatives() = runBlocking {
         val result = text.recognize(image("similar.png"))

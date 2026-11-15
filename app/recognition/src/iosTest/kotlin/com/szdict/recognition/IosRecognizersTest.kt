@@ -186,6 +186,41 @@ class IosRecognizersTest {
         }
     }
 
+    /**
+     * Stage timings over a directory of images on the host (the simulator reads it directly):
+     *   RECOGNITION_BENCH_DIR=<images> ./gradlew :recognition:iosSimulatorArm64Test
+     * Images whose name starts with `photo-` are averaged separately. Skipped without the variable.
+     */
+    @Test
+    fun ocrTimingsOverADirectory() = runBlocking {
+        val dir = getenv("RECOGNITION_BENCH_DIR")?.toKString()?.takeIf { it.isNotEmpty() } ?: return@runBlocking
+        val names = (platform.Foundation.NSFileManager.defaultManager.contentsOfDirectoryAtPath(dir, null) ?: emptyList<Any?>())
+            .map { it.toString() }.filter { it.endsWith(".png") || it.endsWith(".jpg") }.sorted()
+        check(names.isNotEmpty()) { "No images in $dir" }
+        val recognizer = Recognizers.text(modelDir)
+        try {
+            recognizer.recognize(image("hello-world-zh.png"))
+            for ((group, images) in names.groupBy { if (it.startsWith("photo-")) "photos" else "images" }) {
+                val totals = LinkedHashMap<String, Double>()
+                var wall = 0.0
+                var lines = 0
+                for (name in images) {
+                    val img = (UIImage.imageWithContentsOfFile("$dir/$name") ?: error("Cannot decode $name")).toOcrImage()
+                    val (result, ms) = timed { recognizer.recognize(img) }
+                    wall += ms
+                    lines += result.lines.size
+                    val stages = (recognizer as IosTextRecognizer).lastTimings
+                    stages.forEach { (stage, v) -> totals[stage] = (totals[stage] ?: 0.0) + v }
+                    println("OCR bench $name ${img.width}x${img.height}: ${fixed(ms.toFloat(), 0)} ms, ${result.lines.size} lines, " + stages.entries.joinToString(" ") { "${it.key}=${fixed(it.value.toFloat(), 0)}" })
+                }
+                println("OCR bench $group: ${images.size} images, ${fixed(lines.toFloat() / images.size, 1)} lines/image, ${fixed((wall / images.size).toFloat(), 0)} ms/image; " +
+                    totals.entries.joinToString(" ") { "${it.key}=${fixed((it.value / images.size).toFloat(), 0)}" })
+            }
+        } finally {
+            recognizer.close()
+        }
+    }
+
     @Test
     fun ocrOffersLookAlikesAndFollowsVerticalAndRotatedText() = runBlocking {
         val recognizer = Recognizers.text(modelDir)

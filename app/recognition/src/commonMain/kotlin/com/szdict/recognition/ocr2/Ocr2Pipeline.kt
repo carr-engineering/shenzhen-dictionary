@@ -28,8 +28,8 @@ import kotlin.math.roundToInt
  *  3. Every box is cut out with a perspective transform at its own size; a crop at least 1.5 times
  *     taller than wide is turned a quarter counter-clockwise, so a vertical column reads left to right.
  *  4. The classifier turns lines that are upside down.
- *  5. The recogniser reads the lines in batches ordered by aspect ratio, 48 pixels high and padded to
- *     the widest line of the batch; lines with a mean character probability under 0.5 are dropped.
+ *  5. The recogniser reads the lines ordered by aspect ratio, 48 pixels high, each padded to the
+ *     widest line of its batch of six; lines with a mean character probability under 0.5 are dropped.
  *  6. [CtcAlternatives] gives every character its alternatives and [CharSpans] its extent in the
  *     crop, which is mapped back to the image through the crop's transform.
  *
@@ -182,7 +182,12 @@ internal class Ocr2Pipeline(
 
     private fun detect(page: BgrImage): List<TextBox> {
         val shorter = min(page.width, page.height)
-        val grow = if (shorter < options.detectorMinSide) min(options.detectorMinSide.toDouble() / shorter, options.detectorMaxGrow) else 1.0
+        val longer = max(page.width, page.height)
+        val grow = when {
+            shorter < options.detectorMinSide -> min(options.detectorMinSide.toDouble() / shorter, options.detectorMaxGrow)
+            longer > options.detectorMaxSide -> options.detectorMaxSide.toDouble() / longer
+            else -> 1.0
+        }
         val width = roundTo32((page.width * grow).toInt())
         val height = roundTo32((page.height * grow).toInt())
         if (width <= 0 || height <= 0) return emptyList()
@@ -241,9 +246,8 @@ internal class Ocr2Pipeline(
             var batchAspect = RECOGNISER_WIDTH.toDouble() / LINE_HEIGHT
             for (index in batch) batchAspect = max(batchAspect, aspect(crops[index].image))
             val width = (LINE_HEIGHT * batchAspect).toInt()
-            // Calls are split by output size only; every call is padded to the batch's width.
-            val perLine = (width / 8 + 2).toLong() * symbols.size
-            val chunk = (options.maxOutputElements / perLine).toInt().coerceIn(1, batch.size)
+            // However the batch is split into calls, every line is padded to the batch's width.
+            val chunk = options.linesPerCall.coerceIn(1, batch.size)
             for (from in batch.indices step chunk) {
                 checkpoint()
                 val part = batch.subList(from, min(batch.size, from + chunk))

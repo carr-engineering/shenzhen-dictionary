@@ -15,7 +15,8 @@ import kotlin.test.Test
  *
  * An image `x.jpg.png` is reported as file `x.jpg`. `<images>/scales.tsv` (name, scale) records by how
  * much an image was reduced from the labelled original. RECOGNITION_OCR2_OPTIONS takes
- * `classify=false`, `chunk=<max output elements>` and `threads=<n>` (comma separated) for timing experiments.
+ * `classify=false`, `grow=<factor>`, `detmax=<pixels>`, `batch=<lines>`, `calls=<lines per recogniser call>` and
+ * `threads=<n>` (comma separated) for experiments.
  * Skipped without the two directories.
  */
 class Ocr2BenchmarkRun {
@@ -29,8 +30,10 @@ class Ocr2BenchmarkRun {
         val defaults = Ocr2Options()
         val options = Ocr2Options(
             classify = settings["classify"]?.toBoolean() ?: defaults.classify,
-            maxOutputElements = settings["chunk"]?.toInt() ?: defaults.maxOutputElements,
+            linesPerCall = settings["calls"]?.toInt() ?: defaults.linesPerCall,
             detectorMaxGrow = settings["grow"]?.toDouble() ?: defaults.detectorMaxGrow,
+            detectorMaxSide = settings["detmax"]?.toInt() ?: defaults.detectorMaxSide,
+            batch = settings["batch"]?.toInt() ?: defaults.batch,
         )
         val nets = Ocr2Host.nets(settings["threads"]?.toInt() ?: 4)
         try {
