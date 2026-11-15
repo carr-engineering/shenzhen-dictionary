@@ -1,4 +1,5 @@
 /* Usage descriptions (ARCH-106) and Home Screen quick actions (SET-050); wording as in the app. */
+"CFBundleDisplayName" = "SZ Dict";
 "NSCameraUsageDescription" = "Camera access is needed to recognize Chinese text in photos.";
 "NSMicrophoneUsageDescription" = "Microphone access is needed to transcribe speech. Audio never leaves your device.";
 "NSPhotoLibraryAddUsageDescription" = "SZ Dict saves the photos you take for text recognition to your photo library when you ask it to.";

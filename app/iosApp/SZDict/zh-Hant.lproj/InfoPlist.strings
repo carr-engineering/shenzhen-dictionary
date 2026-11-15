@@ -1,3 +1,4 @@
+"CFBundleDisplayName" = "深圳詞典";
 "NSCameraUsageDescription" = "需要相機權限才能拍照辨識中文文字。";
 "NSMicrophoneUsageDescription" = "需要麥克風權限才能轉寫語音。音訊不會離開您的裝置。";
 "NSPhotoLibraryAddUsageDescription" = "在您選擇儲存時，深圳詞典會把用於文字辨識的相片儲存到相簿。";

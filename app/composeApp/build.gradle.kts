@@ -523,9 +523,12 @@ val stageWebPwa by tasks.registering {
     val iconBackground = drawables.file("ic_launcher_background.xml")
     val policyDir = layout.projectDirectory.dir("src/commonMain/kotlin/com/szdict/app/feature/settings")
     val policySources = listOf("PrivacyPolicy.kt", "PrivacyPolicyEn.kt", "PrivacyPolicyZhHans.kt", "PrivacyPolicyZhHant.kt").map { policyDir.file(it) }
+    // The app's English names (short for `short_name`, full for `name` and the privacy page title).
+    val appNameSource = layout.projectDirectory.file("src/commonMain/kotlin/com/szdict/app/AppName.kt")
     val target = webStaticRoots[6]
     inputs.files(iconForeground, iconBackground)
     inputs.files(policySources)
+    inputs.file(appNameSource)
     inputs.property("layout", 4)
     outputs.dir(target)
     doLast {
@@ -551,10 +554,15 @@ val stageWebPwa by tasks.registering {
         maskable.png(192, dir.resolve("icons/icon-maskable-192.png"))
         maskable.png(512, dir.resolve("icons/icon-maskable-512.png"))
 
+        val appNames = appNameSource.asFile.readText()
+        fun appName(key: String) = Regex("const val $key = \"([^\"]+)\"").find(appNames)?.groupValues?.get(1)
+            ?: throw GradleException("AppName.kt: $key not found")
+        val shortName = appName("EN_SHORT")
+        val fullName = appName("EN_FULL")
         dir.resolve("manifest.webmanifest").writeText(
             """{
-  "name": "SZ Dict",
-  "short_name": "SZ Dict",
+  "name": "$fullName",
+  "short_name": "$shortName",
   "description": "Offline Chinese–English dictionary for Mandarin and Cantonese",
   "id": "/",
   "start_url": "/",
@@ -642,7 +650,7 @@ val stageWebPwa by tasks.registering {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>${html(pageTitle)} — SZ Dict</title>
+<title>${html(pageTitle)} — ${html(fullName)}</title>
 <meta name="description" content="Privacy policy of Shenzhen Dictionary (SZ Dict, 深圳词典): no accounts, no advertising, no telemetry.">
 <link rel="canonical" href="https://szdict.com/privacy">
 <meta name="robots" content="index, follow">
@@ -666,7 +674,7 @@ p { margin: .6rem 0; }
 </style>
 </head>
 <body>
-<header><a class="app" href="/">SZ Dict</a><nav aria-label="Languages">$nav</nav></header>
+<header><a class="app" href="/">${html(fullName)}</a><nav aria-label="Languages">$nav</nav></header>
 <main>
 $body</main>
 </body>
