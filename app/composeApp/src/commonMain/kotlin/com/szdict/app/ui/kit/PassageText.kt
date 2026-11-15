@@ -37,10 +37,10 @@ import com.szdict.core.api.AnalysedPassage
  * Hanzi size of the passage surfaces (Search sentence card, Reading, OCR text, Voice): one size
  * larger than the headline, so that a character cell (advance plus [PASSAGE_LETTER_SPACING_EM])
  * holds the reading of nearly every syllable at full ruby size. Measured on the dataset's syllables
- * (Roboto Medium / SF Pro Medium, weighted by headword frequency): at 28 sp with 12 sp readings the
- * cell, less the 2 dp between readings, has room for 2.87 em of reading, and every Pinyin syllable
- * up to five letters (2.78 em at most) fits; only zhuang/chuang/shuang (3.27–3.31 em) and the
- * longest Jyutping need more, and those borrow the room their neighbours leave free ([placeRuby]).
+ * (Source Sans 3 Medium, the app's Latin font): at 28 sp with 12 sp readings the cell, less the
+ * 2 dp between readings, has room for 2.87 em of reading, and every Pinyin syllable up to five
+ * letters (2.68 em at most) fits; only zhuang/chuang/shuang (3.10–3.13 em) and the longest
+ * Jyutping (gwaang2, 3.82 em) need more, and those borrow the room their neighbours leave free ([placeRuby]).
  */
 val PassageFontSize: TextUnit = 28.sp
 
@@ -137,7 +137,9 @@ fun PassageText(
             lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Bottom, LineHeightStyle.Trim.None),
         )
     } else style
-    val rubyStyle = remember(metrics.rubyFontSize) { TextStyle(fontSize = metrics.rubyFontSize.sp, fontWeight = FontWeight.Medium) }
+    val rubyStyle = remember(metrics.rubyFontSize, style.fontFamily) {
+        TextStyle(fontSize = metrics.rubyFontSize.sp, fontWeight = FontWeight.Medium, fontFamily = style.fontFamily)
+    }
     val showBoundaries = prefs.showBoundaries
     val toneColors = prefs.toneColors
     val density = LocalDensity.current

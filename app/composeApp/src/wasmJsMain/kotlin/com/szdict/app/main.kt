@@ -39,6 +39,8 @@ import com.szdict.app.platform.WebSpeaker
 import com.szdict.app.platform.WebTranslator
 import com.szdict.app.platform.WithCjkFont
 import com.szdict.app.platform.browserLanguageTag
+import com.szdict.app.platform.keepTitleInStep
+import com.szdict.app.platform.latinFontReady
 import com.szdict.app.platform.requestPersistentStorage
 import com.szdict.app.ui.theme.DictionaryTheme
 import com.szdict.app.ui.theme.LocalDictionaryPalette
@@ -88,11 +90,14 @@ fun main() {
     // empty state's content must not wait for one.
     SearchStateHolder.of(session).start()
     WebHistory(session).start()
+    keepTitleInStep(session, scope)
     // Leaving or hiding the page is the Web's "stop": settle the settings and silence playback (ARCH-112).
     window.addEventListener("pagehide", { session.flushNow(); session.stopPlayback() })
     document.addEventListener("visibilitychange", { if (jsPageHidden()) session.flushNow() })
 
     ComposeViewport(document.body!!) {
+        // The start page stays up until the Latin font is here: no frame shows text in another face.
+        if (!latinFontReady()) return@ComposeViewport
         LaunchedEffect(Unit) { document.getElementById("loading")?.remove() }
         WithCjkFont(session) {
             Box(Modifier.fillMaxSize()) {

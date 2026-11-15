@@ -135,6 +135,12 @@ kotlin {
     }
 }
 
+// Compose resources (`src/commonMain/composeResources`): the Latin font (ui/theme/AppTypography.kt).
+compose.resources {
+    packageOfResClass = "com.szdict.app.resources"
+    publicResClass = false
+}
+
 android {
     namespace = "com.szdict.app"
     compileSdk = 36

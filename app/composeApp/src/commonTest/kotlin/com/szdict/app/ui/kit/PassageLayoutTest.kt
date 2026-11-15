@@ -69,11 +69,11 @@ class PassageLayoutTest {
         }
     }
 
-    // Widths of readings in reading ems, measured on Roboto Medium / SF Pro Medium (the wider).
+    // Widths of readings in reading ems, shaped in Source Sans 3 Medium (wght 500) with HarfBuzz.
     private val em = mapOf(
-        "de" to 1.20f, "guó" to 1.98f, "zhōng" to 2.78f, "shuāng" to 3.28f, "zhuàng" to 3.27f,
-        "chuáng" to 3.29f, "bāo" to 1.85f, "tāi" to 1.62f, "guǎng" to 2.73f, "chǎng" to 2.74f,
-        "gwong2" to 3.64f, "dung1" to 2.56f, "ngaang6" to 3.89f, "gwaang2" to 4.08f, "kwaang3" to 4.03f,
+        "de" to 1.06f, "guó" to 1.61f, "zhōng" to 2.60f, "shuāng" to 3.10f, "zhuàng" to 3.11f,
+        "chuáng" to 3.13f, "bāo" to 1.60f, "tāi" to 1.09f, "guǎng" to 2.64f, "chǎng" to 2.58f,
+        "gwong2" to 3.35f, "dung1" to 2.68f, "ngaang6" to 3.64f, "gwaang2" to 3.82f, "kwaang3" to 3.82f,
     )
 
     /** Slots for consecutive characters of one line at the default size (density 1: px = sp). */

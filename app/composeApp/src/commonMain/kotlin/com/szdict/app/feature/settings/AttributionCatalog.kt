@@ -139,6 +139,9 @@ internal val LibraryCredits: List<LibraryCredit> = listOf(
     LibraryCredit("AndroidX DataStore Preferences", "1.2.1", "Persistent app settings", "Apache-2.0", "https://developer.android.com/jetpack/androidx/releases/datastore"),
     LibraryCredit("AndroidX Glance", "1.1.1", "Home screen widgets", "Apache-2.0", "https://developer.android.com/jetpack/androidx/releases/glance"),
     LibraryCredit("LiteRT", "1.4.2", "On-device runtime for text and handwriting recognition", "Apache-2.0", "https://github.com/google-ai-edge/LiteRT"),
+    LibraryCredit("Source Sans 3", "3.052", "Typeface for English, Pinyin and Jyutping (© Adobe)", "SIL OFL 1.1", "https://github.com/adobe-fonts/source-sans"),
+    LibraryCredit("Noto Sans CJK", "2.004", "Chinese typeface of the web app", "SIL OFL 1.1", "https://github.com/notofonts/noto-cjk"),
+    LibraryCredit("Plangothic", "2.9.5795", "Rare Chinese characters in the web app (subset, renamed)", "SIL OFL 1.1", "https://github.com/Fitzgerald-Porthmouth-Koenigsegg/Plangothic_Project"),
 )
 
 /**

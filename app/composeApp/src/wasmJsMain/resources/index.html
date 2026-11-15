@@ -16,6 +16,11 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="SZ Dict">
     <link rel="preload" href="szdict.js" as="script">
+    <!-- The Latin font (Source Sans 3, Compose resources): fetched beside the code, ready before the first frame. -->
+    <link rel="preload" href="composeResources/com.szdict.app.resources/font/source_sans_3_regular.otf" as="fetch" crossorigin>
+    <link rel="preload" href="composeResources/com.szdict.app.resources/font/source_sans_3_medium.otf" as="fetch" crossorigin>
+    <link rel="preload" href="composeResources/com.szdict.app.resources/font/source_sans_3_semibold.otf" as="fetch" crossorigin>
+    <link rel="preload" href="composeResources/com.szdict.app.resources/font/source_sans_3_bold.otf" as="fetch" crossorigin>
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #faf7f1; }
         #loading {
