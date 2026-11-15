@@ -9,6 +9,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.ProvideTextStyle
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -208,32 +212,58 @@ private fun EntryFrame(
             WindowInsetsSides.Top + if (twoPane) WindowInsetsSides.End else WindowInsetsSides.Horizontal,
         ),
         topBar = {
-            TopAppBar(
-                expandedHeight = if (twoPane) 48.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
-                title = {
-                    AnimatedVisibility(visible = titleVisible && title != null, enter = fadeIn(), exit = fadeOut()) {
-                        Text(title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                },
-                navigationIcon = {
-                    if (frame.showBack) {
+            val titleContent: @Composable () -> Unit = {
+                AnimatedVisibility(visible = titleVisible && title != null, enter = fadeIn(), exit = fadeOut()) {
+                    Text(title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            val closeButton: @Composable () -> Unit = {
+                if (twoPane) WithTooltip(strings.text("Close detail")) {
+                    IconButton(onClick = frame.onClose) { Icon(Icons.Rounded.Close, contentDescription = strings.text("Close detail"), tint = palette.muted) }
+                }
+            }
+            if (frame.showBack) {
+                TopAppBar(
+                    expandedHeight = if (twoPane) 48.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
+                    title = titleContent,
+                    navigationIcon = {
                         WithTooltip(strings.text("Back")) {
                             IconButton(onClick = frame.onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = strings.text("Back")) }
                         }
+                    },
+                    actions = { closeButton() },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = palette.bg,
+                        titleContentColor = palette.fg,
+                        navigationIconContentColor = palette.muted,
+                        actionIconContentColor = palette.muted,
+                    ),
+                )
+            } else {
+                // A Material app bar reserves the navigation slot even when it is empty, which pushed the title
+                // right of the pane's content inset; without an icon the title starts at the 16 dp inset.
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(palette.bg)
+                        .windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(
+                                WindowInsetsSides.Top + if (twoPane) WindowInsetsSides.End else WindowInsetsSides.Horizontal,
+                            ),
+                        )
+                        .height(if (twoPane) 48.dp else TopAppBarDefaults.TopAppBarExpandedHeight)
+                        .padding(start = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        CompositionLocalProvider(LocalContentColor provides palette.fg) {
+                            ProvideTextStyle(MaterialTheme.typography.titleLarge, titleContent)
+                        }
                     }
-                },
-                actions = {
-                    if (twoPane) WithTooltip(strings.text("Close detail")) {
-                        IconButton(onClick = frame.onClose) { Icon(Icons.Rounded.Close, contentDescription = strings.text("Close detail")) }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = palette.bg,
-                    titleContentColor = palette.fg,
-                    navigationIconContentColor = palette.muted,
-                    actionIconContentColor = palette.muted,
-                ),
-            )
+                    closeButton()
+                    if (!twoPane) Spacer(Modifier.width(4.dp))
+                }
+            }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) { content() }
