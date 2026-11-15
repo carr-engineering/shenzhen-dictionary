@@ -115,7 +115,7 @@ fun SettingsScreen(session: AppSession, onBack: (() -> Unit)?, modifier: Modifie
                         modifier = Modifier.fillMaxWidth(),
                         equalWidth = true,
                         minHeight = 48.dp,
-                        options = listOf("简体", "繁體"),
+                        options = listOf("简体 Simplified", "繁體 Traditional"),
                         selectedIndex = if (settings.script == Script.SIMPLIFIED) 0 else 1,
                         onSelect = { index ->
                             val target = if (index == 0) Script.SIMPLIFIED else Script.TRADITIONAL

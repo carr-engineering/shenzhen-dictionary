@@ -202,7 +202,11 @@ private fun EntryFrame(
         containerColor = palette.bg,
         // Bottom excluded on purpose: pages pad it themselves so content scrolls beneath the
         // transparent navigation bar (ENT-091).
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        // Side pane: its start edge is the divider, never the window edge, so the cutout / rail inset on
+        // the start side is not applied again here (the rail consumed it); the end side still is.
+        contentWindowInsets = WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Top + if (twoPane) WindowInsetsSides.End else WindowInsetsSides.Horizontal,
+        ),
         topBar = {
             TopAppBar(
                 expandedHeight = if (twoPane) 48.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
