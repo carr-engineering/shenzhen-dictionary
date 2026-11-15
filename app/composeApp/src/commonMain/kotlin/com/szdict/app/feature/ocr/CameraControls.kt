@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.rounded.FlashAuto
@@ -330,7 +329,6 @@ internal fun LensControl(handle: CameraHandle, modifier: Modifier = Modifier) {
                 if (lens.front && index > 1) HorizontalDivider(Modifier.padding(vertical = 4.dp), color = palette.border)
                 DropdownMenuItem(
                     text = { Text(name(lens), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    leadingIcon = if (lens.front) ({ Icon(Icons.Rounded.Cameraswitch, contentDescription = null) }) else null,
                     trailingIcon = { if (selected) Icon(Icons.Rounded.Check, contentDescription = null, tint = palette.accent) },
                     onClick = { open = false; handle.selectLens(lens) },
                     modifier = Modifier.widthIn(max = 320.dp).semantics { this.selected = selected },
