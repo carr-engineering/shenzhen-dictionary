@@ -5,7 +5,6 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.szdict.core.api.DictMode
 import com.szdict.core.api.DictionaryFactory
 import com.szdict.core.api.Script
-import com.szdict.core.api.SectionKind
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -74,10 +73,19 @@ class CombinationQualityTest {
         runBlocking {
             val dict = DictionaryFactory.open(dir.absolutePath, DictMode.MANDARIN)
             val cache = HashMap<String, Shown>()
+            val impl = dict as com.szdict.core.domain.DictionaryImpl
+            val heads = HashMap<Int, String>()
+            suspend fun headOf(ids: Collection<Int>) {
+                val missing = ids.filter { it !in heads }.distinct()
+                if (missing.isNotEmpty()) for (c in dict.entryCards(missing, Script.SIMPLIFIED)) heads[c.id] = c.headword
+            }
             suspend fun shown(q: String): Shown = cache.getOrPut(q) {
-                val r = dict.search(q, Script.SIMPLIFIED)
-                val combos = r.chinese.sections.firstOrNull { it.kind == SectionKind.COMBINATIONS }?.combinations.orEmpty()
-                Shown(combos.map { cb -> cb.words.joinToString("") { it.headword } }, combos.map { cb -> cb.words.map { listOf(it.headword) } })
+                val out = impl.combinationsOf(q, Script.SIMPLIFIED)
+                headOf(out.flat.flatMap { it.toList() } + out.rows.flatMap { r -> r.slots.flatMap { it.toList() } })
+                Shown(
+                    out.flat.take(5).map { ids -> ids.joinToString("") { heads[it] ?: "?" } },
+                    out.rows.map { r -> r.slots.map { s -> s.map { heads[it] ?: "?" } } },
+                )
             }
             try {
                 val phrase = Acc(); val word = Acc(); val neg = Acc(); val stress = Acc(); val allPhrase = Acc()

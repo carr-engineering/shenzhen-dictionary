@@ -349,5 +349,19 @@
     ]
    }
   ]
+ },
+ "combinations": {
+  "_comment": "Gate of the combinations (SRCH-060…068) on the real Mandarin dataset, run by the JVM test CombinationQualityTest against contract/combinations-eval.json (test split; percentages). Recall is of the flat ranked list of kept sequences (at most five); grouped coverage and rows over all phrase queries with the shown rows (SRCH-065). Single-word lookups with combinations and unattested rows are reported, not gated.",
+  "min": {
+   "phrase_r1": 80.0,
+   "phrase_r5": 91.0,
+   "stress_r1": 83.0,
+   "stress_r5": 90.0,
+   "grouped_gold_covered": 93.0
+  },
+  "max": {
+   "negatives_with_combinations": 4.0,
+   "grouped_rows": 1.5
+  }
  }
 }
