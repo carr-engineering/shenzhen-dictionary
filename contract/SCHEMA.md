@@ -10,7 +10,7 @@ on *meaning*, the spec wins. Change both sides in one commit and bump `schema_ve
 | File | Contents |
 |------|----------|
 | `mandarin.db`, `cantonese.db` | main dataset, one per mode, identical schema |
-| `mandarin-lm.db`, `cantonese-lm.db` | language-model companion (`DATA-151`…`DATA-154`) |
+| `mandarin-lm.db`, `cantonese-lm.db` | language-model companion (`DATA-151`…`DATA-154`; Mandarin also the combination model, `DATA-156`) |
 | `mandarin-widget.json`, `cantonese-widget.json` | widget / Word-of-the-Day projection (`DATA-130`) |
 | `fixture/…` | the same files built from the small fixture sources (`ARCH-151`) |
 | `packs/sentences.db`, `packs/sentences-yue.db` | example sentences |
@@ -38,6 +38,7 @@ All tables with a natural primary key are `WITHOUT ROWID`.
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID;
 -- keys: every DATA-002 / DATA-155 field as text; lists/objects as JSON text
 -- (sources, asset_packs, decomposition_hashes, lm_source, lm_file). Booleans "0"/"1".
+-- has_trigram_model: the companion carries the combination model (note 25).
 
 CREATE TABLE entry(
   id INTEGER PRIMARY KEY,
@@ -158,16 +159,31 @@ traditional in the Cantonese one) and bracketed readings as `[display]`; render 
 ## Language-model companion (`*-lm.db`)
 
 ```sql
-CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID;   -- dataset_id, dataset_version, lm_word_count
+CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID;   -- dataset_id, dataset_version, lm_word_count,
+                                                                     -- has_trigram_model (when the tables below are present)
 CREATE TABLE lm_entry(entry_id INTEGER PRIMARY KEY, lm_word INTEGER, lm_unigram INTEGER); -- unigram = codebook index
-CREATE TABLE lm_codebook(kind INTEGER, code INTEGER, value REAL,     -- kind 0 unigram, 1 bigram, 2 backoff
-  PRIMARY KEY(kind, code)) WITHOUT ROWID;                            -- natural-log values
+CREATE TABLE lm_codebook(kind INTEGER, code INTEGER, value REAL,     -- kind 0 unigram, 1 bigram, 2 backoff;
+  PRIMARY KEY(kind, code)) WITHOUT ROWID;                            -- combination model (note 25): 3 bigram2,
+                                                                     -- 4 bigram2 backoff, 5 trigram, 6 trigram
+                                                                     -- backoff, 7 unigram2; natural-log values
 CREATE TABLE abbr_idx(key TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID;
 -- abbr_idx postings, descending unigram: varint count, then per posting:
 --   varint entry_id, varint lm_word, byte lm_unigram, byte alt (0/1/2), byte n, n × varint syllable idx
 CREATE TABLE bigram(left INTEGER PRIMARY KEY, block BLOB);
 -- block: byte backoff code, varint count, count × varint successor lm_word delta (ascending),
 --        count × byte bigram code
+
+-- Combination model (DATA-156, note 25), Mandarin only; absent from older files and from Cantonese:
+CREATE TABLE unigram2(block INTEGER PRIMARY KEY, codes BLOB);
+-- block = lm_word >> 8; codes = 256 bytes (the last block shorter), one kind-7 code per word
+CREATE TABLE bigram2(left INTEGER PRIMARY KEY, block BLOB);
+-- block: the layout of `bigram` with codebooks 3 (values) and 4 (backoff)
+CREATE TABLE trigram(key INTEGER PRIMARY KEY, block BLOB);
+-- key = (w1 << 17) | w2 of the page's first context. block: the contexts of w1 in ascending w2, each:
+--   varint (w2 - previous w2 of the page; 0 for the first), byte backoff code (kind 6), varint count,
+--   count × varint successor w3 (first absolute, then deltas, ascending), count × byte value code (kind 5).
+-- A new page starts when w1 changes or the page has reached 3,900 bytes. The row of context (w1, w2)
+-- is the one with the greatest key <= (w1 << 17) | w2 and >= w1 << 17.
 ```
 
 ## Widget projection (`*-widget.json`)
@@ -312,18 +328,20 @@ change it. The app reads what is described here.
     segmentable headwords of the run — language-model word and unigram from `lm_entry`, bigram blocks
     of the distinct left words, `-20` for an unknown character or a Unihan-only entry — with `k = 1`
     and a per-word penalty of 1 nat (a near tie goes to the longer dictionary word). Two batched
-    reads are added to the headword lookup: `lm_entry` and `bigram`.
+    reads are added to the headword lookup: `lm_entry` and `bigram`. Segmentation never reads the
+    combination model (note 25).
 21. **`reading_display`** attaches a comma token to the syllable before it (`yī bù zuò, èr bù xiū`);
     `syllables`, `tones` and `reading_canonical` keep one token per source token (note 3), so a
     display string may have fewer space-separated parts than `tones` has elements.
-22. **Combinations** (`SRCH-063`): besides the top-5 rule, a sequence is offered only when its score is
-    within 2.5 nats of the best sequence and of the best single word spelling the whole query, and
-    is at least −6.5 nats per syllable. When the query reads as syllables — boundaries typed (space,
-    apostrophe, tone digit) or, unspaced, a single shortest full-syllable reading — the best sequence
-    whose word boundaries fall on those syllable boundaries is offered without the per-syllable floor
-    (still within 2.5 nats of the best whole-query word); with typed boundaries, further such sequences
-    within 2.5 nats of it need only −11 nats per syllable (`ruan xing tiao zheng` → 软 行 调整, 软 性 调整…).
-    A letter typed as a word of its own counts as spelled in a query of English words (`wo shi yi g`).
+22. **Combinations** (`SRCH-063`, `SRCH-065`): from the decoder's ranked list (note 25), the first 12
+    distinct sequences (by headword list) are the candidates, a sequence whose concatenated text is the
+    simplified or traditional headword of a whole-query match being left out. A candidate is shown when
+    its score is within 4 nats of the best candidate and at least −6.5 nats per syllable (the syllables
+    of its words). Nothing else takes part — no score or count of whole-query words, no exemption for
+    typed syllable boundaries. The shown sequences are grouped: those with the same word boundaries
+    form one row (ranked by its best sequence), each slot listing up to 4 distinct headwords in rank
+    order; at most 3 rows. A row offers the cross-product of its slots. A letter typed as a word of its
+    own counts as spelled in a query of English words (`wo shi yi g`).
 23. **`part_of`** (decomposition pack, 2026-11): the reverse component index of the entry page's PARTS
     tab ("Appears in"). Additive: the pack's `user_version` stays 1 and `decomp` is unchanged; a reader
     treats a pack without the table as "no reverse index" and never scans `decomp` to build one
@@ -349,6 +367,22 @@ change it. The app reads what is described here.
     the CJK Radicals Supplement (by name), Unihan forms with no residual strokes (`kRSUnicode` x.0,
     x.-n) and the shared forms 月 (肉) and 阝 (邑). Additive like note 23: `user_version` stays 1 and a
     reader treats a pack without the table as "no extra forms".
+
+25. **Combination model** (`DATA-156`, `PIPE-087`, 2026-11): the Mandarin companion carries a second
+    model used only by the combinations (`SRCH-062`): `unigram2` (`u2`, the first word of a sequence
+    and the backoff distribution), `bigram2` and `trigram`, from libime folded onto headwords and
+    merged with subtitle n-gram counts, pruned to a byte budget. The app reads, per combination
+    search: the `abbr_idx` postings as before (the 40 words per span are still chosen by
+    `lm_entry`'s unigram); `unigram2` blocks of the lattice words (one `IN` read), whose value replaces
+    each edge's unigram; `bigram2` blocks of the left words; then, after the k-best decode (k = 8,
+    beam 18), the trigram rows of the distinct contexts of the first 300 multi-word paths in one read
+    (`json_each` + the max-key subquery above). For every word from the third on, the bigram
+    conditional is replaced by the trigram value, or by the context's backoff plus the bigram
+    conditional (backoff 0 for a context without a row), and the list is re-sorted in decoder order.
+    Without the tables (an older Mandarin file, the Cantonese companion) the app uses `bigram` and the
+    `lm_entry` unigrams and does not rescore; note 22 applies either way. **Schema version:** the
+    change is additive to the companion — an older reader ignores the tables and keeps the segmentation
+    model, a newer one detects them at first use — so, as for notes 23 and 24, `schema_version` stays 2.
 
 ## Schema version 2 (2026-11) — what changed from version 1
 

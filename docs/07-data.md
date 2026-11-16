@@ -51,7 +51,7 @@ updated through changesets (`DATA-215`, `DATA-216`).
 | `sources` | list | per-source name, version/commit, date, licence, URL (`SET-042`) |
 | `asset_packs` | list | companion files and packs with their versions and SHA-256 (`DATA-170`) |
 | `decomposition_hashes` | object | SHA-256 of the `decomposition` pack, the `decomposition-matches` file and the `strokes` pack this dataset was built with (`DATA-191`, `DATA-197`); the Web client re-fetches its stored copies only when a hash changes (`DATA-215`) |
-| language-model fields | — | `has_bigram_model`, `lm_source`, `abbrev_penalty`, `partial_penalty`, … (`DATA-155`) |
+| language-model fields | — | `has_bigram_model`, `has_trigram_model`, `lm_source`, `abbrev_penalty`, `partial_penalty`, … (`DATA-155`) |
 
 `DATA-003` `[MUST]` The app verifies `schema_version` against the range it supports **before** any
 query. A mismatch is a hard, user-visible error naming both versions. It must never attempt a partial
@@ -538,7 +538,8 @@ the decoder stays language-neutral (`GLB-010`). The first-letter index (`DATA-15
 table (`DATA-153`) form the dataset's **language-model companion file**, delivered per `DATA-170`; the
 abbreviation table, per-entry word ids and unigrams, codebooks and flags are small and stay in the
 main dataset. Expected size of the language-model data: about 2.5 to 3.5 MB per dataset (first-letter
-index about 1.1 to 1.4 MB, bigrams about 1.3 to 1.8 MB); budget `PERF-070`.
+index about 1.1 to 1.4 MB, bigrams about 1.3 to 1.8 MB); the Mandarin companion also carries the
+combination model (`DATA-156`) and is about 14 MB; budget `PERF-070`.
 
 `DATA-150` `[MUST]` **Syllable abbreviation table.** For every syllable of the inventory (`DATA-070`),
 the spellings that may stand for it as an abbreviated token: its first letter, plus its multi-letter
@@ -574,8 +575,9 @@ from the companion file in the same batched read as the bigram blocks. The Canto
 keyed by left word id: the left word's backoff weight (codebook index), a successor count, the
 successor word ids ascending and delta-encoded as unsigned varints, and one codebook index per
 successor for the conditional log-probability. A left word without a block has backoff 0. Only pairs
-of dictionary headwords are stored; trigrams are not stored. Scoring: `lp(w | v)` is the stored bigram
-when present, otherwise `backoff(v) + unigram(w)`.
+of dictionary headwords are stored. Scoring: `lp(w | v)` is the stored bigram when present, otherwise
+`backoff(v) + unigram(w)`. This is the segmentation model (`TXT-012`, `TXT-026`), and the combination
+model where the companion has no `DATA-156` tables.
 
 `DATA-154` `[MUST]` **Quantisation codebook.** Unigram log-probabilities, bigram log-probabilities and
 backoff weights are each stored as a 1-byte index into a codebook of at most 256 natural-log values,
@@ -587,11 +589,20 @@ is a table lookup; the app performs no logarithms.
 | Field | Type | Notes |
 |-------|------|-------|
 | `has_bigram_model` | bool | false → the decoder scores with unigrams only |
+| `has_trigram_model` | bool | the companion carries the combination model (`DATA-156`) |
 | `lm_source` | list | per source: name, version, licence, URL; flags a Mandarin fallback for Cantonese (`PIPE-074`) |
 | `abbrev_penalty` | float | natural-log penalty per abbreviated syllable; default `ln 0.5` |
 | `partial_penalty` | float | natural-log penalty for a partial final syllable |
 | `lm_word_count` | int | number of LM word ids |
 | `lm_file` | object | SHA-256 and size of the language-model companion file (`DATA-170`) |
+
+`DATA-156` `[MUST]` **Combination model** (Mandarin; built by `PIPE-087`; used by `SRCH-062` only).
+Three further companion tables over the same word ids: a combination unigram per word (`u2`, blocks of
+256 one-byte codes), combination bigram blocks (the `DATA-153` layout) and trigram blocks — per left
+word, its contexts in ascending second word, each with a backoff and its successors, packed into pages
+of about 4 KB keyed by the first context of the page — each quantity with its own 256-level codebook
+(`DATA-154`). Segmentation (`TXT-012`) never reads them; a companion without them (Cantonese, an older
+file) is scored with `DATA-152`/`DATA-153`. Physical layout: `contract/SCHEMA.md` note 25.
 
 ---
 
@@ -1766,13 +1777,15 @@ allow-list, not by a filename-pattern deny-list.
 
 `PIPE-070` `[MUST]` **Sources** (pinned in the lock file, `PIPE-162`; credited in `SET-040`):
 - Mandarin: the pre-trained libime model `lm_sc.arpa` (LGPL-2.1-or-later; distributed as a zstd archive
-  of about 78 MB; 270714 unigrams and 4789953 bigrams in the reference release).
+  of about 78 MB; 270714 unigrams, 4789953 bigrams and 2189434 trigrams in the reference release), and
+  for the combination model the OpenSubtitles 2018 `zh_cn` monolingual corpus from OPUS (`PIPE-085`).
 - Cantonese: built at pipeline time (`PIPE-074`) from the corpora of `PIPE-077` (decided: `Q-104`).
 The resolved source metadata is written to `lm_source` (`DATA-155`).
 
-`PIPE-071` `[MUST]` **ARPA import.** Stream-parse the ARPA file (`\data\`, `\1-grams:`, `\2-grams:`
-sections), convert log10 values to natural log, keep unigram log-probabilities and backoff weights and
-bigram log-probabilities, and ignore higher orders. Malformed lines fail the build.
+`PIPE-071` `[MUST]` **ARPA import.** Stream-parse the ARPA file (`\data\`, `\1-grams:`, `\2-grams:`,
+`\3-grams:` sections), convert log10 values to natural log, keep unigram log-probabilities and backoff
+weights and bigram log-probabilities for the segmentation model; the combination model (`PIPE-087`)
+also reads the trigrams. Malformed lines fail the build.
 
 `PIPE-072` `[MUST]` **Vocabulary mapping.** Map LM tokens to dictionary headword forms after
 `DATA-071` normalisation: Mandarin by simplified form; Cantonese by traditional form, converting
@@ -1828,6 +1841,40 @@ source needs a recorded licence check before it is added. Because CC BY-SA input
 derived tables (frequency table, LM) are published under **CC BY-SA 4.0** with attribution to every
 input. Pronoun + 嘅 headwords (佢嘅, 我嘅, …) are removed from the segmentation lexicon used on these
 corpora (`DATA-189`).
+
+`PIPE-085` `[MUST]` **Subtitle corpus** (Mandarin combination model). OPUS OpenSubtitles v2018
+`mono/zh_cn` (173 MB gzip, 16.3 M lines), pinned by URL and SHA-256 in the lock file (`PIPE-162`),
+optional (the build falls back to libime alone). Terms: free to use with a link to opensubtitles.org
+and a citation of P. Lison and J. Tiedemann, 2016, "OpenSubtitles2016: Extracting Large Parallel
+Corpora from Movie and TV Subtitles", LREC 2016 (credited in `SET-040`). Each line is normalised by
+`PIPE-086`, cut into Hanzi runs (Latin, digits left over, punctuation and space are boundaries) and
+segmented with the dataset's own vocabulary by the unigram path (1 nat per word; a character without
+a headword splits the run); n-grams never cross runs. Unigram, bigram and trigram counts are kept,
+bigrams and trigrams seen at least twice (about 86.6 M tokens, 2.47 M bigram and 5.12 M trigram types).
+
+`PIPE-086` `[MUST]` **Digits read as numerals** (corpus preprocessing, `PIPE-085`; the app has no
+numeral rule). Full-width digits and `：．％` are mapped to ASCII; then clock times `H:MM` (H ≤ 24,
+MM ≤ 59) read as hour (2 → 两) + 点 and 半 / 零M分 / M分; decimals as cardinal + 点 + digits; `N%` as
+百分之 + cardinal; years (four digits + 年), codes with a leading zero, numbers over 12 digits and
+numbers of 5 or more digits not followed by a measure-like character digit by digit; a lone 2 before
+a measure word (and 小时, 星期, 分钟, 千, 万 …) as 两 unless after 第; everything else as a cardinal
+(十二, 一百零五, 两万). `9:30见` → 九点半见, `2个` → 两个, `2015年` → 二零一五年.
+
+`PIPE-087` `[MUST]` **Combination model build** (`DATA-156`). (1) libime's ARPA, all three orders,
+is folded onto headwords: a non-headword token that is all Hanzi is split into headwords by the
+unigram path and its probability mass credited to the words and the n-grams inside and across it;
+other tokens are boundaries. (2) The subtitle counts are merged with the folded masses (count
+merging, weight 0.5, absolute discount 0.75 on subtitle counts). (3) Conditionals N2/N1 and N3/N2
+(capped below 0), backoffs renormalised against the combination unigram (`u2` = log of the mixed
+unigram mass, the segmentation unigram where unobserved), clamped to [10⁻³, 10]. (4) Bigrams and
+trigrams are pruned together by one-shot relative entropy (Stolcke) per estimated byte until the
+companion file reaches the configured budget (14 MB; the estimate is calibrated once against the
+written file); backoffs are renormalised after pruning. (5) Uniform 256-level log-space codebooks.
+The build report records fold, subtitle, mixing and pruning counts. The segmentation model
+(`PIPE-073`) and everything in the main dataset are unchanged by it. A combination quality gate on
+the full dataset (`contract/lm-quality.json` `combinations`, run by the app's JVM tests over
+`contract/combinations-eval.json`) bounds phrase recall, numeral recall, junk on English-like input
+and grouped coverage.
 
 ---
 

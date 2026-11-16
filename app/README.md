@@ -81,7 +81,8 @@ from the `PrivacyPolicy*.kt` sources).
   the background, a changed file is downloaded and verified beside the one in use, and one write
   of the pointer file installs it for the next load (the app shows "Dictionary updated"; other
   tabs are told through a BroadcastChannel). Updates are full downloads — changesets are not built.
-  The language model (`<mode>-lm.db`) is fetched when a query first needs it; the search runs
+  The language model (`<mode>-lm.db`: 14 MB for Mandarin with the combination model, 4.9 MB for
+  Cantonese) is fetched when a query first needs it; the search runs
   again when it arrives.
 - **Service worker** (`sw.js`, distribution only). The distribution task writes the build's
   version and shell file list into it. It keeps the shell (start page, code, WebAssembly, workers,

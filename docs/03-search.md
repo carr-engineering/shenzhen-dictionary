@@ -366,33 +366,48 @@ token may appear only on an edge that ends at the end of the query; `LITERAL` to
 Edge candidates come from the first-letter index (`DATA-151`, already in unigram order) in the same
 batched read as `SRCH-053`; at most **M = 40** words are kept per span.
 
-`SRCH-062` `[MUST]` **Scoring and search** use the shared lattice decoder (`TXT-026`): the score of a
-sequence is the sum of `lp(w | previous word)` — the bigram (`DATA-153`, decoded through `DATA-154`)
-when present, otherwise backoff plus unigram (`DATA-152`) — plus the log-penalties of the edge's
-tokens, `abbrev_penalty` per abbreviated syllable and `partial_penalty` for a partial one
-(`DATA-155`). The decoder runs k-best Viterbi with **k = 8**,
-recombination on (node, last word) and a beam cutoff (`TXT-026`). When the dataset's
-`has_bigram_model` is `false` (`DATA-155`), scoring uses unigrams only and everything else is
-unchanged.
+`SRCH-062` `[MUST]` **Scoring and search** use the shared lattice decoder (`TXT-026`). With the
+combination model (`DATA-156`, the Mandarin companion) the score of a sequence is the combination
+unigram of its first word, plus for every later word its trigram conditional on the two words before
+it — the kept trigram, else the context's backoff plus the bigram conditional, which is the kept
+bigram or the left word's backoff plus the word's combination unigram — plus the log-penalties of the
+edge's tokens, `abbrev_penalty` per abbreviated syllable and `partial_penalty` for a partial one
+(`DATA-155`). The decoder runs k-best Viterbi over the bigram scores with **k = 8**, recombination on
+(node, last word) and a beam cutoff (`TXT-026`); the first **300** multi-word paths are then
+rescored with the trigrams and re-sorted (`contract/SCHEMA.md` note 25). Without the combination
+model (Cantonese, an older Mandarin file) the segmentation model scores: the bigram (`DATA-153`,
+decoded through `DATA-154`) when present, otherwise backoff plus unigram (`DATA-152`), without
+rescoring. When the dataset's `has_bigram_model` is `false` (`DATA-155`), scoring uses unigrams only
+and everything else is unchanged.
 
-`SRCH-063` `[MUST]` **Output.** The top **5** distinct sequences of two or more words that cover the
-whole query, in descending score, among the plausible ones (`contract/SCHEMA.md` note 22); a query
-typed as separate syllables (`ruan xing tiao zheng`) always gets its best sequence on those syllables. Sequences are distinct by their displayed headwords under the active
-script. A sequence whose concatenated text equals the headword of an entry already matching the whole
-query (`EXACT` or `EXACT_TONELESS`) is dropped — it is already in the list (`nh` does not repeat 你好
-as 你 + 好). Whole-query single-word matches stay in the normal ranked list; combinations never enter
-the ranked list or the side's result count.
+`SRCH-063` `[MUST]` **Output.** Among the first **12** distinct sequences of two or more words that
+cover the whole query, in descending score, those within **4 nats** of the best one and scoring at
+least **−6.5 nats per syllable** are shown (`contract/SCHEMA.md` note 22), grouped into rows
+(`SRCH-065`). Sequences are distinct by their displayed headwords under the active script. A sequence
+whose concatenated text equals the headword of an entry already matching the whole query (`EXACT` or
+`EXACT_TONELESS`) is dropped — it is already in the list (`nh` does not repeat 你好 as 你 + 好); a
+whole-query match plays no other part (no bar, no smaller row count): a single-word lookup may show
+combinations (`jiudian` → 酒店 in the list and 九 点 as a combination). Whole-query single-word
+matches stay in the normal ranked list; combinations never enter the ranked list or the side's
+result count.
 
 `SRCH-064` `[MUST]` **Combinations group** (decided: `Q-106`). Combinations appear as a section on
 the Chinese page labelled `Combinations` with a count chip, placed after the whole-query single-word
 matches (`EXACT` and `EXACT_TONELESS`) and before longer (`PREFIX`) matches, and with its own
 `Combinations` category chip (`SRCH-090`). The section is omitted when there are no combinations.
 
-`SRCH-065` `[MUST]` **Combination card.** One card per combination shows its words in order, each with
-its tone-coloured headword (`GLB-066`) and its reading, which follows the pronunciation toggle
-(`GLB-120`: hidden readings keep their space). Each word is its own tap target: tapping a word opens
-that word's entry (`SRCH-130`); there is no target for the combination as a whole. The card's
-accessibility label reads the words in order, each with its reading unless hidden (`GLB-122`).
+`SRCH-065` `[MUST]` **Combination card.** Shown sequences with the same word boundaries form one row
+(card), ranked by its best sequence; at most **3** rows. A row has one **slot** per word position;
+a slot lists up to **4** distinct alternatives in rank order, the first being the word of the row's
+best sequence (`jiu dian zhong` → 九/就 · 点钟 and 酒店 · 中/种). A row offers every combination of its
+slots. Alternatives stand side by side, separated by a thin slash, the first at full strength and
+the others receded; slots are separated by a dot and wrap. Each alternative shows its tone-coloured
+headword (`GLB-066`) and its reading, which follows the pronunciation toggle (`GLB-120`: hidden
+readings keep their space); when all alternatives of a slot share one reading it is shown once
+beneath them. Each alternative is its own tap target: tapping it opens that word's entry
+(`SRCH-130`); there is no target for the row as a whole. The card's accessibility label reads the
+slots in order, alternatives joined by "or", each with its reading unless hidden (`GLB-122`); each
+alternative also announces its own headword and reading.
 
 `SRCH-066` `[MUST]` **Progressive.** Single-word results never wait for combinations: they are
 rendered as soon as they are ready, and the Combinations group is added when the decoder finishes,
@@ -408,8 +423,8 @@ guaranteed offline; offline without it the group is omitted.
 
 `SRCH-068` `[MUST]` **Budget and tracing.** Abbreviated input and combinations are held to `PERF-025`
 (single-word results stay within `PERF-020`). The decoder stage is traced as `dict.lattice`
-(`PERF-100`). It performs at most two batched store reads per query — first-letter postings and bigram
-blocks — and no per-word reads.
+(`PERF-100`). It performs at most four batched store reads per query — first-letter postings,
+combination unigram blocks, bigram blocks and trigram pages — and no per-word reads.
 
 ---
 
@@ -795,7 +810,7 @@ whatever the query kind and wherever the card appears: Chinese-page groups and s
 Starts, Contains, Related, the `ROMANISATION` ranked list), English-page results, CC-CEDICT rows
 (`SRCH-077`) and the Word of the Day card (`SRCH-115`); through the shared card component (`ENT-070`,
 `ENT-073`) also entry-detail related rows, HSK cards and word-candidate sheet rows where their layout
-allows, as those surfaces specify. A combination card (`SRCH-065`) is a sequence of words, not a word
+allows, as those surfaces specify. A combination card (`SRCH-065`) is a row of word slots, not a word
 card, and has none.
 - **Contents.** The `within` relation of the card's entry (`DATA-100`…`DATA-102`): every dictionary
   word inside it — sub-words and single characters alike, Unicode-only characters included

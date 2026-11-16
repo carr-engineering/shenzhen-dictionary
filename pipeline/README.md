@@ -22,3 +22,10 @@ standard library. Reading the libime model needs Python 3.14 (`compression.zstd`
 - `szdict/` — the code: `norm` (SRCH-010/013), `roman`, `senses` (note-convention parser), `mandarin`,
   `cantonese`, `hsk`, `unihan`, `lm`, `core` (indexes + SQLite writer), `validate` (DATA-200 gates).
 - `out/build-report.json` — counts, gate results, substitutions.
+- Language model: the Mandarin companion (`out/mandarin-lm.db`, about 14 MB) holds the segmentation
+  model (libime unigrams and bigrams) and the combination model (`szdict/lm_ngram.py`: libime folded
+  onto headwords and merged with OpenSubtitles 2018 zh_cn n-gram counts, `szdict/subs.py`, digits read
+  out by `szdict/textnorm.py`; trigrams; pruned to `Config.lm_ngram_budget_bytes`). The subtitle
+  corpus is optional in the lock file; its counts and the ARPA arrays are cached under
+  `sources/cache/` (about 25 s to rebuild). Its quality gate runs in the app's JVM tests
+  (`CombinationQualityTest`, thresholds in `contract/lm-quality.json`).
