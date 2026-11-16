@@ -107,6 +107,8 @@ internal fun installDebugState(session: AppSession, datasets: WebDatasets) {
             append(",\"english\":").append(shown?.result?.english?.count ?: -1)
             append(",\"sections\":").append(quote(shown?.result?.chinese?.sections?.joinToString(",") { it.kind.name }))
             append(",\"pending\":").append(shown?.result?.combinationsPending ?: false)
+            append(",\"combinations\":").append(quote(shown?.result?.chinese?.sections?.firstOrNull { it.kind == com.szdict.core.api.SectionKind.COMBINATIONS }
+                ?.combinations?.joinToString(" | ") { row -> row.slots.joinToString(" ") { slot -> slot.alternatives.joinToString("/") { it.headword } } }))
             append(",\"error\":").append(search.error != null)
             append(",\"notice\":").append(quote(search.notice))
             append(",\"hskLevel\":").append(hsk.shownLevel ?: 0)

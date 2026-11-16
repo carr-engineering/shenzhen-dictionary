@@ -36,6 +36,11 @@ internal object SelfTest {
         return "${side.side} count=${side.count} first=$head"
     }
 
+    /** Combination rows as text: slots by spaces, alternatives by `/`, rows by ` | ` (SRCH-065). */
+    private fun combinationRows(result: SearchResult): String =
+        result.chinese.sections.firstOrNull { it.kind == com.szdict.core.api.SectionKind.COMBINATIONS }?.combinations.orEmpty()
+            .joinToString(" | ") { row -> row.slots.joinToString(" ") { slot -> slot.alternatives.joinToString("/") { it.headword } } }
+
     private fun firstCard(result: SearchResult) = result.chinese.sections.firstNotNullOf { section ->
         section.cards.firstOrNull() ?: section.groups.firstNotNullOfOrNull { it.cards.firstOrNull() }
     }
@@ -56,6 +61,30 @@ internal object SelfTest {
             check("$tag search $romanised") { top(d.search(romanised, script)) }
             check("$tag search 你好") { top(d.search("你好", script)) }
             check("$tag search hello") { top(d.search("hello", script)) }
+            check("$tag combinations") {
+                // The language model is fetched on first need (ARCH-143): ask again until it has arrived.
+                val q = if (mode == DictMode.CANTONESE) "ngo hai jat g" else "jiu dian zhong"
+                var rows = ""
+                for (attempt in 0 until 60) {
+                    rows = combinationRows(d.search(q, script))
+                    if (rows.isNotEmpty()) break
+                    kotlinx.coroutines.delay(500)
+                }
+                require(rows.isNotEmpty()) { "no combinations for $q" }
+                "$q -> $rows"
+            }
+            check("$tag combination timings") {
+                val queries = if (mode == DictMode.CANTONESE) listOf("nh", "ngo5 zung1 ji3 nei5", "ngo hai jat g")
+                else listOf("nh", "ruan xing tiao zheng", "wo shi yi g", "wo jiu dian qu")
+                val out = ArrayList<String>()
+                for (q in queries) {
+                    for (i in 0 until 2) d.search(q, script)
+                    val mark = kotlin.time.TimeSource.Monotonic.markNow()
+                    for (i in 0 until 10) d.search(q, script)
+                    out.add("$q ${mark.elapsedNow().inWholeMicroseconds / 10 / 1000.0} ms")
+                }
+                out.joinToString("; ")
+            }
             check("$tag search sentence") { top(d.search(if (mode == DictMode.CANTONESE) "我哋今日去邊度食飯" else "我们今天去哪里吃饭", script)) }
             check("$tag entry detail") {
                 val card = firstCard(d.search("你好", script))
