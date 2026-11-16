@@ -351,7 +351,10 @@ def write_lm(ds: Dataset, lm: LM, path: Path, ngram=_UNSET) -> int:
 # Reference decoder used by the quality gate (PIPE-075). Scores with the quantised values, like the app.
 
 def decode_abbr(ds: Dataset, lm: LM, query: str, top_edges: int = 40, beam: int = 60, nbest: int = 5):
-    """Best word sequences for a pure first-letter query, e.g. 'wxhn' -> [我, 喜欢, 你]."""
+    """Best word sequences for a pure first-letter query, e.g. 'wxhn' -> [我, 喜欢, 你]. With the
+    combination model (PIPE-087) as the app scores combinations (SRCH-062), else with the bigrams."""
+    if lm.ngram is not None:
+        return _decode_abbr_ngram(ds, lm, query, top_edges, beam, nbest)
     field = lm_form(ds)
     n = len(query)
     uni = lambda wid: lm.q_uni.cents[lm.q_uni.code(lm.logp[wid])]      # noqa: E731
@@ -451,3 +454,71 @@ def segment_lattice(ds: Dataset, lm: LM, head: dict[str, set[int]], text: str, m
         merge = lone
         start = end
     return out
+
+
+def _decode_abbr_ngram(ds: Dataset, lm: LM, query: str, top_edges: int, beam: int, nbest: int):
+    """Exact trigram Viterbi with the quantised combination model (u2, bigram2, trigram): the reference
+    of the app's bigram k-best decoding plus trigram rescoring. Words of a span: the `top_edges` best by
+    the segmentation unigram, as in the app."""
+    import numpy as np
+    from . import lm_ngram
+    m = lm.ngram.model
+    V = m.V
+
+    def q(values):
+        codes, book = lm_ngram.codebook(values)
+        return np.array(book)[codes] if len(values) else values
+
+    uni = q(m.uni)
+    bv, bo1 = q(m.blp), np.zeros(V)
+    if m.has1.any():
+        bo1[m.has1] = q(m.bo1[m.has1])
+    tv, bo2 = q(m.tlp), q(m.bo2)
+    bk, tk, ck = m.bk, m.tk, m.ck
+
+    def find(keys, key):
+        i = int(np.searchsorted(keys, key))
+        return i if i < len(keys) and keys[i] == key else -1
+
+    def bi(a: int, b: int) -> float:
+        if not m.has1[a]:
+            return float(uni[b])
+        i = find(bk, a * V + b)
+        return float(bv[i]) if i >= 0 else float(bo1[a] + uni[b])
+
+    def tri(a: int, b: int, c: int) -> float:
+        i = find(tk, (a * V + b) * V + c)
+        if i >= 0:
+            return float(tv[i])
+        j = find(ck, a * V + b)
+        return (float(bo2[j]) if j >= 0 else 0.0) + bi(b, c)
+
+    field = lm_form(ds)
+    n = len(query)
+    edges: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
+    for i in range(n):
+        for j in range(i + 1, min(n, i + 6) + 1):
+            if i == 0 and j == n:
+                continue                              # a word spelling the whole query is not a combination
+            seen = set()
+            for _neg, wid, _rr, eid, _code, _alt, _syl in lm.abbr.get(query[i:j], ()):
+                if wid in seen:
+                    continue
+                seen.add(wid)
+                edges[i].append((j, wid, eid))
+                if len(seen) >= top_edges:
+                    break
+    states: list[dict] = [dict() for _ in range(n + 1)]
+    states[0][(None, None)] = (0.0, ())
+    for i in range(n):
+        cur = sorted(states[i].items(), key=lambda kv: -kv[1][0])[:beam]
+        for (a, b), (score, path) in cur:
+            for j, wid, eid in edges.get(i, ()):
+                lp = float(uni[wid]) if b is None else (bi(b, wid) if a is None else tri(a, b, wid))
+                s = score + lp
+                key = (b, wid)
+                old = states[j].get(key)
+                if old is None or s > old[0]:
+                    states[j][key] = (s, path + (eid,))
+    final = sorted(states[n].values(), key=lambda v: -v[0])[:nbest]
+    return [([ds.entries[e][field] for e in path], round(score, 3)) for score, path in final]

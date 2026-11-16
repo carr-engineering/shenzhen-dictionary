@@ -104,7 +104,7 @@ def main() -> None:
         f"\\2-grams:\n{''.join(big)}\n\\3-grams:\n{''.join(tri)}\n", "utf-8")
     (out / "lm_sc.1-2grams.arpa").unlink(missing_ok=True)
 
-    # subtitle excerpt (PIPE-085): the first lines written only with fixture characters (and digits)
+    # subtitle excerpt (PIPE-085): the first 20,000 lines written only with fixture characters (and digits)
     subs_src = cfg.src("opensubtitles_zh_cn")
     if subs_src.exists():
         keep_lines = []
@@ -114,7 +114,7 @@ def main() -> None:
                 hz = han.findall(line)
                 if len(hz) >= 2 and all(ch in chars for ch in hz):
                     keep_lines.append(line)
-                    if len(keep_lines) >= 4000:
+                    if len(keep_lines) >= 20000:
                         break
         with open(out / "opensubtitles-zh_cn.excerpt.txt.gz", "wb") as raw, \
                 gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz:
