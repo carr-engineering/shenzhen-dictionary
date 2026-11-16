@@ -297,6 +297,7 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Only the first part was sent to translate." to "僅傳送了開頭部分進行翻譯。",
     "Word of the Day" to "每日一詞",
     "Combinations" to "詞語組合",
+    "or" to "或",
     "More matches" to "更多相符結果",
     "English · Jyutping · 漢字" to "英文 · 粵拼 · 漢字",
     "Hanzi + Jyutping pattern matches" to "漢字與粵拼組合比對",

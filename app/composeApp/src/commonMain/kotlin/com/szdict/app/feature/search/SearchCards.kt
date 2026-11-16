@@ -40,9 +40,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -55,9 +58,11 @@ import com.szdict.app.ui.kit.passageTextStyle
 import com.szdict.app.ui.kit.TonedHanziText
 import com.szdict.app.ui.kit.TonedReadingText
 import com.szdict.app.ui.kit.WithTooltip
+import com.szdict.app.ui.kit.hiddenFromAccessibility
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.AnalysedPassage
 import com.szdict.core.api.Combination
+import com.szdict.core.api.CombinationSlot
 import com.szdict.core.api.EntryCard
 
 /** Segmented passage card of sentence mode (SRCH-100, SRCH-101). */
@@ -155,8 +160,12 @@ private fun ActionButton(label: String, enabled: Boolean, onClick: () -> Unit, c
 }
 
 /**
- * One multi-word combination (SRCH-065): the words in order, each its own tap target; there is no
- * target for the combination as a whole.
+ * One combination row (SRCH-065): slots in order, each followed by a dot but the last; a slot's alternatives (the
+ * homophones the row offers at those syllables) side by side, separated by a thin slash, the first —
+ * the word of the best sequence — at full strength. Every alternative is its own tap target opening
+ * its entry; there is no target for the row as a whole. A slot whose alternatives share one reading
+ * shows it once beneath them, else each alternative carries its own. The row is described as a whole
+ * for assistive technology ("就 jiù or 九 jiǔ, 点 diǎn"), each alternative also on its own.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -167,43 +176,96 @@ internal fun CombinationCard(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalDictionaryPalette.current
-    val prefs = LocalDisplayPrefs.current
-    val spoken = combination.words.joinToString(", ") { word ->
-        if (!word.reading.isEmpty) "${word.headword} ${word.reading.display}" else word.headword
-    }
+    val strings = appStrings()
+    val or = strings.text("or")
+    fun said(word: EntryCard) = if (!word.reading.isEmpty) "${word.headword} ${word.reading.display}" else word.headword
+    val spoken = combination.slots.joinToString(", ") { slot -> slot.alternatives.joinToString(" $or ") { said(it) } }
     Surface(
         modifier = modifier.fillMaxWidth().padding(vertical = 4.dp).semantics { contentDescription = spoken },
         shape = MaterialTheme.shapes.medium,
         color = palette.panel,
-        border = BorderStroke(1.dp, if (combination.words.any { it.id == selectedId }) palette.accent else palette.border),
+        border = BorderStroke(1.dp, if (combination.slots.any { s -> s.alternatives.any { it.id == selectedId } }) palette.accent else palette.border),
     ) {
         FlowRow(
-            Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
+            itemVerticalAlignment = Alignment.Top,
         ) {
-            combination.words.forEach { word ->
-                Column(
-                    Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (word.id == selectedId) palette.accentSoft else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable(role = Role.Button) { onOpen(word) }
-                        .heightIn(min = 48.dp)
-                        .padding(horizontal = 7.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    TonedHanziText(
-                        word.headword, word.reading, prefs.toneColors && word.toneColourable,
-                        MaterialTheme.typography.titleLarge, color = palette.fg,
-                    )
-                    TonedReadingText(
-                        word.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium,
-                        color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
+            combination.slots.forEachIndexed { index, slot ->
+                // The dot follows its slot, so a wrapped line never starts with one.
+                Row(verticalAlignment = Alignment.Top) {
+                    CombinationSlotView(slot, selectedId, onOpen, ::said)
+                    if (index < combination.slots.lastIndex) SlotSeparator("·")
                 }
             }
         }
     }
+}
+
+/** The alternatives of one slot; a shared reading is drawn once, centred beneath them. */
+@Composable
+private fun CombinationSlotView(
+    slot: CombinationSlot,
+    selectedId: Int?,
+    onOpen: (EntryCard) -> Unit,
+    said: (EntryCard) -> String,
+) {
+    val palette = LocalDictionaryPalette.current
+    val prefs = LocalDisplayPrefs.current
+    val readings = slot.alternatives.map { it.reading.display }
+    val shared = slot.alternatives.size > 1 && readings.distinct().size == 1 && !slot.alternatives[0].reading.isEmpty
+    Box {
+        Row(verticalAlignment = Alignment.Top) {
+            slot.alternatives.forEachIndexed { i, word ->
+                if (i > 0) SlotSeparator("/")
+                // Alternatives after the first are the row's other readings of the syllables: same size
+                // and tone colours, slightly receded so the best sequence reads first.
+                val strength = if (i == 0) 1f else 0.68f
+                Column(
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (word.id == selectedId) palette.accentSoft else Color.Transparent)
+                        .clickable(role = Role.Button) { onOpen(word) }
+                        // One announcement per alternative: headword and reading (the texts inside are not read again).
+                        .clearAndSetSemantics { contentDescription = said(word) }
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    TonedHanziText(
+                        word.headword, word.reading, prefs.toneColors && word.toneColourable,
+                        MaterialTheme.typography.titleLarge, color = palette.fg, modifier = Modifier.alpha(strength),
+                    )
+                    TonedReadingText(
+                        word.reading, prefs.toneColors, MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.alpha(strength),
+                        visible = !shared, color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        if (shared) {
+            TonedReadingText(
+                slot.alternatives[0].reading, prefs.toneColors, MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).hiddenFromAccessibility(),
+                color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Thin separator between alternatives (`/`) or slots (`·`), aligned with the hanzi line. */
+@Composable
+private fun SlotSeparator(glyph: String) {
+    val palette = LocalDictionaryPalette.current
+    Text(
+        glyph,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Light,
+        color = palette.muted.copy(alpha = if (glyph == "/") 0.55f else 0.8f),
+        modifier = Modifier.padding(top = 4.dp).padding(horizontal = if (glyph == "/") 0.dp else 2.dp).hiddenFromAccessibility(),
+    )
 }
 
 /** Stand-in for a row whose window is still being hydrated (SRCH-073); sized like a result card. */

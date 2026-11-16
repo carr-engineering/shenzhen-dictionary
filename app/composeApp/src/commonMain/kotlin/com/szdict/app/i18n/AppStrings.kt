@@ -325,6 +325,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     // Search destination
     "Word of the Day" to "每日一词",
     "Combinations" to "词语组合",
+    "or" to "或",
     "More matches" to "更多匹配",
     "English · Jyutping · 漢字" to "英文 · 粤拼 · 漢字",
     "Hanzi + Jyutping pattern matches" to "汉字与粤拼组合匹配",
