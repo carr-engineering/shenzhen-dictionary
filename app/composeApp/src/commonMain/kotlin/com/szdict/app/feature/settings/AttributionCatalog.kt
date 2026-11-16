@@ -93,9 +93,14 @@ internal val DataSourceCredits: List<Credit> = listOf(
         match = listOf("make me a hanzi", "makemeahanzi"),
     ),
     Credit(
-        "libime language model", "Mandarin word pairs for multi-word search combinations", "LGPL-2.1-or-later",
+        "libime language model", "Mandarin word pairs and triples for multi-word search combinations", "LGPL-2.1-or-later",
         listOf(CreditLink("libime", "https://github.com/fcitx/libime")),
         match = listOf("libime"),
+    ),
+    Credit(
+        "OpenSubtitles 2018 (OPUS)", "Spoken Mandarin word sequences for multi-word search combinations",
+        "Free to use with a link to opensubtitles.org and a citation of P. Lison and J. Tiedemann, 2016, OpenSubtitles2016: Extracting Large Parallel Corpora from Movie and TV Subtitles (LREC 2016)",
+        listOf(CreditLink("OpenSubtitles", "http://www.opensubtitles.org/"), CreditLink("OPUS", "https://opus.nlpl.eu/")),
     ),
     Credit(
         "rime-cantonese", "Cantonese frequency table and language model", "CC BY 4.0",
