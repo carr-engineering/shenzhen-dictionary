@@ -30,6 +30,11 @@ class Config:
     abbr_cap_long: int = 400
     oov_penalty: float = -4.0
     lm_unigram_mix: float = 0.5
+    # combination model (PIPE-087): companion file budget, subtitle weight / discount / minimum count
+    lm_ngram_budget_bytes: int = 14_000_000
+    lm_subs_weight: float = 0.5
+    lm_subs_discount: float = 0.75
+    lm_subs_min_count: int = 2
     use_fixture_sources: bool = True
 
     def __post_init__(self) -> None:
@@ -47,9 +52,9 @@ class Config:
 
 FIXTURE_FILES = {
     "unihan": "Unihan.zip", "ucd_equivalent_unified_ideograph": "EquivalentUnifiedIdeograph.txt",
-    "ucd_cjk_radicals": "CJKRadicals.txt", "libime_lm_sc": "lm_sc.1-2grams.arpa",
+    "ucd_cjk_radicals": "CJKRadicals.txt", "libime_lm_sc": "lm_sc.1-3grams.arpa",
     "rime_essay_cantonese": "essay-cantonese.txt", "ud_cantonese_hk": "yue_hk-ud.conllu",
-    "hkcancor": "hkcancor.zip",
+    "hkcancor": "hkcancor.zip", "opensubtitles_zh_cn": "opensubtitles-zh_cn.excerpt.txt.gz",
 }
 
 

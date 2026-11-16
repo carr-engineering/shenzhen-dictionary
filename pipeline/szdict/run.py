@@ -97,6 +97,7 @@ def finish_dataset(ds: Dataset, lm, cfg: Config, report: dict) -> None:
     lmmod.write_lm(ds, lm, lm_path)
     ds.meta.update({
         "has_bigram_model": "1" if lm.has_bigrams else "0",
+        "has_trigram_model": "1" if lm.ngram is not None else "0",
         "lm_word_count": str(len(lm.words)),
         "lm_file": cjson({"name": lm_path.name, "sha256": sha256_file(lm_path), "size": lm_path.stat().st_size}),
         "lm_source": cjson(ds.lm_source),
@@ -141,6 +142,9 @@ def main(args) -> int:
     assign_frequency(man, "simp", dict(zip(mlm.words, mlm.logp)), mlm.observed)
     build_hsk_chars(man, cfg)
     lmmod.build_abbr(man, mlm, cfg)
+    if args.only != "cantonese":
+        from .lm_sources import mandarin_ngram
+        mandarin_ngram(man, mlm, cfg, log)
     from .sources_meta import mandarin_sources
     mandarin_sources(man, cfg)
     base_meta(man, cfg, ver, ihash)

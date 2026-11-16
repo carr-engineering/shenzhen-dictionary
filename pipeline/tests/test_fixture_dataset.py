@@ -135,6 +135,16 @@ def test_lm_file(built):
     assert vals[0] >= 1 and vals[1] == entry(main, "你好")["id"]
     assert lm.execute("SELECT count(*) FROM bigram").fetchone()[0] > 0
     assert lm.execute("SELECT max(code) FROM lm_codebook WHERE kind = 0").fetchone()[0] <= 255
+    # combination model (PIPE-087, DATA-156): Mandarin only; the Cantonese companion keeps its layout
+    assert dict(lm.execute("SELECT key, value FROM meta"))["has_trigram_model"] == "1"
+    assert dict(main.execute("SELECT key, value FROM meta"))["has_trigram_model"] == "1"
+    for t in ("unigram2", "bigram2", "trigram"):
+        assert lm.execute(f"SELECT count(*) FROM {t}").fetchone()[0] > 0, t
+    kinds = {k for (k,) in lm.execute("SELECT DISTINCT kind FROM lm_codebook")}
+    assert kinds == set(range(8))
+    ylm = db(built / "cantonese-lm.db")
+    assert not {r[0] for r in ylm.execute("SELECT name FROM sqlite_master")} & {"unigram2", "bigram2", "trigram"}
+    assert dict(db(built / "cantonese.db").execute("SELECT key, value FROM meta"))["has_trigram_model"] == "0"
     widget = json.loads((OUT / "mandarin-widget.json").read_text("utf-8"))
     assert widget["rows"] and set(widget["rows"][0]) == {"id", "key", "levels", "simp", "trad", "reading", "gloss"}
 

@@ -10,7 +10,7 @@ from .config import Config
 def mandarin_lm(ds, cfg: Config):
     archive = cfg.src("libime_lm_sc")
     if archive.exists():
-        arpa = lmmod.extract_arpa_12(cfg)
+        arpa = lmmod.extract_arpa(cfg)
         uni = lmmod.read_arpa_unigrams(arpa)
         n_arpa = len(uni)
         # Blend the (written-register) libime unigrams with the conversational subtitle frequency
@@ -38,3 +38,27 @@ def mandarin_lm(ds, cfg: Config):
                          "version": "2018", "licence": "CC-BY-SA-4.0",
                          "url": "https://github.com/hermitdave/FrequencyWords"}]
     return lm
+
+
+def mandarin_ngram(ds, lm, cfg: Config, log=print) -> None:
+    """PIPE-087: the combination model (folded libime + subtitles), after the first-letter index so the
+    byte budget is measured on the whole companion file."""
+    import tempfile
+    from pathlib import Path
+
+    from . import lm_ngram
+    archive = cfg.src("libime_lm_sc")
+    if not archive.exists():
+        return
+    arpa = lmmod.extract_arpa(cfg)
+    subs = cfg.src("opensubtitles_zh_cn")
+    with tempfile.TemporaryDirectory() as tmp:
+        trial = Path(tmp) / "trial-lm.db"
+        lm.ngram = lm_ngram.build(lm.words, lm.logp, arpa, subs if subs.exists() else None, cfg,
+                                  lambda model: lmmod.write_lm(ds, lm, trial, model), log)
+    if subs.exists():
+        s = cfg.lock["opensubtitles_zh_cn"]
+        ds.lm_source = list(ds.lm_source) + [{
+            "name": "OpenSubtitles 2018 zh_cn (OPUS), subtitle n-gram counts for the combinations",
+            "version": s.get("version", ""), "licence": s.get("licence", ""), "url": s["url"], "sha256": s.get("sha256", ""),
+            "credit": "http://www.opensubtitles.org/ ; P. Lison and J. Tiedemann, 2016, OpenSubtitles2016: Extracting Large Parallel Corpora from Movie and TV Subtitles, LREC 2016"}]

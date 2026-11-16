@@ -17,7 +17,7 @@ from .senses import labels
 META_KEYS = ["schema_version", "dataset_id", "dataset_version", "pipeline_commit", "input_hash", "built_at",
              "content_hash", "language", "romanization", "tone_count", "entry_count", "max_headword_len",
              "max_word_len", "total_frequency", "has_frequency_data", "has_hsk", "sources", "asset_packs",
-             "decomposition_hashes", "has_bigram_model", "lm_source", "abbrev_penalty", "partial_penalty",
+             "decomposition_hashes", "has_bigram_model", "has_trigram_model", "lm_source", "abbrev_penalty", "partial_penalty",
              "lm_word_count", "lm_file"]
 
 
@@ -237,6 +237,7 @@ def validate_dataset(cfg: Config, ds_id: str, fixture: bool) -> Gates:
     g.note("14_language_model", "bigrams", nbig)
     lm_meta = dict(lmc.execute("SELECT key, value FROM meta"))
     g.check("14_language_model", lm_meta.get("dataset_version") == meta["dataset_version"], "LM dataset_version mismatch")
+    _check_combination_model(g, lmc, meta, lm_meta, cb, nwords)
 
     # 15 normalisation of the remaining keys; 21 alternative readings
     for key, kind in con.execute("SELECT DISTINCT key, kind FROM headword WHERE kind = 2"):
@@ -294,3 +295,63 @@ def validate_all(cfg: Config, report: dict, only: str | None = None) -> bool:
                 print(f"GATE FAIL {ds_id} {name}: {r['failures'][:3]}", flush=True)
         ok = ok and g.ok
     return ok
+
+
+def _check_combination_model(g, lmc, meta: dict, lm_meta: dict, cb: dict, nwords: int) -> None:
+    """Gate 14, combination model (DATA-156): `unigram2` / `bigram2` / `trigram` blocks decode to word
+    ids below `lm_word_count`, ascending, with their codebooks (kinds 3…7) present; the
+    `has_trigram_model` flags of both files match the presence of the tables."""
+    tables = {r[0] for r in lmc.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    present = {"unigram2", "bigram2", "trigram"} <= tables
+    g.check("14_language_model", (meta.get("has_trigram_model", "0") == "1") == present
+            and (lm_meta.get("has_trigram_model", "0") == "1") == present, "has_trigram_model mismatch")
+    if not present:
+        return
+    g.check("14_language_model", all(k in cb for k in (3, 4, 5, 6, 7)), f"combination codebooks {cb}")
+    blocks = lmc.execute("SELECT block, length(codes) FROM unigram2 ORDER BY block").fetchall()
+    g.check("14_language_model", [b for b, _n in blocks] == list(range((nwords + 255) >> 8))
+            and sum(n for _b, n in blocks) == nwords, "unigram2 blocks")
+    nb = 0
+    ok = True
+    for left, blob in lmc.execute("SELECT left, block FROM bigram2"):
+        cnt, p = _rv(blob, 1)
+        acc = -1
+        for i in range(cnt):
+            d, p = _rv(blob, p)
+            nxt = d if i == 0 else acc + d
+            ok = ok and nxt > acc and nxt < nwords
+            acc = nxt
+        ok = ok and left < nwords and len(blob) == p + cnt and cnt > 0
+        nb += cnt
+    g.check("14_language_model", ok, "bigram2 blocks")
+    nt = nctx = 0
+    ok = True
+    prev_key = -1
+    for key, blob in lmc.execute("SELECT key, block FROM trigram ORDER BY key"):
+        w1, w2 = key >> 17, key & 0x1FFFF
+        ok = ok and key > prev_key and w1 < nwords
+        prev_key = key
+        p = 0
+        first = True
+        while p < len(blob):
+            d, p = _rv(blob, p)
+            ok = ok and (d == 0 if first else d > 0)
+            w2 += d
+            first = False
+            p += 1                                  # backoff code
+            cnt, p = _rv(blob, p)
+            acc = -1
+            for i in range(cnt):
+                d, p = _rv(blob, p)
+                nxt = d if i == 0 else acc + d
+                ok = ok and nxt > acc and nxt < nwords
+                acc = nxt
+            p += cnt
+            ok = ok and w2 < nwords and cnt > 0
+            nt += cnt
+            nctx += 1
+        ok = ok and p == len(blob)
+    g.check("14_language_model", ok, "trigram pages")
+    g.note("14_language_model", "combination_bigrams", nb)
+    g.note("14_language_model", "combination_trigrams", nt)
+    g.note("14_language_model", "combination_trigram_contexts", nctx)

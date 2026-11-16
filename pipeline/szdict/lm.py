@@ -35,13 +35,13 @@ def _zstd_stream(path: Path):
         return proc.stdout, proc
 
 
-def extract_arpa_12(cfg: Config) -> Path:
-    """Extract the \\1-grams and \\2-grams sections of lm_sc.arpa into a cache file."""
+def extract_arpa(cfg: Config) -> Path:
+    """Extract lm_sc.arpa (all three orders) from the libime archive into a cache file."""
     archive = cfg.src("libime_lm_sc")
     if archive.name.endswith(".arpa"):
         return archive
     cache_dir = cfg.sources / "cache"
-    cache = cache_dir / (archive.name + ".1-2grams.arpa")
+    cache = cache_dir / (archive.name + ".1-3grams.arpa")
     if cache.exists():
         return cache
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -65,18 +65,14 @@ def extract_arpa_12(cfg: Config) -> Path:
         for m in tf:
             if not m.name.endswith(".arpa"):
                 continue
-            f = tf.extractfile(m)
-            for line in f:
-                if line.startswith(b"\\3-grams:"):
-                    done = True
-                    break
-                out.write(line)
+            shutil.copyfileobj(tf.extractfile(m), out, 1 << 20)
+            done = True
             break
     if proc is not None:
         proc.kill()
     if not done:
         tmp.unlink(missing_ok=True)
-        raise RuntimeError("ARPA file ended before the \\3-grams section")
+        raise RuntimeError("no .arpa file in the libime model archive")
     tmp.replace(cache)
     return cache
 
@@ -105,6 +101,8 @@ def iter_arpa_bigrams(path: Path, vocab: dict[str, int]):
     with open(path, encoding="utf-8") as f:
         for line in f:
             if line[0] == "\\":
+                if line.startswith("\\3-grams"):
+                    break
                 section = 2 if line.startswith("\\2-grams") else 0
                 continue
             if section != 2:
@@ -167,6 +165,8 @@ class LM:
         self.abbr: dict[str, list[tuple]] = {}
         self.report: dict = {}
         self.has_bigrams = False
+        # combination model (PIPE-087): a lm_ngram.NgramModel, or None
+        self.ngram = None
 
 
 def lm_form(ds: Dataset) -> str:
@@ -285,12 +285,22 @@ def build_abbr(ds: Dataset, lm: LM, cfg: Config) -> None:
                       "abbr_caps": {"single": cfg.abbr_cap_single, "two": cfg.abbr_cap_two, "long": cfg.abbr_cap_long}})
 
 
-def write_lm(ds: Dataset, lm: LM, path: Path) -> None:
+_UNSET = object()
+
+
+def write_lm(ds: Dataset, lm: LM, path: Path, ngram=_UNSET) -> int:
+    """Writes the companion file; returns its size. `ngram` (a lm_ngram.Model, default the one of
+    `lm.ngram`) adds the combination tables (DATA-156)."""
+    from . import lm_ngram
+    if ngram is _UNSET:
+        ngram = lm.ngram.model if lm.ngram is not None else None
     field = lm_form(ds)
     con = open_new(path, LM_DDL)
-    con.executemany("INSERT INTO meta VALUES(?,?)", sorted({
-        "dataset_id": ds.id, "dataset_version": ds.meta["dataset_version"],
-        "lm_word_count": str(len(lm.words)), "schema_version": ds.meta["schema_version"]}.items()))
+    meta = {"dataset_id": ds.id, "dataset_version": ds.meta.get("dataset_version", ""),
+            "lm_word_count": str(len(lm.words)), "schema_version": ds.meta.get("schema_version", "")}
+    if ngram is not None:
+        meta["has_trigram_model"] = "1"
+    con.executemany("INSERT INTO meta VALUES(?,?)", sorted(meta.items()))
     rows = []
     for e in ds.entries:
         if e["unihan"]:
@@ -323,11 +333,18 @@ def write_lm(ds: Dataset, lm: LM, path: Path) -> None:
         buf += bytes(lm.q_bi.code(lp) for _b, lp in succ)
         bi_bytes += len(buf)
         con.execute("INSERT INTO bigram VALUES(?,?)", (left, bytes(buf)))
+    ng_info = lm_ngram.write_tables(con, ngram) if ngram is not None else None
     finish(con)
+    size = os.path.getsize(path)
+    if ngram is not None and (lm.ngram is None or ngram is not lm.ngram.model):
+        return size                                  # a trial write while pruning to the byte budget
+    if ng_info is not None:
+        lm.report["combination_model"] = {**lm.ngram.report, "tables": ng_info}
     lm.report.update({"abbr_idx_bytes": abbr_bytes, "bigram_bytes": bi_bytes, "file_size": os.path.getsize(path),
                       "codebook_sizes": {"unigram": len(lm.q_uni.cents),
                                          "bigram": len(lm.q_bi.cents) if lm.q_bi else 0,
                                          "backoff": len(lm.q_bo.cents) if lm.q_bo else 0}})
+    return size
 
 
 # ------------------------------------------------------------------------------------------
