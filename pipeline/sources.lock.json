@@ -17,6 +17,16 @@
       "url": "http://deb.debian.org/debian/pool/main/libi/libime/libime_1.1.17.orig.tar.xz",
       "version": "libime 1.1.17 source tarball (Debian orig; bundles lm_sc.arpa)"
     },
+    "opensubtitles_zh_cn": {
+      "file": "lm/OpenSubtitles2018.mono.zh_cn.txt.gz",
+      "licence": "OPUS OpenSubtitles terms (no standard licence): free to use with a link to opensubtitles.org and citation of Lison & Tiedemann 2016",
+      "note": "monolingual simplified-Chinese subtitle lines, one per line, untokenised; source of the spoken-register n-gram counts (PIPE-085)",
+      "optional": true,
+      "sha256": "6714021a39b65d44b616d7eb1aba0b2f5127fe0ce4891ba908357c890ff0784e",
+      "size": 172889940,
+      "url": "https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/zh_cn.txt.gz",
+      "version": "OPUS OpenSubtitles v2018, mono/zh_cn"
+    },
     "rime_essay_cantonese": {
       "file": "yue/essay-cantonese.txt",
       "licence": "CC-BY-4.0",

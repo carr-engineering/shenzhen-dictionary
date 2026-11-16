@@ -8,11 +8,11 @@ uv run pipeline/fetch.py                 # download the pinned large sources int
 uv run pipeline/build.py                 # full build -> pipeline/out/
 uv run pipeline/build.py --only mandarin # one dataset
 uv run pipeline/build.py --fixture       # small fixture -> pipeline/out/fixture/ (committed copy: contract/fixture/)
-uv run --with pytest pytest pipeline/tests
+uv run --with pytest --with numpy pytest pipeline/tests
 ```
 
-Python 3.12+, standard library only. Reading the libime model needs Python 3.14 (`compression.zstd`)
-or the `zstd` command.
+Python 3.12+ with numpy (declared in the scripts' PEP 723 headers, so `uv run` installs it); the rest is the
+standard library. Reading the libime model needs Python 3.14 (`compression.zstd`) or the `zstd` command.
 
 - `sources.lock.json` — URL + SHA-256 of every downloaded input; `sources-pinned/` — small committed
   inputs (HSK parser outputs, the Mandarin frequency list, `freq/en_common.tsv`: the 10,000 most

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["numpy"]
+# ///
 """Regenerate pipeline/data/fixture-sources/ — small excerpts of the downloaded sources restricted to
 the fixture vocabulary (data/fixture.json), so `build.py --fixture` runs without any download.
 
@@ -6,6 +10,7 @@ the fixture vocabulary (data/fixture.json), so `build.py --fixture` runs without
 """
 from __future__ import annotations
 
+import gzip
 import io
 import re
 import shutil
@@ -72,14 +77,14 @@ def main() -> None:
             zwrite(zout, name, f"# excerpt of {name} for the fixture build\n" + "".join(keep))
 
     # libime ARPA excerpt: unigrams of fixture words and their characters, bigrams between fixture words
-    arpa = lmmod.extract_arpa_12(cfg)
+    arpa = lmmod.extract_arpa(cfg)
     vocab = simp | set("".join(simp))
-    uni, big = [], []
+    uni, big, tri = [], [], []
     section = 0
     with open(arpa, encoding="utf-8") as f:
         for line in f:
             if line.startswith("\\"):
-                section = 1 if line.startswith("\\1-grams") else (2 if line.startswith("\\2-grams") else 0)
+                section = {"\\1-grams": 1, "\\2-grams": 2, "\\3-grams": 3}.get(line[:8], 0)
                 continue
             parts = line.rstrip("\n").split("\t")
             if len(parts) < 2:
@@ -90,8 +95,30 @@ def main() -> None:
                 a, _, b = parts[1].partition(" ")
                 if a in simp and b in simp:
                     big.append(line)
-    (out / "lm_sc.1-2grams.arpa").write_text(
-        f"\\data\\\nngram 1={len(uni)}\nngram 2={len(big)}\n\n\\1-grams:\n{''.join(uni)}\n\\2-grams:\n{''.join(big)}\n", "utf-8")
+            elif section == 3:
+                a, b, c = parts[1].split(" ")
+                if a in simp and b in simp and c in simp:
+                    tri.append(line)
+    (out / "lm_sc.1-3grams.arpa").write_text(
+        f"\\data\\\nngram 1={len(uni)}\nngram 2={len(big)}\nngram 3={len(tri)}\n\n\\1-grams:\n{''.join(uni)}\n"
+        f"\\2-grams:\n{''.join(big)}\n\\3-grams:\n{''.join(tri)}\n", "utf-8")
+    (out / "lm_sc.1-2grams.arpa").unlink(missing_ok=True)
+
+    # subtitle excerpt (PIPE-085): the first lines written only with fixture characters (and digits)
+    subs_src = cfg.src("opensubtitles_zh_cn")
+    if subs_src.exists():
+        keep_lines = []
+        han = re.compile(r"[\u3400-\u9fff]")
+        with gzip.open(subs_src, "rt", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                hz = han.findall(line)
+                if len(hz) >= 2 and all(ch in chars for ch in hz):
+                    keep_lines.append(line)
+                    if len(keep_lines) >= 4000:
+                        break
+        with open(out / "opensubtitles-zh_cn.excerpt.txt.gz", "wb") as raw, \
+                gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz:
+            gz.write("".join(keep_lines).encode("utf-8"))
 
     # Cantonese corpora excerpts
     essay = [ln for ln in cfg.src("rime_essay_cantonese").read_text("utf-8").splitlines()
