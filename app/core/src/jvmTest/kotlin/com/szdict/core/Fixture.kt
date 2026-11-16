@@ -59,6 +59,13 @@ class Fixture(
     }
 
     fun bigram(left: String, right: String, logProb: Double) { bigrams.add(Triple(left, right, logProb)) }
+
+    private val bigrams2 = ArrayList<Triple<String, String, Double>>()
+    private val trigrams = ArrayList<Pair<List<String>, Double>>()
+
+    /** A bigram of the combination model (DATA-156); any call adds `unigram2` / `bigram2` / `trigram` to the companion. */
+    fun bigram2(left: String, right: String, logProb: Double) { bigrams2.add(Triple(left, right, logProb)) }
+    fun trigram(a: String, b: String, c: String, logProb: Double) { trigrams.add(listOf(a, b, c) to logProb) }
     fun hskRow(level: Int, entryId: Int, pos: String = "[]", homograph: Int = 0) { hskRows.add(listOf(level, entryId, pos, homograph)) }
     fun mergeGroup(id: Int, members: List<Int>, variants: List<String>) { mergeGroups.add(Triple(id, members, variants)) }
 
@@ -232,7 +239,7 @@ class Fixture(
             lm.execSQL("BEGIN")
             lm.run("INSERT INTO meta VALUES('dataset_version','fixture+1')")
             // Codebooks: code c ↔ -c / 8 (natural log), fine enough for exact test arithmetic on multiples of 0.125.
-            for (kind in 0..2) for (code in 0..255) lm.run("INSERT INTO lm_codebook VALUES(?,?,?)", kind, code, -code / 8.0)
+            for (kind in 0..7) for (code in 0..255) lm.run("INSERT INTO lm_codebook VALUES(?,?,?)", kind, code, -code / 8.0)
             fun code(lp: Double) = (-lp * 8).toInt().coerceIn(0, 255)
             val words = entries.filter { it.block != "unihan" }.map { it.simp }.distinct().sortedBy { w -> entries.first { it.simp == w }.freq }
             val wordId = words.withIndex().associate { it.value to it.index }
@@ -266,6 +273,36 @@ class Fixture(
                 succ.forEachIndexed { i, (w, _) -> varint(out, if (i == 0) w else w - prev); prev = w }
                 succ.forEach { out.write(code(it.second)) }
                 lm.run("INSERT INTO bigram VALUES(?,?)", wordId[left]!!, out.toByteArray())
+            }
+            if (bigrams2.isNotEmpty()) {
+                for (ddl in LM2_DDL) lm.execSQL(ddl)
+                // unigram2 = the segmentation unigram here; blocks of 256 words.
+                val u = ByteArray(words.size) { i -> code(unigram(entries.first { it.simp == words[i] })).toByte() }
+                for (b in 0..(words.size - 1) / 256) lm.run("INSERT INTO unigram2 VALUES(?,?)", b, u.copyOfRange(b * 256, minOf(words.size, (b + 1) * 256)))
+                fun successors(out: ByteArrayOutputStream, backoff: Double, succ: List<Pair<Int, Double>>) {
+                    out.write(code(backoff))
+                    varint(out, succ.size)
+                    var prev = 0
+                    succ.forEachIndexed { i, (w, _) -> varint(out, if (i == 0) w else w - prev); prev = w }
+                    succ.forEach { out.write(code(it.second)) }
+                }
+                for ((left, pairs) in bigrams2.groupBy { it.first }) {
+                    val out = ByteArrayOutputStream()
+                    successors(out, -0.5, pairs.map { wordId[it.second]!! to it.third }.sortedBy { it.first })
+                    lm.run("INSERT INTO bigram2 VALUES(?,?)", wordId[left]!!, out.toByteArray())
+                }
+                // One page per first word, contexts in ascending second word.
+                for ((w1, ctxs) in trigrams.groupBy { wordId[it.first[0]]!! }) {
+                    val out = ByteArrayOutputStream()
+                    val byW2 = ctxs.groupBy { wordId[it.first[1]]!! }.toSortedMap()
+                    var prev = byW2.firstKey()
+                    for ((w2, rows) in byW2) {
+                        varint(out, w2 - prev)
+                        prev = w2
+                        successors(out, 0.0, rows.map { wordId[it.first[2]]!! to it.second }.sortedBy { it.first })
+                    }
+                    lm.run("INSERT INTO trigram VALUES(?,?)", (w1.toLong() shl 17) or byW2.firstKey().toLong(), out.toByteArray())
+                }
             }
             lm.execSQL("COMMIT")
             lm.close()
@@ -347,6 +384,10 @@ class Fixture(
             "CREATE TABLE lm_entry(entry_id INTEGER PRIMARY KEY, lm_word INTEGER, lm_unigram INTEGER)",
             "CREATE TABLE lm_codebook(kind INTEGER, code INTEGER, value REAL, PRIMARY KEY(kind, code)) WITHOUT ROWID",
             "CREATE TABLE abbr_idx(key TEXT PRIMARY KEY, postings BLOB) WITHOUT ROWID", "CREATE TABLE bigram(left INTEGER PRIMARY KEY, block BLOB)",
+        )
+        private val LM2_DDL = listOf(
+            "CREATE TABLE unigram2(block INTEGER PRIMARY KEY, codes BLOB)", "CREATE TABLE bigram2(left INTEGER PRIMARY KEY, block BLOB)",
+            "CREATE TABLE trigram(key INTEGER PRIMARY KEY, block BLOB)",
         )
     }
 }

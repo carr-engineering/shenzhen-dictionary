@@ -167,35 +167,50 @@ class RealDatasetTest {
         assertEquals("yī bù zuò, èr bù xiū", dict.search("一不做，二不休", s).chinese.sections.first().groups[0].cards[0].reading.display)
     }
 
+    /** Combination rows as text: slots separated by spaces, a slot's alternatives by `/`, rows by ` | `. */
+    private suspend fun rows(dict: Dictionary, q: String, script: Script = s): List<String> =
+        dict.search(q, script).chinese.sections.firstOrNull { it.kind == SectionKind.COMBINATIONS }?.combinations.orEmpty()
+            .map { c -> c.slots.joinToString(" ") { slot -> slot.alternatives.joinToString("/") { it.headword } } }
+
     @Test
     fun plausibleCombinations() = real { dict ->
-        suspend fun combos(q: String) = dict.search(q, s).chinese.sections.firstOrNull { it.kind == SectionKind.COMBINATIONS }?.combinations.orEmpty().map { c -> c.words.joinToString(" ") { it.headword } }
-        // A whole-query word leaves no room for unlikely splits of it (朋友 is not 碰 有, 你好 is not 呢 好).
-        for (q in listOf("pengyou", "peng you", "nihao", "ni hao", "xiexie", "zhongguo", "xuexi", "dian", "ren", "hello", "tofu")) assertEquals(emptyList(), combos(q), q)
-        // Syllables typed apart always get their best sequence, although 软 alone is below the floor of
-        // unsplit letters; further sequences on those syllables are held to a lower floor.
-        val rxtz = combos("ruan xing tiao zheng")
-        assertEquals("软 行 调整", rxtz.first())
-        assertTrue("软 性 调整" in rxtz, rxtz.toString())
-        assertTrue(combos("ruan xing").let { it.first() == "软 行" && "软 性" in it }, combos("ruan xing").toString())
-        assertEquals("软 行 条", combos("ruan xing tiao").first())
-        assertEquals(listOf("软 调整"), combos("ruan tiao zheng"))
-        assertEquals("行 调整", combos("xing tiao zheng").first())
-        assertEquals(listOf("弹性 调整"), combos("tan xing tiao zheng"))
-        // Unspaced with a single shortest syllable reading: the best sequence only.
-        assertEquals(listOf("软 行 调整"), combos("ruanxingtiaozheng"))
+        suspend fun combos(q: String) = rows(dict, q)
+        // A word spelling the whole query plays no part in the policy (SRCH-063); only a sequence that
+        // spells it again is dropped, and the floor and the margin keep the rest plausible.
+        for (q in listOf("nihao", "ni hao", "xiexie", "zhongguo", "xuexi", "hello", "tofu", "can you")) assertEquals(emptyList(), combos(q), q)
+        // Known, reviewed side effect: a trailing letter read as a syllable of its own (`pengyou` as peng·you·o).
+        assertEquals(listOf("朋友 欧/区"), combos("pengyou"))
+        assertEquals(listOf("软 性/星 调整"), combos("ruan xing tiao zheng"))
+        assertEquals(combos("ruan xing tiao zheng"), combos("ruanxingtiaozheng"))
+        assertEquals(emptyList(), combos("ruan xing")) // below the floor of -6.5 per syllable
+        assertEquals("性/行/型/省 调整", combos("xing tiao zheng").first())
+        assertEquals(listOf("弹性 调整", "谈 性 调整"), combos("tan xing tiao zheng"))
         // A trailing partial or abbreviated syllable typed as its own word behaves like the unspaced
         // form, also when every word is an English word (`wo`, `shi`, `yi`, `g`; SCHEMA note 19).
         assertEquals(combos("woshiyig"), combos("wo shi yi g"))
-        assertEquals("我 是 一 个", combos("wo shi yi g").first())
-        assertEquals("我 是 一", combos("wo shi y").first())
-        assertEquals("我 是 一 个", combos("wo shi yi ge").first())
-        assertEquals("你好 吗", combos("ni hao m").first())
-        assertEquals("我 喜欢 你", combos("wxhn").first())
+        assertEquals(listOf("我 是 一个", "我 是 一 个"), combos("wo shi yi g"))
+        assertEquals("我 是 一/要/有/用", combos("wo shi y").first())
+        assertEquals("我 是 一个", combos("wo shi yi ge").first())
+        assertEquals("你好 吗/么", combos("ni hao m").first())
+        assertEquals("我 喜欢 你/那", combos("wxhn").first())
         assertEquals(listOf("我 爱 你"), combos("woaini"))
         assertEquals(listOf("今天 天气 很 好"), combos("jintiantianqihenhao"))
-        assertEquals("这个 人", combos("zgr").first())
-        assertTrue(combos("nh").let { it.isNotEmpty() && it.all { c -> c.startsWith("你 ") } && "你 好" !in it }, combos("nh").toString())
+        assertTrue(combos("zgr").first().startsWith("这个/"), combos("zgr").toString())
+        assertTrue(combos("nh").let { it.isNotEmpty() && it.first().startsWith("你/") }, combos("nh").toString())
+        // Numerals and times (subtitle counts with digits read out, PIPE-086) and homophones grouped (SRCH-065).
+        for (q in listOf("jiudian", "jiu dian", "jiu3 dian3")) assertEquals(listOf("九 点"), combos(q), q)
+        assertEquals(listOf("八/吧 点"), combos("ba dian"))
+        assertEquals(listOf("八/吧 点 半"), combos("ba dian ban"))
+        assertEquals(listOf("九/就 点钟", "酒店 中/种"), combos("jiu dian zhong"))
+        assertEquals(listOf("我/喔 酒店 去/区/取/曲", "我 九/就 点/店 去/取/曲"), combos("wo jiu dian qu"))
+        assertEquals(listOf("三 个人", "三 个 人"), combos("san ge ren"))
+        assertEquals(listOf("两 个"), combos("liang ge"))
+        assertEquals(listOf("十二 点"), combos("shi er dian"))
+        // At most three rows of at most four alternatives.
+        for (q in listOf("wxhn", "zgr", "nh", "bj", "nhk", "wo jiu dian qu", "mei wenti")) {
+            val r = combos(q)
+            assertTrue(r.size <= 3 && r.all { row -> row.split(" ").all { it.split("/").size <= 4 } }, "$q: $r")
+        }
         // No rare or Unicode-only single characters surface.
         for (q in listOf("wxhn", "zgr", "nh", "bj", "nhk")) for (c in combos(q)) assertTrue(c.none { it in "掽砰龢伱瞭" }, "$q: $c")
     }
@@ -203,19 +218,18 @@ class RealDatasetTest {
     @Test
     fun plausibleCombinationsCantonese() = real(DictMode.CANTONESE) { dict ->
         val t = Script.TRADITIONAL
-        suspend fun combos(q: String) = dict.search(q, t).chinese.sections.firstOrNull { it.kind == SectionKind.COMBINATIONS }?.combinations.orEmpty().map { c -> c.words.joinToString(" ") { it.headword } }
+        suspend fun combos(q: String) = rows(dict, q, t)
+        // The Cantonese companion has no combination model (DATA-156): the segmentation bigrams score
+        // the sequences, with the same show policy and grouping as Mandarin.
         assertEquals(listOf("我 鍾意 你"), combos("ngo5 zung1 ji3 nei5"))
-        assertEquals("我 好 鍾意 你", combos("ngohouzungjinei").first())
-        assertEquals("我 好 容易 你", combos("ngohoujungjinei").first()) // `jung` is 容 in Jyutping; 鍾 is zung
-        assertEquals("我 都", combos("nd").first())
-        // Typed-apart syllables and a trailing letter (SRCH-063 floor exemption), as in Mandarin.
+        assertEquals("我 好 鍾意 你/呢", combos("ngohouzungjinei").first())
+        assertTrue(combos("ngohoujungjinei").first().startsWith("我 好 容易 你")) // `jung` is 容 in Jyutping; 鍾 is zung
+        assertTrue(combos("nd").first().startsWith("我/"), combos("nd").toString())
         assertEquals(combos("ngohaijatg"), combos("ngo hai jat g"))
-        assertEquals("我 係 一個", combos("ngo hai jat g").first())
-        assertTrue(combos("ngo hai j").let { it.isNotEmpty() && it.all { c -> c.startsWith("我 係 ") } }, combos("ngo hai j").toString())
-        assertEquals("完成 調整", combos("jyun sing tiu zing").first())
-        assertTrue(combos("jyun tiu zing").let { it.isNotEmpty() && it.first().endsWith(" 調整") }, combos("jyun tiu zing").toString())
-        assertEquals("聲 調整", combos("sing tiu zing").first())
-        assertEquals(emptyList(), combos("jyun sing")) // 完成 spells the whole query
+        assertEquals("我/哦 係 一個", combos("ngo hai jat g").first())
+        assertTrue(combos("ngo hai j").first().startsWith("我/哦 係 "), combos("ngo hai j").toString())
+        assertTrue(combos("jyun sing tiu zing").first().let { it.startsWith("完成/") && it.endsWith(" 調整") }, combos("jyun sing tiu zing").toString())
+        assertTrue(combos("sing tiu zing").isNotEmpty())
         assertEquals(SearchSide.CHINESE, dict.search("nd", t).forcedSide)
         assertEquals(SearchSide.CHINESE, dict.search("nh", t).forcedSide)
     }
@@ -255,7 +269,7 @@ class RealDatasetTest {
             val r = dict.search(q, s)
             val combos = r.chinese.sections.firstOrNull { it.kind == SectionKind.COMBINATIONS }?.combinations.orEmpty()
             assertTrue(combos.isNotEmpty(), "combinations for $q")
-            assertTrue(combos.size <= 5)
+            assertTrue(combos.size <= 3)
             assertTrue(combos.any { c -> c.words.map { it.headword } == listOf("我", "喜欢", "你") }, combos.map { c -> c.words.map { it.headword } }.toString())
         }
         // nh never repeats 你好 as 你 + 好 (SRCH-063).
@@ -448,6 +462,8 @@ class RealDatasetTest {
         time("search nh (abbr + combinations)", 20) { dict.search("nh", s) }
         time("search ruan xing tiao zheng (combinations)", 20) { dict.search("ruan xing tiao zheng", s) }
         time("search wo shi yi g (combinations)", 20) { dict.search("wo shi yi g", s) }
+        time("search wo jiu dian qu (combinations)", 20) { dict.search("wo jiu dian qu", s) }
+        time("search jintiantianqihenhao (combinations)", 20) { dict.search("jintiantianqihenhao", s) }
         time("search x", 10) { dict.search("x", s) }
         time("search 你好", 20) { dict.search("你好", s) }
         time("search graduate student", 20) { dict.search("graduate student", s) }

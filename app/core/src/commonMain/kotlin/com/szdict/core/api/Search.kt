@@ -38,8 +38,20 @@ data class WordGroup(
     val insideCount: Int,
 )
 
-/** One multi-word combination (SRCH-063/065): words in order, each its own tap target. */
-data class Combination(val words: List<EntryCard>, val score: Double)
+/**
+ * One slot of a combination row (SRCH-065): 1…4 alternative words for the same syllables, each its
+ * own tap target; the first is the word of the row's best sequence.
+ */
+data class CombinationSlot(val alternatives: List<EntryCard>)
+
+/**
+ * One combination row (SRCH-063/065): sequences with the same word boundaries grouped into slots
+ * (`就/九 · 点`); a row offers the cross-product of its slots. [score] is its best sequence's.
+ */
+data class Combination(val slots: List<CombinationSlot>, val score: Double) {
+    /** The row's best sequence, one word per slot. */
+    val words: List<EntryCard> get() = slots.map { it.alternatives[0] }
+}
 
 /**
  * A section of one side. [count] is the section's total row count (chip count). [cards] holds the

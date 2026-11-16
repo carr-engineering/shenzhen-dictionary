@@ -5,6 +5,7 @@ import com.szdict.core.api.AudioPlan
 import com.szdict.core.api.BlockKind
 import com.szdict.core.api.CharacterDecomposition
 import com.szdict.core.api.Combination
+import com.szdict.core.api.CombinationSlot
 import com.szdict.core.api.DailyPick
 import com.szdict.core.api.DatasetInfo
 import com.szdict.core.api.DictError
@@ -54,6 +55,7 @@ import com.szdict.core.engine.Candidate
 import com.szdict.core.engine.ChineseOut
 import com.szdict.core.engine.Classified
 import com.szdict.core.engine.ComboOut
+import com.szdict.core.engine.CombosOut
 import com.szdict.core.engine.EnglishOut
 import com.szdict.core.engine.Ranking
 import com.szdict.core.engine.SearchEngine
@@ -281,21 +283,28 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         return kotlin.math.exp(best) >= PRONUNCIATION_RATIO * english
     }
 
+    /** The engine's combinations of [query] (grouped rows and the flat kept list), for evaluation. */
+    internal suspend fun combinationsOf(query: String, script: Script): CombosOut {
+        val base = searchBase(query, script, SearchOptions())
+        return if (base.needsCombos) engine.combinations(base.c.roman!!, base.script, base.wholeIds, base.englishWords) else CombosOut.EMPTY
+    }
+
     private suspend fun withCombinations(base: Base): SearchResult {
         // SRCH-066: a decoder failure omits the group silently.
         val combos: List<ComboOut> = try {
-            engine.combinations(base.c.roman!!, base.script, base.wholeIds, base.englishWords)
+            engine.combinations(base.c.roman!!, base.script, base.wholeIds, base.englishWords).rows
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             emptyList()
         }
         if (combos.isEmpty()) return base.result
-        val refs = combos.flatMap { c -> c.entryIds.map { RowRef(it) } }.distinct()
+        val refs = combos.flatMap { c -> c.slots.flatMap { s -> s.map { RowRef(it) } } }.distinct()
         val byId = cards.build(refs, base.script, merge = false).associateBy { it.id }
         val list = combos.mapNotNull { c ->
-            val words = c.entryIds.map { byId[it] ?: return@mapNotNull null }
-            Combination(words, c.score)
+            // An alternative whose card is missing is left out; a slot without any drops the row.
+            val slots = c.slots.map { s -> s.toList().mapNotNull { byId[it] } }
+            if (slots.any { it.isEmpty() }) null else Combination(slots.map(::CombinationSlot), c.score)
         }
         if (list.isEmpty()) return base.result
         val zh = base.result.chinese

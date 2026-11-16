@@ -29,7 +29,20 @@ internal class ChineseOut(
 
 internal class EnglishOut(val sections: List<SectionOut>, val capped: Boolean)
 
-internal class ComboOut(val entryIds: IntArray, val score: Double)
+/**
+ * One grouped combination row (SRCH-065): per slot the alternative entry ids, the first being the
+ * best sequence's word; [score] is the row's best sequence.
+ */
+internal class ComboOut(val slots: List<IntArray>, val score: Double) {
+    val entryIds: IntArray get() = IntArray(slots.size) { slots[it][0] }
+}
+
+/** The combinations of a query: grouped [rows] (shown) and the kept sequences in rank order ([flat], for evaluation). */
+internal class CombosOut(val rows: List<ComboOut>, val flat: List<IntArray>) {
+    companion object {
+        val EMPTY = CombosOut(emptyList(), emptyList())
+    }
+}
 
 /**
  * The search pipeline (ARCH-030): plan → batched store reads → match classes → rank → cap. Works on
@@ -508,12 +521,15 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
 
     /**
      * Multi-word combinations (SRCH-060…SRCH-068): builds the lattice from the kept paths with one
-     * batched first-letter read, reads the bigram blocks of the distinct left words in a second
-     * batch, and runs the shared decoder. [wholeHeadwords] are the headwords already matching the
-     * whole query (dropped per SRCH-063).
+     * batched first-letter read, reads the combination unigrams and bigram blocks of its words in two
+     * more batches, runs the shared decoder, rescores its k-best list with the trigrams of the paths'
+     * contexts (one batch), applies the show policy and groups the kept sequences into rows.
+     * [wholeIds] are the entries already matching the whole query: a sequence spelling one of their
+     * headwords is dropped (SRCH-063); they play no other part. A companion without the combination
+     * model (DATA-156) falls back to the segmentation bigrams and unigrams, without rescoring.
      */
-    suspend fun combinations(parse: RomanParse, script: Script, wholeIds: IntArray, englishWords: Boolean = false): List<ComboOut> {
-        if (parse.paths.none { it.tokens.size >= 2 } || !store.lmReady()) return emptyList()
+    suspend fun combinations(parse: RomanParse, script: Script, wholeIds: IntArray, englishWords: Boolean = false): CombosOut {
+        if (parse.paths.none { it.tokens.size >= 2 } || !store.lmReady()) return CombosOut.EMPTY
         val end = parse.letters.length
         // Syllable boundaries the user typed (spaces, apostrophes, tone digits).
         val typed = parse.breaks.toHashSet()
@@ -522,22 +538,13 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         // `hello` as he·l·lo or `ban` as ba·n… is not what was typed (SCHEMA note 19) — or through a
         // letter typed as a word of its own (`wo shi yi g`).
         fun spelled(p: RomanPath) = !englishWords || p.tokens.all { it.kind == TokKind.FULL || wholeWord(it) }
-        if (parse.paths.none { it.tokens.size >= 2 && spelled(it) }) return emptyList()
-        // The syllables the query reads as: the typed boundaries or, unspaced, those of its only
-        // shortest full-syllable reading (`ruanxingtiaozheng`); null when neither exists.
-        val syllableEnds: Set<Int>? = if (typed.isNotEmpty()) typed else {
-            val full = parse.paths.filter { p -> p.tokens.size >= 2 && p.tokens.all { it.kind == TokKind.FULL } }
-            val fewest = full.minOfOrNull { it.tokens.size }
-            full.singleOrNull { it.tokens.size == fewest }?.tokens?.dropLast(1)?.mapTo(HashSet()) { it.end }
-        }
+        if (parse.paths.none { it.tokens.size >= 2 && spelled(it) }) return CombosOut.EMPTY
         val inv = store.inventory()
         val spans = LinkedHashMap<String, Span>()
         for (path in parse.paths) {
             val toks = path.tokens
-            // A one-token path forms no edge; its span only sets the bar of the whole-query words.
-            val edges = spelled(path)
+            if (toks.size < 2 || !spelled(path)) continue
             for (a in toks.indices) for (len in 1..minOf(MAX_EDGE_SYLLABLES, toks.size - a)) {
-                if (!edges && !(a == 0 && len == toks.size)) continue
                 val sub = toks.subList(a, a + len)
                 if (sub.any { it.kind == TokKind.LITERAL }) break
                 val sig = sub.joinToString("|") { "${it.kind.ordinal}${it.text}${it.tone}@${it.start}" }
@@ -551,9 +558,9 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
                 spans[sig] = Span(sub.first().start, sub.last().end, sub, sub.joinToString("") { it.initial.toString() }, pen)
             }
         }
-        if (spans.isEmpty()) return emptyList()
+        if (spans.isEmpty()) return CombosOut.EMPTY
         val postings = store.abbrevPostings(spans.values.map { it.key }.toSet(), emptyList())
-        if (postings.isEmpty()) return emptyList()
+        if (postings.isEmpty()) return CombosOut.EMPTY
         currentCoroutineContext().ensureActive()
 
         // `seq` is the posting's place in its key: unigram order, then the primary reading of a word first.
@@ -568,9 +575,8 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         val books = store.codebooks()
         val nodes = (spans.values.flatMap { listOf(it.from, it.to) } + listOf(0, end)).distinct().sorted()
         val nodeIndex = nodes.withIndex().associate { it.value to it.index }
-        // Per (from, to): best edge per entry, then the M best words.
+        // Per (from, to): best edge per entry, then the M best words by the segmentation unigram.
         val perSpan = HashMap<Long, HashMap<Int, LatticeEdge>>()
-        var wholeBest = Double.NEGATIVE_INFINITY
         val order = HashMap<Int, Int>()
         for (r in raws) {
             if (toneCheck != null && r.span.tokens.any { it.tone != 0 }) {
@@ -579,12 +585,8 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
             }
             val from = nodeIndex[r.span.from]!!
             val to = nodeIndex[r.span.to]!!
-            if (from == 0 && to == nodes.size - 1) {
-                // A word spelling the whole query is not a combination; its score is the bar combinations are held to.
-                val score = books[0][r.p.unigram] - r.span.penalty
-                if (score > wholeBest) wholeBest = score
-                continue
-            }
+            // A word spelling the whole query is not a combination.
+            if (from == 0 && to == nodes.size - 1) continue
             val bucket = perSpan.getOrPut(from.toLong() shl 32 or to.toLong()) { HashMap() }
             val edge = LatticeEdge(from, to, r.p.lmWord, books[0][r.p.unigram], -r.span.penalty, r.p.entryId, r.span.tokens.size)
             val old = bucket[r.p.entryId]
@@ -593,70 +595,57 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
                 if (old == null) order[r.p.entryId] = r.seq
             }
         }
-        val edges = ArrayList<LatticeEdge>()
+        var edges = ArrayList<LatticeEdge>()
         for (bucket in perSpan.values) {
             // One edge per word: among the entries of a word (its readings), the first in posting order.
             val seenWords = HashSet<Int>()
             bucket.values.sortedWith(compareByDescending<LatticeEdge> { it.unigram + it.penalty }.thenBy { order[it.payload] ?: 0 }.thenBy { it.payload })
                 .filter { seenWords.add(it.word) }.take(MAX_WORDS_PER_SPAN).forEach { edges.add(it) }
         }
-        if (edges.isEmpty()) return emptyList()
+        if (edges.isEmpty()) return CombosOut.EMPTY
         val lastNode = nodes.size - 1
         val lefts = edges.filter { it.to != lastNode }.mapTo(HashSet()) { it.word }
-        val bigrams = if (store.hasBigram) store.bigramBlocks(lefts) else emptyMap()
+        val model2 = store.hasNgram2()
+        val bigrams = if (model2) {
+            // The combination model scores every word with its own unigram (the first word, and the backoff).
+            val u2 = store.unigram2(edges.mapTo(HashSet()) { it.word })
+            edges = edges.mapTo(ArrayList(edges.size)) { e -> u2[e.word]?.let { LatticeEdge(e.from, e.to, e.word, it, e.penalty, e.payload, e.units) } ?: e }
+            store.bigram2Blocks(lefts)
+        } else if (store.hasBigram) store.bigramBlocks(lefts) else emptyMap()
         val ctx = currentCoroutineContext()
-        val paths = LatticeDecoder.decode(nodes.size, edges, bigrams, K_BEST, BEAM) { ctx.ensureActive() }
-            .filter { it.edges.size >= 2 }
-        if (paths.isEmpty()) return emptyList()
+        var paths = LatticeDecoder.decode(nodes.size, edges, bigrams, K_BEST, BEAM) { ctx.ensureActive() }
+            .filter { it.edges.size >= 2 }.take(Combinations.RESCORE)
+        if (paths.isEmpty()) return CombosOut.EMPTY
+        if (model2 && store.hasTrigram()) paths = Combinations.rescore(paths, bigrams, store.trigramContexts(Combinations.contexts(paths)))
+        ctx.ensureActive()
 
-        // Plausible sequences only: within COMBO_MARGIN of the best sequence and of the best single
-        // word spelling the whole query — a far less likely split of 朋友 (碰 + 有) is noise, not a
-        // suggestion — and not a string of rare words forced onto the letters (`tofu` as 他 哦 副).
-        //
-        // The floor is for letters the user did not split. When the query reads as syllables (typed
-        // apart, or with one shortest full-syllable reading), the best sequence of words on those
-        // syllables is always offered — `ruan xing tiao zheng` is 软 行 调整 although 软 is not a
-        // frequent word — unless a single word spells the whole query far more likely; with typed
-        // boundaries, further sequences on them within the margin are held to a lower floor only.
-        val bar = maxOf(paths[0].score, wholeBest) - COMBO_MARGIN
-        fun onSyllables(p: LatticePath) = syllableEnds != null && p.edges.all { nodes[it.to] == end || nodes[it.to] in syllableEnds }
-        val firstOnSyllables = paths.firstOrNull(::onSyllables)
-        val syllableBar = firstOnSyllables?.let { maxOf(it.score, wholeBest) - COMBO_MARGIN } ?: Double.POSITIVE_INFINITY
-        val pool = paths.take(K_BEST * 4).let { if (firstOnSyllables == null || firstOnSyllables in it) it else it + firstOnSyllables }
-        val top = pool.filter { p ->
-            val units = p.edges.sumOf { it.units }
-            (p.score >= bar && p.score >= COMBO_FLOOR_PER_SYLLABLE * units) ||
-                (p.score >= syllableBar && (p === firstOnSyllables || (typed.isNotEmpty() && onSyllables(p) && p.score >= COMBO_FLOOR_TYPED_PER_SYLLABLE * units)))
-        }
-        if (top.isEmpty()) return emptyList()
-        val forms = store.forms((top.flatMap { p -> p.edges.map { it.payload } } + wholeIds.take(400)).toSet().toIntArray())
+        // Candidates: the first POOL distinct sequences, a sequence spelling a whole-query headword left out.
+        val forms = store.forms((paths.flatMap { p -> p.edges.map { it.payload } } + wholeIds.take(400)).toSet().toIntArray())
         fun head(id: Int): String = forms[id]?.let { if (script == Script.SIMPLIFIED) it.simp else it.trad } ?: ""
         val whole = HashSet<String>()
         for (id in wholeIds.take(400)) forms[id]?.let { whole.add(it.simp); whole.add(it.trad) }
         val seen = HashSet<String>()
-        val out = ArrayList<ComboOut>()
-        for (p in top) {
+        val cands = ArrayList<Pair<LatticePath, List<String>>>()
+        for (p in paths) {
             val heads = p.edges.map { head(it.payload) }
             if (heads.joinToString("") in whole) continue
             if (!seen.add(heads.joinToString("\u0001"))) continue
-            out.add(ComboOut(IntArray(p.edges.size) { p.edges[it].payload }, p.score))
-            if (out.size >= MAX_COMBINATIONS) break
+            cands.add(p to heads)
+            if (cands.size >= Combinations.POOL) break
         }
-        return out
+        val kept = Combinations.select(cands, { it.first.score }, { c -> c.first.edges.sumOf { it.units } })
+        if (kept.isEmpty()) return CombosOut.EMPTY
+        val rows = Combinations.group(kept.map { (p, heads) ->
+            p.edges.mapIndexed { i, e -> Combinations.Word(e.from, e.to, e.payload, heads[i]) } to p.score
+        })
+        return CombosOut(rows.map { ComboOut(it.slots, it.score) }, kept.map { (p, _) -> IntArray(p.edges.size) { p.edges[it].payload } })
     }
 
     companion object {
         const val MAX_EDGE_SYLLABLES = 6
         const val MAX_WORDS_PER_SPAN = 40
         const val K_BEST = 8
-        const val MAX_COMBINATIONS = 5
         const val BEAM = 18.0
-        /** Natural-log distance from the best reading beyond which a combination is not offered. */
-        const val COMBO_MARGIN = 2.5
-        /** Lowest average log-probability per syllable of an offered combination. */
-        const val COMBO_FLOOR_PER_SYLLABLE = -6.5
-        /** The same for further sequences on syllables the user typed apart (the best one has none). */
-        const val COMBO_FLOOR_TYPED_PER_SYLLABLE = -11.0
         const val PHRASE_CHECK = 600
     }
 }

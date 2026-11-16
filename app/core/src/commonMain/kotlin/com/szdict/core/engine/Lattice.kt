@@ -83,20 +83,23 @@ internal object LatticeDecoder {
             es.reverse()
             paths.add(LatticePath(es, h.score))
         }
-        paths.sortWith(Comparator { a, b ->
-            val c = b.score.compareTo(a.score)
-            if (c != 0) return@Comparator c
-            val la = a.edges.first().let { it.to - it.from }
-            val lb = b.edges.first().let { it.to - it.from }
-            if (la != lb) return@Comparator lb.compareTo(la)
-            for (i in 0 until minOf(a.edges.size, b.edges.size)) {
-                val w = a.edges[i].word.compareTo(b.edges[i].word)
-                if (w != 0) return@Comparator w
-                val p = a.edges[i].payload.compareTo(b.edges[i].payload)
-                if (p != 0) return@Comparator p
-            }
-            a.edges.size.compareTo(b.edges.size)
-        })
+        paths.sortWith(ORDER)
         return paths
+    }
+
+    /** Path order: score descending, then longer first word, lower word ids and payloads, fewer edges. */
+    val ORDER: Comparator<LatticePath> = Comparator { a, b ->
+        val c = b.score.compareTo(a.score)
+        if (c != 0) return@Comparator c
+        val la = a.edges.first().let { it.to - it.from }
+        val lb = b.edges.first().let { it.to - it.from }
+        if (la != lb) return@Comparator lb.compareTo(la)
+        for (i in 0 until minOf(a.edges.size, b.edges.size)) {
+            val w = a.edges[i].word.compareTo(b.edges[i].word)
+            if (w != 0) return@Comparator w
+            val p = a.edges[i].payload.compareTo(b.edges[i].payload)
+            if (p != 0) return@Comparator p
+        }
+        a.edges.size.compareTo(b.edges.size)
     }
 }

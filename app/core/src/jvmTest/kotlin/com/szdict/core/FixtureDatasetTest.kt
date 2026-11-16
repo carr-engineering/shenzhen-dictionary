@@ -186,7 +186,7 @@ class FixtureDatasetTest {
         for (q in listOf("wxhn", "woxihuanni", "wo xi huan ni", "wxihuann")) {
             val r = dict.search(q, s)
             assertEquals(listOf("我", "喜欢", "你"), r.combos().firstOrNull(), q)
-            assertTrue(r.combos().size <= 5)
+            assertTrue(r.combos().size <= 3)
             assertEquals(0, r.chinese.count, "combinations are never counted") // SRCH-063
         }
         // 我 想去 (bigram) beats 我 想 去.
@@ -210,6 +210,31 @@ class FixtureDatasetTest {
         assertTrue(dict.search("wxhn", s).combos().isEmpty())
         assertTrue(dict.search("nh", s).heads(SectionKind.MATCHES).isEmpty()) // abbreviated paths yield no candidates (SRCH-054)
         assertEquals(1, dict.searchProgressive("wxhn", s).toList().size)
+    }
+
+    @Test
+    fun combinationModelWithTrigramRescoring() {
+        // DATA-156 / SRCH-062: with bigram2 alone 我 想去 (-1.0) beats 我 想 去 (-0.125 - 3.0); the trigram
+        // 我 想 去 (-0.125) replaces the bigram 想 → 去 in the rescoring and turns the order round.
+        fun fixture(withTrigram: Boolean) = Fixture.standard().apply {
+            bigram2("我", "想", -0.125)
+            bigram2("我", "想去", -1.0)
+            bigram2("想", "去", -3.0)
+            bigram2("喜欢", "你", -0.5)
+            if (withTrigram) trigram("我", "想", "去", -0.125) else trigram("我", "喜欢", "你", -0.5)
+        }.build()
+        with(fixture(withTrigram = false)) { dict ->
+            assertEquals(listOf("我", "想去"), dict.search("wxq", s).combos().first())
+        }
+        with(fixture(withTrigram = true)) { dict ->
+            val r = dict.search("wxq", s)
+            assertEquals(listOf("我", "想", "去"), r.combos().first(), r.combos().toString())
+            // The legacy segmentation model of the same file is untouched (SCHEMA note 20).
+            assertEquals(listOf("我们", "研究", "生命", "科学"), dict.search("我们研究生命科学", s).groups().map { it.text })
+        }
+        // A companion without the combination tables (the standard fixture, a file built before DATA-156)
+        // scores with `bigram`: 我 想去 (bigram -0.25) first, as before.
+        with { dict -> assertEquals(listOf("我", "想去"), dict.search("wxq", s).combos().first()) }
     }
 
     @Test

@@ -98,6 +98,39 @@ internal object Codec {
 
     fun jsonIntArray(values: Collection<Int>): String = values.joinToString(",", "[", "]")
     fun jsonIntArray(values: IntArray): String = values.joinToString(",", "[", "]")
+    fun jsonLongArray(values: Collection<Long>): String = values.joinToString(",", "[", "]")
+
+    /**
+     * A successor list (DATA-153 / DATA-156) at the reader's position: byte backoff code, varint count,
+     * count × varint successor id (first absolute, then deltas), count × byte value code.
+     */
+    fun successorBlock(r: VarintReader, values: DoubleArray, backoffs: DoubleArray): BigramBlock {
+        val backoff = backoffs[r.byte()]
+        val n = r.next()
+        val succ = IntArray(n)
+        var prev = 0
+        for (i in 0 until n) {
+            prev = if (i == 0) r.next() else prev + r.next()
+            succ[i] = prev
+        }
+        val vals = DoubleArray(n) { values[r.byte()] }
+        return BigramBlock(backoff, succ, vals)
+    }
+
+    /**
+     * A trigram page (DATA-156): key `(w1 shl 17) or w2` of its first context, then per context in
+     * ascending w2: varint w2 delta (0 for the first), and a successor list. Calls [each] with every
+     * context's key and its row.
+     */
+    inline fun trigramPage(key: Long, blob: ByteArray, values: DoubleArray, backoffs: DoubleArray, each: (Long, BigramBlock) -> Unit) {
+        val w1 = key ushr 17
+        var w2 = key and 0x1FFFFL
+        val r = VarintReader(blob)
+        while (r.hasMore) {
+            w2 += r.next()
+            each((w1 shl 17) or w2, successorBlock(r, values, backoffs))
+        }
+    }
 }
 
 // ---- entry.body (zjson) ----

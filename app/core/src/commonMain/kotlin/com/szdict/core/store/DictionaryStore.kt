@@ -650,17 +650,20 @@ internal class DictionaryStore private constructor(
 
     private var codebookCache: Array<DoubleArray>? = null
 
-    /** Codebooks by kind: 0 unigram, 1 bigram, 2 backoff (DATA-154). */
+    /**
+     * Codebooks by kind (DATA-154, DATA-156): 0 unigram, 1 bigram, 2 backoff — the segmentation model —
+     * and 3 bigram2, 4 bigram2 backoff, 5 trigram, 6 trigram backoff, 7 unigram2 — the combination model.
+     */
     suspend fun codebooks(): Array<DoubleArray> {
         codebookCache?.let { return it }
-        val db = lm ?: return Array(3) { DoubleArray(256) }
-        val books = Array(3) { DoubleArray(256) { -30.0 } }
+        val db = lm ?: return Array(CODEBOOK_KINDS) { DoubleArray(256) }
+        val books = Array(CODEBOOK_KINDS) { DoubleArray(256) { -30.0 } }
         withContext(io) {
             db.use { c ->
                 c.query("SELECT kind, code, value FROM lm_codebook", {}) {
                     val k = it.getLong(0).toInt()
                     val code = it.getLong(1).toInt()
-                    if (k in 0..2 && code in 0..255) books[k][code] = it.getDouble(2)
+                    if (k in 0 until CODEBOOK_KINDS && code in 0..255) books[k][code] = it.getDouble(2)
                 }
             }
         }
@@ -668,28 +671,90 @@ internal class DictionaryStore private constructor(
         return books
     }
 
-    /** Bigram blocks of the given left words, one batched read (DATA-153). */
-    suspend fun bigramBlocks(lefts: Collection<Int>): Map<Int, BigramBlock> {
+    private var lmTableCache: Set<String>? = null
+
+    /** Tables of the companion file, read once (a companion built before DATA-156 lacks the combination model). */
+    private suspend fun lmTables(): Set<String> {
+        lmTableCache?.let { return it }
+        val db = lm ?: return emptySet()
+        val out = HashSet<String>()
+        withContext(io) { db.use { c -> c.query("SELECT name FROM sqlite_master WHERE type = 'table'", {}) { out.add(it.getText(0)) } } }
+        lmTableCache = out
+        return out
+    }
+
+    /** The companion carries the combination bigrams and unigram (`bigram2`, `unigram2`, DATA-156). */
+    suspend fun hasNgram2(): Boolean = lmTables().let { "bigram2" in it && "unigram2" in it }
+
+    /** The companion carries the combination trigrams (`trigram`, DATA-156). */
+    suspend fun hasTrigram(): Boolean = hasNgram2() && "trigram" in lmTables()
+
+    /** Segmentation bigram blocks of the given left words, one batched read (DATA-153). */
+    suspend fun bigramBlocks(lefts: Collection<Int>): Map<Int, BigramBlock> = blocks("bigram", lefts, 1, 2)
+
+    /** Combination bigram blocks of the given left words (`bigram2`, DATA-156), one batched read. */
+    suspend fun bigram2Blocks(lefts: Collection<Int>): Map<Int, BigramBlock> = blocks("bigram2", lefts, 3, 4)
+
+    private suspend fun blocks(table: String, lefts: Collection<Int>, valueKind: Int, backoffKind: Int): Map<Int, BigramBlock> {
         val db = lm ?: return emptyMap()
         if (lefts.isEmpty()) return emptyMap()
         val books = codebooks()
         val out = HashMap<Int, BigramBlock>()
         withContext(io) {
             db.use { c ->
-                c.query("SELECT left, block FROM bigram WHERE left IN (SELECT value FROM json_each(?))", { it.bindText(1, Codec.jsonIntArray(lefts)) }) {
+                c.query("SELECT left, block FROM $table WHERE left IN (SELECT value FROM json_each(?))", { it.bindText(1, Codec.jsonIntArray(lefts)) }) {
                     val blob = it.getBlob(1)
                     if (blob.isEmpty()) return@query
-                    val r = VarintReader(blob)
-                    val backoff = books[2][r.byte()]
-                    val n = r.next()
-                    val succ = IntArray(n)
-                    var prev = 0
-                    for (i in 0 until n) {
-                        prev = if (i == 0) r.next() else prev + r.next()
-                        succ[i] = prev
+                    out[it.getLong(0).toInt()] = Codec.successorBlock(VarintReader(blob), books[valueKind], books[backoffKind])
+                }
+            }
+        }
+        return out
+    }
+
+    /** Combination unigram (`u2`, DATA-156) of the given LM words, one batched read of their 256-word blocks. */
+    suspend fun unigram2(words: Collection<Int>): Map<Int, Double> {
+        val db = lm ?: return emptyMap()
+        if (words.isEmpty()) return emptyMap()
+        val book = codebooks()[7]
+        val out = HashMap<Int, Double>()
+        val byBlock = words.groupBy { it ushr 8 }
+        withContext(io) {
+            db.use { c ->
+                c.query("SELECT block, codes FROM unigram2 WHERE block IN (SELECT value FROM json_each(?))", { it.bindText(1, Codec.jsonIntArray(byBlock.keys)) }) {
+                    val codes = it.getBlob(1)
+                    for (w in byBlock[it.getLong(0).toInt()].orEmpty()) {
+                        val i = w and 0xFF
+                        if (i < codes.size) out[w] = book[codes[i].toInt() and 0xFF]
                     }
-                    val vals = DoubleArray(n) { books[1][r.byte()] }
-                    out[it.getLong(0).toInt()] = BigramBlock(backoff, succ, vals)
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * Trigram rows of the given contexts `(w1 shl 17) or w2` (DATA-156), one batched read: each context
+     * lives in the page of its first word with the greatest key at or below it. Absent contexts are
+     * absent from the result.
+     */
+    suspend fun trigramContexts(contexts: Collection<Long>): Map<Long, BigramBlock> {
+        val db = lm ?: return emptyMap()
+        if (contexts.isEmpty()) return emptyMap()
+        val books = codebooks()
+        val wanted = contexts.toHashSet()
+        val out = HashMap<Long, BigramBlock>()
+        val seenPages = HashSet<Long>()
+        withContext(io) {
+            db.use { c ->
+                c.query(
+                    "SELECT t.key, t.block FROM json_each(?) j JOIN trigram t ON t.key = " +
+                        "(SELECT max(key) FROM trigram WHERE key <= j.value AND key >= ((j.value >> $WORD_BITS) << $WORD_BITS))",
+                    { it.bindText(1, Codec.jsonLongArray(contexts)) },
+                ) {
+                    val key = it.getLong(0)
+                    if (!seenPages.add(key)) return@query
+                    Codec.trigramPage(key, it.getBlob(1), books[5], books[6]) { ctx, block -> if (ctx in wanted) out[ctx] = block }
                 }
             }
         }
@@ -840,6 +905,9 @@ internal class DictionaryStore private constructor(
 
     companion object {
         private const val ENTRY_CACHE_SIZE = 2000
+        private const val CODEBOOK_KINDS = 8
+        /** Bits of an LM word id in a trigram page key (DATA-156). */
+        const val WORD_BITS = 17
         private const val MIN_SCHEMA_VERSION = 1
         private val LM_RETRY = kotlin.time.Duration.parse("20s")
 
