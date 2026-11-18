@@ -63,7 +63,10 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
@@ -293,6 +296,15 @@ fun App(session: AppSession) {
                             AppBottomBar(destinations, session.destination, session::selectDestination)
                         }
                     }
+                }
+                if (session.volumeNoticeVisible) {
+                    Snackbar(
+                        modifier = Modifier.align(Alignment.TopCenter)
+                            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 12.dp)
+                            .padding(horizontal = 16.dp)
+                            .widthIn(max = 360.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    ) { Text(strings.text("Please increase the volume")) }
                 }
             }
         }

@@ -68,6 +68,7 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Starts with" to "開頭相符",
     "Related matches" to "相關結果",
     "NO MATCH" to "無相符",
+    "Please increase the volume" to "請調高音量",
     "No dictionary entry" to "未找到詞條",
     "Previous character" to "上一個字",
     "Next character" to "下一個字",

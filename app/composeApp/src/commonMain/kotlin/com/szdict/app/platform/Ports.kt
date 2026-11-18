@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.Flow
 
 /** Plays a sequence of recorded clips; completes when finished or cancelled (ARCH-092). */
 interface AudioPlayer {
+    /** True when the platform reports muted media output. */
+    fun isOutputMuted(): Boolean = false
+
     /** [clips] are asset-relative paths such as `cmn-syl/ni3.m4a`. Returns false if any clip is missing. */
     suspend fun play(clips: List<String>): Boolean
     fun has(clip: String): Boolean

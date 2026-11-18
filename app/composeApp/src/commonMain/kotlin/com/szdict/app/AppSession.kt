@@ -325,6 +325,20 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     /** Key of what is playing now (an entry id, a sentence id…), or null. */
     val playing: StateFlow<Any?> = _playing.asStateFlow()
     private var playJob: Job? = null
+    private var volumeNoticeJob: Job? = null
+    var volumeNoticeVisible by mutableStateOf(false)
+        private set
+
+    private fun canPlayAudibly(): Boolean {
+        volumeNoticeJob?.cancel()
+        volumeNoticeVisible = env.audio.isOutputMuted()
+        if (!volumeNoticeVisible) return true
+        volumeNoticeJob = scope.launch {
+            delay(3000)
+            volumeNoticeVisible = false
+        }
+        return false
+    }
 
     fun stopPlayback() {
         playJob?.cancel()
@@ -338,6 +352,7 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     fun play(key: Any, plan: AudioPlan, mode: DictMode = routeMode()) {
         if (_playing.value == key) { stopPlayback(); return }
         stopPlayback()
+        if (!canPlayAudibly()) return
         _playing.value = key
         playJob = scope.launch {
             try {
@@ -354,7 +369,7 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     fun speak(key: Any, text: String, mode: DictMode = routeMode()) {
         if (_playing.value == key) { stopPlayback(); return }
         stopPlayback()
-        if (text.isBlank()) return
+        if (text.isBlank() || !canPlayAudibly()) return
         _playing.value = key
         playJob = scope.launch {
             try { env.speaker.speak(text, ttsTag(mode)) } finally { if (_playing.value == key) _playing.value = null }

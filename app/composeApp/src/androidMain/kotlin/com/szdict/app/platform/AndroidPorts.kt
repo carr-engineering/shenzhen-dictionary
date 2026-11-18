@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
@@ -31,6 +32,11 @@ private const val AUDIO_ROOT = "data/packs/audio/"
 class AndroidAudioPlayer(private val context: Context) : AudioPlayer {
     private var current: MediaPlayer? = null
     private val dirListings = ConcurrentHashMap<String, Set<String>>()
+
+    override fun isOutputMuted(): Boolean {
+        val manager = context.getSystemService(AudioManager::class.java) ?: return false
+        return manager.isStreamMute(AudioManager.STREAM_MUSIC) || manager.getStreamVolume(AudioManager.STREAM_MUSIC) == 0
+    }
 
     override fun has(clip: String): Boolean {
         val dir = clip.substringBeforeLast('/', "")

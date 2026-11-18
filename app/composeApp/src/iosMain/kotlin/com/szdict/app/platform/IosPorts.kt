@@ -59,6 +59,8 @@ class IosAudioPlayer(private val root: String = IosBundle.path("data/packs/audio
     private var currentDelegate: NSObject? = null
     private val listings = AtomicReference<Map<String, Set<String>>>(emptyMap())
 
+    override fun isOutputMuted(): Boolean = AVAudioSession.sharedInstance().outputVolume == 0f
+
     override fun has(clip: String): Boolean {
         val dir = clip.substringBeforeLast('/', "")
         val name = clip.substringAfterLast('/')
