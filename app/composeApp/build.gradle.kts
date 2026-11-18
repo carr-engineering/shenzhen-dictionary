@@ -125,6 +125,7 @@ kotlin {
             // OCR destination: camera preview/capture (CAM-020…) and EXIF orientation of picked images (CAM-041).
             implementation("androidx.camera:camera-core:1.5.3")
             implementation("androidx.camera:camera-camera2:1.5.3")
+            implementation("androidx.camera:camera-extensions:1.5.3")
             implementation("androidx.camera:camera-lifecycle:1.5.3")
             implementation("androidx.camera:camera-view:1.5.3")
             implementation("androidx.exifinterface:exifinterface:1.4.1")

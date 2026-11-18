@@ -92,6 +92,7 @@ class OcrStateHolder(
         private set
 
     var flash: FlashMode by mutableStateOf(FlashMode.OFF)
+    var hdrEnabled by mutableStateOf(false)
 
     // ---- review phase ----
 

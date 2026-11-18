@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -65,6 +66,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -247,6 +249,7 @@ private fun CapturePhase(holder: OcrStateHolder, pickImage: () -> Unit, cameraAc
                         CameraPreview(
                             handle = handle,
                             flash = effectiveFlash(holder.flash, handle.flashModes),
+                            hdr = holder.hdrEnabled,
                             onFocus = { position, outcome ->
                                 focusMark = if (outcome == FocusOutcome.PENDING) FocusMark(++focusId, position, outcome)
                                 else focusMark?.let { FocusMark(it.id, it.position, outcome) }
@@ -262,6 +265,30 @@ private fun CapturePhase(holder: OcrStateHolder, pickImage: () -> Unit, cameraAc
 
                 // CAM-035…CAM-037: flash menu, hidden when the active camera has neither flash nor torch.
                 if (live) {
+                    if (handle.hdrAvailable) {
+                        val label = strings.text("HDR")
+                        Box(Modifier.align(Alignment.TopStart).padding(12.dp)) {
+                            WithTooltip(label) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (handle.hdrActive) palette.accent else Color.Black.copy(alpha = 0.42f),
+                                    contentColor = if (handle.hdrActive) palette.onAccent else Color.White,
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                                ) {
+                                    Text(
+                                        label,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.toggleable(
+                                            value = handle.hdrActive,
+                                            enabled = handle.ready && !capturing,
+                                            role = Role.Switch,
+                                            onValueChange = { holder.hdrEnabled = it },
+                                        ).padding(horizontal = 14.dp, vertical = 10.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
                     FlashControl(
                         mode = effectiveFlash(holder.flash, handle.flashModes),
                         supported = handle.flashModes,

@@ -461,6 +461,7 @@ private class IosCamera {
 actual fun CameraPreview(
     handle: CameraHandle,
     flash: FlashMode,
+    hdr: Boolean,
     onFocus: (position: Offset, outcome: FocusOutcome) -> Unit,
     onLongPress: () -> Unit,
     onCaptured: (ByteArray) -> Unit,

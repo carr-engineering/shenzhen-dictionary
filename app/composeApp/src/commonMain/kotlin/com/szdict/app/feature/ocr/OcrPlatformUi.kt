@@ -46,6 +46,10 @@ class CameraHandle {
     /** The active camera has a flash unit or a torch: the flash control is shown (CAM-037). */
     val hasFlash: Boolean get() = flashMenu(flashModes).isNotEmpty()
 
+    /** The active camera can run the manufacturer's still-photo HDR mode. */
+    var hdrAvailable: Boolean by mutableStateOf(false)
+    var hdrActive: Boolean by mutableStateOf(false)
+
     /** A capture is in flight (CAM-023). */
     var capturing: Boolean by mutableStateOf(false)
 
@@ -66,6 +70,7 @@ class CameraHandle {
     }
 
     fun selectLens(lens: CameraLens) {
+        if (capturing) return
         this.lens = lens.id
         lensSwitch?.invoke(lens)
     }
@@ -76,6 +81,8 @@ class CameraHandle {
         lensSwitch = null
         capturing = false
         flashModes = emptySet()
+        hdrAvailable = false
+        hdrActive = false
         ready = false
         lenses = emptyList()
         lens = null
@@ -93,6 +100,7 @@ class CameraHandle {
 expect fun CameraPreview(
     handle: CameraHandle,
     flash: FlashMode,
+    hdr: Boolean,
     onFocus: (position: Offset, outcome: FocusOutcome) -> Unit,
     onLongPress: () -> Unit,
     onCaptured: (ByteArray) -> Unit,

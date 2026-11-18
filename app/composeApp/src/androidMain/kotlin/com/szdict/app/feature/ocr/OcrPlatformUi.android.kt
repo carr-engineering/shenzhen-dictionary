@@ -21,6 +21,8 @@ import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraState
 import androidx.camera.core.ZoomState
+import androidx.camera.extensions.ExtensionMode
+import androidx.camera.extensions.ExtensionsManager
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
@@ -181,7 +183,8 @@ private fun cameraWithId(id: String): CameraSelector =
 
 /** Which camera is open, and the zoom to apply once a rebound camera is open (CAM-028). */
 private class LensTracker {
-    var plan: LensPlan? = null
+    var selector: CameraSelector? = null
+    var extensions: ExtensionsManager? = null
     var currentId: String? = null
     var info: CameraInfo? = null
     var pendingZoom: Float? = null
@@ -193,6 +196,7 @@ private class LensTracker {
 actual fun CameraPreview(
     handle: CameraHandle,
     flash: FlashMode,
+    hdr: Boolean,
     onFocus: (position: Offset, outcome: FocusOutcome) -> Unit,
     onLongPress: () -> Unit,
     onCaptured: (ByteArray) -> Unit,
@@ -207,6 +211,7 @@ actual fun CameraPreview(
     val focus by rememberUpdatedState(onFocus)
     val longPress by rememberUpdatedState(onLongPress)
     val flashMode by rememberUpdatedState(flash)
+    val hdrRequested by rememberUpdatedState(hdr)
     val disposed = remember { booleanArrayOf(false) }
     val focusSequence = remember { intArrayOf(0) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
@@ -223,6 +228,38 @@ actual fun CameraPreview(
         }
     }
     val lenses = remember(controller) { LensTracker() }
+
+    fun switchCamera(selector: CameraSelector, enableHdr: Boolean, zoom: Float): Boolean {
+        val extensions = lenses.extensions
+        val hdrSelector = if (extensions == null) null else runCatching {
+            if (extensions.isExtensionAvailable(selector, ExtensionMode.HDR)) {
+                extensions.getExtensionEnabledCameraSelector(selector, ExtensionMode.HDR)
+            } else null
+        }.getOrNull()
+        fun bind(target: CameraSelector) {
+            if (controller.cameraSelector !== target) {
+                lenses.pendingZoom = zoom
+                controller.cameraSelector = target
+            }
+        }
+
+        val hdrActive = enableHdr && hdrSelector != null && runCatching { bind(hdrSelector) }.isSuccess
+        if (!hdrActive && runCatching { bind(selector) }.isFailure) {
+            lenses.pendingZoom = null
+            return false
+        }
+        lenses.selector = selector
+        handle.hdrAvailable = hdrSelector != null && (!enableHdr || hdrActive)
+        handle.hdrActive = hdrActive
+        return true
+    }
+
+    fun applyHdr() {
+        val selector = lenses.selector ?: return
+        if (lenses.extensions == null || handle.capturing) return
+        if (handle.hdrAvailable && handle.hdrActive == hdrRequested) return
+        switchCamera(selector, hdrRequested, controller.zoomState.value?.zoomRatio ?: 1f)
+    }
 
     // CAM-036 / CAM-039: capture flash through ImageCapture; `Flashlight` is the torch with the flash off. A torch
     // request only takes while the camera is open, so this runs again whenever it (re)opens.
@@ -277,7 +314,6 @@ actual fun CameraPreview(
                     // CAM-022: the rear camera by default (a logical multi-camera where it reaches more lenses,
                     // CAM-028); whatever camera exists otherwise. The front camera is an entry of the lens menu.
                     val plan = lensPlan(context)
-                    lenses.plan = plan
                     val rear = plan?.rearId?.let(::cameraWithId)
                     val selector = when {
                         rear != null && controller.hasCamera(rear) -> rear
@@ -290,9 +326,21 @@ actual fun CameraPreview(
                     } else {
                         handle.lenses = plan?.lenses.orEmpty()
                         handle.lens = plan?.initial?.id
+                        lenses.selector = selector
                         controller.cameraSelector = selector
                         controller.bindToLifecycle(owner)
                         controller.zoomState.observe(owner, zoomObserver)
+                        // Initialise the optional vendor extension after ordinary capture is bound.
+                        runCatching {
+                            val provider = ProcessCameraProvider.getInstance(context).get()
+                            val extensions = ExtensionsManager.getInstanceAsync(context, provider)
+                            extensions.addListener({
+                                if (!disposed[0]) {
+                                    lenses.extensions = runCatching { extensions.get() }.getOrNull()
+                                    applyHdr()
+                                }
+                            }, executor)
+                        }.onFailure { Log.d("szdict.ocr", "Camera extensions unavailable", it) }
                     }
                 } catch (e: Exception) {
                     handle.available = false
@@ -309,8 +357,10 @@ actual fun CameraPreview(
             if (cameraId == lenses.currentId) {
                 runCatching { controller.setZoomRatio(ratio) }
             } else {
-                lenses.pendingZoom = ratio
-                runCatching { controller.cameraSelector = cameraWithId(cameraId) }
+                if (!switchCamera(cameraWithId(cameraId), hdrRequested, ratio)) {
+                    // Restore the chip for the camera that stayed bound.
+                    handle.lens = handle.lenses.firstOrNull { it.id.substringBefore('@') == lenses.currentId }?.id
+                }
             }
         }
         handle.shutter = {
@@ -356,6 +406,7 @@ actual fun CameraPreview(
 
     // CAM-037 / CAM-038: the session's flash state is applied on every change and on every (re)open.
     LaunchedEffect(controller, flash) { applyIllumination() }
+    LaunchedEffect(controller, hdr, handle.capturing) { applyHdr() }
 
     Box(modifier) {
         AndroidView(
