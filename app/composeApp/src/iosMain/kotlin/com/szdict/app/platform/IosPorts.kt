@@ -22,6 +22,7 @@ import platform.AVFAudio.AVSpeechSynthesisVoice
 import platform.AVFAudio.AVSpeechSynthesizer
 import platform.AVFAudio.AVSpeechSynthesizerDelegateProtocol
 import platform.AVFAudio.AVSpeechUtterance
+import platform.AVFAudio.outputVolume
 import platform.Foundation.NSError
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSLock
