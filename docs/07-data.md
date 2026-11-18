@@ -666,7 +666,9 @@ syllabus-sourced dictionary entries are created.
 `DATA-125` `[MUST]` The entry's `hsk_levels` is derived from the main `level` of the rows that link
 it (`entry_id` or `also_entry_ids`), ascending and de-duplicated. Extra levels (`extra_levels`) are not
 part of `hsk_levels`: they are read with the per-level parts of speech (`DATA-126`) and shown as an
-additional badge (`HSK-080`); they never add a grid card.
+additional badge (`HSK-080`). The app expands the stored primary and bracketed levels into HSK grid
+memberships, counts each membership, and merges cards with the same entry within a level
+(`HSK-027`). The card key combines level and syllabus row ID.
 
 `DATA-126` `[MUST]` Per-entry, per-level parts of speech — every level of the word (main and extra
 levels, and levels received through variants, `DATA-193`) each with **its own** parts of speech, never

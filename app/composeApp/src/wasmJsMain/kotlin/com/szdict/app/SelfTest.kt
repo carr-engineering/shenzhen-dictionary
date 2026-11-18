@@ -92,6 +92,13 @@ internal object SelfTest {
                 require(detail.card.definitions.isNotEmpty()) { "no definitions" }
                 "${detail.card.headword} ${detail.card.reading.display} — ${detail.card.definitions.first()} (related ${detail.related.size})"
             }
+            if (mode == DictMode.MANDARIN) check("$tag mixed-script words within") {
+                val card = firstCard(d.search("U盘", script))
+                require(card.headword == "U盘" && card.insideCount > 0) { "missing inside words count" }
+                val inside = d.insideWords(card.id, script)
+                require(inside.any { it.card.headword == "盘" }) { "missing 盘" }
+                "${card.headword} -> ${inside.joinToString { it.card.headword }}"
+            }
             check("$tag examples") {
                 val card = firstCard(d.search("你好", script))
                 "count=${d.examples(card.id, script).items.size}"
@@ -108,9 +115,12 @@ internal object SelfTest {
             }
             check("$tag hsk") {
                 val levels = d.hskLevels()
-                val cards = d.hsk(1..1, script)
-                require(levels.isNotEmpty() && cards.isNotEmpty()) { "no HSK data" }
-                "levels=${levels.size} level1=${cards.size}"
+                val level2 = levels.first { it.level == 2 }
+                val cards = d.hsk(2..2, script)
+                require(level2.wordCount == 204 && cards.size == level2.cardCount) { "incorrect level 2 counts" }
+                val additions = listOf("多", "给", "好", "那")
+                require(additions.all { word -> cards.any { it.card.simplified == word } }) { "missing bracketed assignments" }
+                "levels=${levels.size} level2=${level2.wordCount} includes ${additions.joinToString()}"
             }
             check("$tag popular") { "count=${d.popular(script).size}" }
         }

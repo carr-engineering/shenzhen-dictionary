@@ -370,6 +370,20 @@ class RealDatasetTest {
     }
 
     @Test
+    fun hskGridIncludesEveryAssignedLevel() {
+        for (mode in DictMode.entries) real(mode) { dict ->
+            val levels = dict.hskLevels()
+            assertEquals(listOf(300, 204, 507, 1019, 1638, 1815, 5622), levels.map { it.wordCount })
+            val cards = dict.hsk(1..2, s)
+            assertEquals(cards.size, cards.map { it.key }.toSet().size)
+            assertEquals(levels.take(2).map { it.cardCount }, (1..2).map { l -> cards.count { it.level == l } })
+            for (word in listOf("多", "给", "好", "那")) {
+                assertEquals(setOf(1, 2), cards.filter { it.card.simplified == word }.map { it.level }.toSet(), word)
+            }
+        }
+    }
+
+    @Test
     fun cantonese() = real(DictMode.CANTONESE) { dict ->
         val t = Script.TRADITIONAL
         assertEquals(6, dict.info().toneCount)

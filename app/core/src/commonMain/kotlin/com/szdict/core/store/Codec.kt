@@ -293,10 +293,7 @@ internal class BigramBlock(val backoff: Double, val successors: IntArray, val va
 
 internal class MergeGroup(val id: Int, val script: Int, val members: IntArray, val variants: List<String>)
 
-internal class HskRow(
-    val rowId: Int, val ord: Int, val level: Int, val simp: String, val trad: String, val homograph: Int,
-    val entryId: Int,
-)
+internal class HskRow(val rowId: Int, val level: Int, val entryId: Int)
 
 internal class HskCharRow(val ch: String, val level: Int, val writing: Boolean, val entryId: Int)
 

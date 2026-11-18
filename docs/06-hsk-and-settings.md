@@ -30,15 +30,14 @@ published 2025-11, in force 2026-07: 新版HSK考试大纲（词汇、汉字、�
 identified by **word + syllabus pinyin + homograph index**: 82 rows carry a homograph index
 (`本1`/`本2` style, kept as a suffix of the parser's `word` column) and 61 polyphones appear twice with
 different pinyin (还 hái / huán), so neither the word alone nor (word, pinyin) is a key; the parser's
-`word_index` (the word's position in the syllabus) together with `level` identifies a row. After de-duplication (`HSK-027`) each level's
-distinct-word count must match these figures; the pipeline's validation gate checks them (gate 8 of
-`DATA-200`). A word can have **several HSK levels**, each with its own part of speech (grammatical
+`word_index` (the word's position in the syllabus) together with `level` identifies a row. After de-duplication (`HSK-027`) each level's new-word count must match these figures in storage; the
+pipeline's validation gate checks them (gate 8 of `DATA-200`). A word can have **several HSK levels**, each with its own part of speech (grammatical
 class, e.g. 动、名) from the syllabus: 102 words carry an **extra bracketed level** for one part of
 speech or sense (半 is level `1（4）` with POS `数、（副）`: numeral at level 1, adverb at level 4),
 which the parser emits as one row per level sharing the `word_index`; the lowest level is the word's
 main level. The extra level is stored with its part of speech (`extra_levels`, `DATA-120`) and shown
-as an additional badge (`HSK-080`), but the word is listed and counted in the grid only at its main
-level. 495 words (phrases, chengyu) have no part of speech (`HSK-082`). Only facts are stored — word
+as an additional badge (`HSK-080`). The grid lists and counts the word at every assigned level, for
+totals of 300 / 204 / 507 / 1,019 / 1,638 / 1,815 / 5,622. 495 words (phrases, chengyu) have no part of speech (`HSK-082`). Only facts are stored — word
 → level and per-level part-of-speech tags, and the character levels (`HSK-098`); the official
 syllabus document is not redistributed, and CTI and the parser repository are cited as the sources
 (`SET-040`). *(Decided: `Q-110`, `Q-102`.)*
@@ -97,7 +96,7 @@ within a session (`GLB-050`) but is not persisted across launches (`HSK-070`).
 dp, 3 columns at 840 dp and above. Level headers span the full line; word cards occupy a single lane.
 Horizontal spacing 10 dp; cards carry their own 4 dp vertical padding.
 
-`HSK-021` `[MUST]` A level header renders the level badge with its row count: `HSK 3 (500)`.
+`HSK-021` `[MUST]` A level header renders the level badge with its syllabus membership count: `HSK 3 (507)`.
 
 `HSK-022` `[MUST]` Each word card is the shared entry card (`ENT-070`) with:
 - the linked canonical dictionary entry's content, its reading shown or hidden per the

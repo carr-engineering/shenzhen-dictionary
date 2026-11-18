@@ -161,7 +161,7 @@ interface Dictionary {
 
     suspend fun hskLevels(): List<HskLevelInfo>
 
-    /** Word cards of the levels in [levels] (1..7), in storage order (HSK-030/032), rows merged per HSK-027. */
+    /** Word cards of the levels in [levels] (1..7), ordered by level and reading. Includes bracketed levels. */
     suspend fun hsk(levels: IntRange, script: Script): List<HskCard>
 
     /** Recognition characters of the levels in [levels], in storage order (HSK-098). */

@@ -566,13 +566,27 @@ internal class DictionaryStore private constructor(
 
     // ---- HSK ----
 
+    private val hskMemberships = """
+        WITH memberships AS (
+            SELECT row_id, level, entry_id, simp, sort_key FROM hsk_row
+            UNION ALL
+            SELECT h.row_id, json_extract(extra.value, '$.l'), h.entry_id, h.simp, h.sort_key
+            FROM hsk_row h, json_each(h.extra_levels) extra
+        )
+    """.trimIndent()
+
     suspend fun hskRows(levels: IntRange): List<HskRow> = read { c ->
         val out = ArrayList<HskRow>()
         c.query(
-            "SELECT row_id, ord, level, simp, trad, homograph, entry_id FROM hsk_row WHERE level >= ? AND level <= ? ORDER BY level, ord",
+            """$hskMemberships
+                SELECT m.row_id, m.level, m.entry_id
+                FROM memberships m JOIN entry e ON e.id = m.entry_id
+                WHERE m.level BETWEEN ? AND ?
+                ORDER BY m.level, e.reading_source = 5, m.sort_key, m.simp, m.row_id
+            """.trimIndent(),
             { it.bindLong(1, levels.first.toLong()); it.bindLong(2, levels.last.toLong()) },
         ) {
-            out.add(HskRow(it.getLong(0).toInt(), it.getLong(1).toInt(), it.getLong(2).toInt(), it.getText(3), it.getText(4), if (it.isNull(5)) 0 else it.getLong(5).toInt(), it.getLong(6).toInt()))
+            out.add(HskRow(it.getLong(0).toInt(), it.getLong(1).toInt(), it.getLong(2).toInt()))
         }
         out
     }
@@ -586,10 +600,10 @@ internal class DictionaryStore private constructor(
         out
     }
 
-    /** Per level: (syllabus rows, distinct linked entries, recognition characters). */
+    /** Per level: (syllabus memberships, distinct linked entries, recognition characters). */
     suspend fun hskCounts(): Map<Int, IntArray> = read { c ->
         val out = HashMap<Int, IntArray>()
-        c.query("SELECT level, COUNT(*), COUNT(DISTINCT entry_id) FROM hsk_row GROUP BY level", {}) {
+        c.query("$hskMemberships SELECT level, COUNT(*), COUNT(DISTINCT entry_id) FROM memberships GROUP BY level", {}) {
             out[it.getLong(0).toInt()] = intArrayOf(it.getLong(1).toInt(), it.getLong(2).toInt(), 0)
         }
         c.query("SELECT level, COUNT(*) FROM hsk_char GROUP BY level", {}) {

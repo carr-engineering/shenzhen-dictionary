@@ -113,7 +113,7 @@ data class SpanCandidates(
 
 // ---- HSK (docs/06) ----
 
-/** Level 7 is the 7-9 band. [wordCount] is the syllabus row count shown in the header (HSK-021). */
+/** Level 7 is the 7-9 band. [wordCount] counts all assignments to the level, as shown in the header (HSK-021). */
 data class HskLevelInfo(val level: Int, val wordCount: Int, val cardCount: Int, val charCount: Int)
 
 /**

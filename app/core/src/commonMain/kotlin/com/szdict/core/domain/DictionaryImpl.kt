@@ -723,7 +723,9 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
             for (k in chunk) {
                 val card = built[entryOf[k]!!] ?: continue // ARCH-124: a missing record degrades that one row
                 val rowIds = order[k]!!
-                out.add(HskCard(rowIds[0].toLong(), (k ushr 32).toInt(), rowIds, card))
+                val level = (k ushr 32).toInt()
+                val key = (rowIds[0].toLong() shl 3) or level.toLong()
+                out.add(HskCard(key, level, rowIds, card))
             }
         }
         out
