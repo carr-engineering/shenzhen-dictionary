@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,6 +44,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
@@ -50,7 +53,6 @@ import com.szdict.app.WordSheetRequest
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.SpanCandidates
-import com.szdict.core.api.SpanKind
 import kotlinx.coroutines.delay
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -60,9 +62,8 @@ import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.launch
 
 /**
- * Non-modal word-candidate sheet (TXT-040…TXT-047, GLB-057). Opens at a 256 dp peek, drags to full
- * height, dismisses by drag-down, close or back. It never closes and reopens when the selection
- * moves; previous rows stay (dimmed) while a new lookup runs (TXT-042).
+ * Non-modal word choices (TXT-040…TXT-047, GLB-057). Compact windows use a draggable sheet,
+ * and expanded windows use a floating dialog. Previous rows stay dimmed while a lookup runs.
  *
  * [onVisibleHeight] reports the currently visible height so the screen behind pads by exactly it (TXT-044).
  */
@@ -71,6 +72,7 @@ fun WordSheet(
     session: AppSession,
     request: WordSheetRequest,
     maxHeight: Dp,
+    asDialog: Boolean,
     onVisibleHeight: (Dp) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -78,11 +80,13 @@ fun WordSheet(
     val strings = appStrings()
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val peekPx = with(density) { 256.dp.toPx() }
-    val maxPx = with(density) { maxHeight.toPx() }.coerceAtLeast(peekPx)
+    val maxPx = with(density) { maxHeight.toPx() }.coerceAtLeast(0f)
+    val peekPx = with(density) { 256.dp.toPx() }.coerceAtMost(maxPx)
     val height = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { height.animateTo(peekPx) }
-    LaunchedEffect(height.value) { onVisibleHeight(with(density) { height.value.toDp() }) }
+    if (!asDialog) {
+        LaunchedEffect(peekPx, maxPx) { height.animateTo(height.value.coerceIn(peekPx, maxPx)) }
+        LaunchedEffect(height.value) { onVisibleHeight(with(density) { height.value.toDp() }) }
+    }
 
     var shown by remember { mutableStateOf<SpanCandidates?>(null) }
     var loading by remember { mutableStateOf(false) }
@@ -150,34 +154,32 @@ fun WordSheet(
             }
         }
     }
+    val heightModifier = if (asDialog) Modifier.heightIn(max = minOf(560.dp, maxHeight - 16.dp))
+    else Modifier.height(with(density) { height.value.toDp() })
+    val dragModifier = if (asDialog) Modifier else Modifier.draggable(
+        state = dragState,
+        orientation = Orientation.Vertical,
+        onDragStopped = { velocity -> settle(velocity) },
+    )
+    val wordChoices = strings.text("Word choices")
     Surface(
-        modifier = modifier
-            .widthIn(max = 720.dp)
-            .fillMaxWidth()
-            .height(with(density) { height.value.toDp() }),
+        modifier = modifier.widthIn(max = 720.dp).fillMaxWidth().then(heightModifier)
+            .semantics { paneTitle = wordChoices },
         color = palette.panel,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = if (asDialog) RoundedCornerShape(16.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         border = BorderStroke(1.dp, palette.border),
         shadowElevation = 6.dp,
     ) {
         Column {
             Column(
-                Modifier.fillMaxWidth().draggable(
-                    state = dragState,
-                    orientation = Orientation.Vertical,
-                    onDragStopped = { velocity -> settle(velocity) },
-                ),
+                Modifier.fillMaxWidth().then(dragModifier),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.padding(top = 8.dp).size(32.dp, 4.dp).background(palette.border, RoundedCornerShape(2.dp)))
-                val current = shown
-                val character = current?.character ?: ""
-                val title = request.fixedTitle ?: when (current?.kind) {
-                    SpanKind.WORDS_AT -> strings.text("Words at 「{0}」", character)
-                    SpanKind.APPEARS_IN -> strings.text("「{0}」 appears in", character)
-                    SpanKind.NONE -> strings.text("At 「{0}」", character)
-                    null -> ""
+                if (!asDialog) {
+                    Box(Modifier.padding(top = 8.dp).size(32.dp, 4.dp).background(palette.border, RoundedCornerShape(2.dp)))
                 }
+                val current = shown
+                val title = request.fixedTitle ?: current?.let { wordChoicesTitle(strings, it) }.orEmpty()
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, style = MaterialTheme.typography.titleMedium, color = palette.fg, modifier = Modifier.weight(1f))
                     if (request.fixedCards == null) {
@@ -204,8 +206,9 @@ fun WordSheet(
             }
             val cards = request.fixedCards ?: shown?.candidates?.map { it.card }
             val playing by session.playing.collectAsStateCompat()
+            val scrollModifier = if (asDialog) Modifier else Modifier.nestedScroll(listConnection)
             LazyColumn(
-                Modifier.fillMaxWidth().nestedScroll(listConnection).alpha(if (loading && request.fixedCards == null) 0.55f else 1f),
+                Modifier.fillMaxWidth().then(scrollModifier).alpha(if (loading && request.fixedCards == null) 0.55f else 1f),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
@@ -213,7 +216,7 @@ fun WordSheet(
                 if (cards != null && cards.isEmpty() && !loading && error == null) {
                     item { Text(strings.text("No dictionary entry"), color = palette.muted, modifier = Modifier.padding(12.dp)) }
                 }
-                items(cards.orEmpty(), key = { it.id }) { card ->
+                items(cards.orEmpty()) { card ->
                     EntryCardView(
                         card = card,
                         onClick = { if (!loading) session.openEntry(card.id, request.mode, nested = request.nested) },
@@ -223,7 +226,10 @@ fun WordSheet(
                     )
                 }
                 // TXT-046: the bottom safe inset is a trailing item, not sheet padding.
-                item { Spacer(Modifier.height(WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp)) }
+                item {
+                    val bottomInset = if (asDialog) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    Spacer(Modifier.height(bottomInset + 12.dp))
+                }
             }
         }
     }

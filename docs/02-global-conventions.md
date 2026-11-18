@@ -337,12 +337,10 @@ character; any prior selection is cleared. There is no multi-select.
 pronunciation, and example sentences enters native text selection and must **not** activate the
 link/tap behaviour of the pressed span. A normal tap on a link still follows it.
 
-`GLB-057` `[MUST]` **Sheet-based disambiguation.** Whenever a tapped position could belong to more
-than one dictionary word, the choice is presented in a non-modal bottom sheet that opens at a compact
-peek height (~256 dp), can be dragged to full height, and dismisses by drag-down, an explicit close
-button, or back. The content behind it stays interactive and is bottom-inset by exactly the visible
-sheet height. If the handwriting sheet is visible, opening the word sheet hides it and closing the
-word sheet restores it (`HW-001`…). Full spec: `TXT-040`.
+`GLB-057` `[MUST]` **Word disambiguation.** A character selection opens non-modal word choices in
+a resizable bottom sheet or a floating dialog, depending on window size. Mouse hover previews the
+ranked candidates. A second tap on the same character closes the pinned choices. Opening word
+choices hides the handwriting sheet and dismissing them restores it (`HW-001`). See `TXT-040`…`TXT-047`.
 
 `GLB-058` `[MUST]` **Character stepping.** Where a selection sits inside a known text (search
 passage, reading passage, voice transcript, example sentence, OCR line), the sheet header offers

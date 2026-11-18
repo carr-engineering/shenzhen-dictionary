@@ -200,9 +200,12 @@ passage card, OCR text-view lines and the Voice transcript render readings above
 
 ### 5. The word-candidate sheet
 
-`TXT-040` `[MUST]` A **non-modal** bottom sheet, opened at a compact peek height of 256 dp
-(`GLB-057`), draggable to full height, capped at 720 dp wide, `panel` coloured, with a 32x4 dp drag
-handle.
+`TXT-040` `[MUST]` Click or tap to pin the word choices. Compact and medium windows use a **non-modal**
+bottom sheet with a 256 dp peek, a 32x4 dp drag handle and a maximum width of 720 dp. Where the window
+fits two panes, the sheet is confined to the right pane. Large windows use a floating, non-modal
+dialog that leaves the clicked character reachable. Mouse hover previews the same ranked candidates,
+follows the pointer and clears when the pointer leaves the character or moves into empty space. The
+preview passes input through to the content beneath it.
 
 `TXT-041` `[MUST]` Header row: the title (`Words at 「X」` / `「X」 appears in` / `At 「X」`), then the
 previous/next character stepper group (`GLB-058`, `TXT-033`; omitted when there is no navigable text
@@ -215,12 +218,13 @@ The sheet does **not** close and reopen when the selection moves.
 `TXT-043` `[MUST]` Rows are compact entry cards (`SRCH-097`) including merge variants, definitions and
 audio buttons. Empty state (after loading finishes): `No dictionary entry`.
 
-`TXT-044` `[MUST]` The screen behind the sheet is padded at the bottom by exactly the currently
-**visible** sheet height, live during the drag, so content is never hidden behind it and the padding
-collapses to zero when it hides. The same rule applies to the handwriting sheet (`HW-021`); only one
-of the two sheets is visible at a time.
+`TXT-044` `[MUST]` Scrollable content behind a bottom sheet is padded by the currently **visible**
+sheet height, live during the drag. The OCR image keeps its fit, zoom and translation while the
+sheet moves. The same padding rule applies to the handwriting sheet (`HW-021`); only one of the
+two sheets is visible at a time.
 
-`TXT-045` `[MUST]` The sheet closes on: the close button, a drag down to hidden, back, tapping a row
+`TXT-045` `[MUST]` The sheet closes on: tapping the same character again, the close button, a drag down
+to hidden, back, tapping a row
 (which opens the entry), changing destination, changing script or dictionary mode, and any change to
 the underlying passage, including converting it or showing the original (`TXT-084`, `CAM-135`,
 `VOICE-096`). A programmatic hide must not be mistaken for a user dismissal.
@@ -541,15 +545,9 @@ a camera, a desktop browser without a webcam — `NotFoundError` / `NotReadableE
 shows `The camera is unavailable on this device.`; the pick button stays visible (`CAM-007`) and
 drop and paste keep working (`CAM-131`, `CAM-132`).
 
-`CAM-016` `[MUST]` The gallery path uses the platform's **photo picker** (Android Photo Picker /
-iOS `PHPickerViewController`; Web: a file input with `accept="image/*"` and no `capture` attribute,
-so the browser offers both files and its camera), which grants access to the single chosen image
-only and therefore requires **no** media permission. A broad photo-library read permission must not
-be requested. Picking from local **files** (not only the photo library) is offered on Android and iOS
-through the system document picker (`ACTION_OPEN_DOCUMENT` with `image/*`;
-`UIDocumentPickerViewController` for image types), which likewise needs no permission: the
-on Android and iOS the viewfinder's pick button (`CAM-007`) opens a small menu with `Photos` (the
-photo picker) and `Files` (the document picker); on Web it opens the file input directly.
+`CAM-016` `[MUST]` The image button opens the platform chooser directly: Android Photo Picker,
+iOS `PHPickerViewController`, or a Web file input with `accept="image/*"` and no capture hint.
+The chooser grants access to the selected image and needs no broad photo-library permission.
 
 `CAM-017` `[MUST]` Declared permissions (the merged-manifest policy and its CI check are
 `ARCH-104`…`ARCH-106`):
@@ -768,8 +766,8 @@ without a webcam) or access is denied, the camera area shows the permission or u
 ### 5. Recognition
 
 `CAM-050` `[MUST]` Recognition runs on a background thread against the upright working image, with a
-**20 s timeout**. While it runs, the review phase shows the image with a centred spinner over it; the
-header and view toggle remain usable.
+**20 s timeout**. While it runs, the review phase shows a linear progress indicator along the
+top edge of the image frame. The header and view toggle remain usable.
 
 `CAM-051` `[MUST]` The recogniser must be a **Chinese-capable, on-device, offline** text recogniser;
 images and recognised text never leave the device. Android and iOS: the PP-OCRv4 mobile text
@@ -853,9 +851,10 @@ Dropping or pasting an image during review replaces the capture (`CAM-130`).
 
 `CAM-062` `[MUST]` The image is displayed fit-centre on black, with the recognition overlay drawn in
 the same transform:
-- each line's quad filled at 10% accent and stroked in accent (1.5 dp, scaled down by the zoom so the
-  stroke stays hairline);
-- the selected character's quad filled at 35% accent and stroked in `onAccent`.
+- each unselected line's quad uses a translucent 1.5 dp outline;
+- the selected character has a padded, rounded, translucent outline with a clear interior. The
+  selected line's outline and the character's uncertainty marker are omitted to keep the glyph visible.
+  Stroke widths stay constant on screen while zooming.
 
 `CAM-063` `[MUST]` Pinch-to-zoom between 1x and 8x with pan. The pinch centroid stays stationary.
 Translation is clamped so the image always covers the viewport (no rubber-band gaps).
@@ -1012,6 +1011,7 @@ discarded (`CAM-003`).
 | Camera | CameraX | AVFoundation | `getUserMedia`, browser permission prompt (`CAM-010`) |
 | Tap to focus | supported where the device meters | supported where the device meters | only where the browser exposes focus constraints (`CAM-034`) |
 | Flash | `Off` / `Auto` / `On` / `Flashlight` (`CAM-036`) | `Off` / `Auto` / `On` / `Flashlight`, per active lens | only the supported ones: `Flashlight` (torch), `Auto` / `On` (fill light); else hidden (`CAM-037`) |
+| HDR capture | Viewfinder toggle when the active lens supports the CameraX HDR extension | System-managed still capture | Browser-managed still capture |
 | Lens selector (`CAM-028`) | physical rear lenses (logical camera, separate cameras) + `Front`; one rear lens: `Back` / `Front` | virtual device lenses + `Front`; one rear lens: `Back` / `Front` | video inputs by name (front included) |
 | Image picker | Photo Picker; document picker for files (no permission) | PHPicker; document picker for files (no permission) | file input `accept="image/*"` |
 | Drag and drop (`CAM-131`) | `DragAndDropPermissions` (split screen, freeform, ChromeOS) | `UIDropInteraction` (Split View, iPad) | HTML drag and drop |

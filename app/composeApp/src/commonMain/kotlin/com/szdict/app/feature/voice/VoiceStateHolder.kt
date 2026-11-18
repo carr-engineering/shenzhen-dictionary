@@ -594,6 +594,11 @@ class VoiceStateHolder(
     /** A character of [utteranceId] was tapped. */
     fun onTap(utteranceId: Long, offset: Int) {
         val target = Anchor(utteranceId, offset)
+        if (anchor == target && session.wordSheet?.owner === this) {
+            anchor = null
+            session.closeWordSheet()
+            return
+        }
         val (passage, base) = transcriptPassage(target) ?: return
         anchor = target
         session.openWordSheet(

@@ -126,7 +126,7 @@ class ReadingStateHolder(
 
     fun onPassageTap(offset: Int) {
         val passage = conversion.passage ?: return
-        session.openWordSheet(WordSheetRequest(owner = this, passage = passage, offset = offset, mode = passage.mode))
+        session.toggleWordSheet(WordSheetRequest(owner = this, passage = passage, offset = offset, mode = passage.mode))
     }
 
     // ---- sentence actions act on the displayed text (MED-020) ----

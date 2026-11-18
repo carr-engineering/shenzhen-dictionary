@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -106,6 +107,7 @@ import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.PassageText
 import com.szdict.app.ui.kit.passageTextStyle
+import com.szdict.app.ui.kit.wordHover
 import com.szdict.app.ui.kit.PronunciationToggle
 import com.szdict.app.ui.kit.SegmentedPillRow
 import com.szdict.app.ui.theme.LocalDictionaryPalette
@@ -389,6 +391,11 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEna
                     holder.translation = translation
                 }
             }
+            .wordHover(capture) { position ->
+                if (!viewport.valid || !wheelEnabled) return@wordHover null
+                val point = viewport.toImage(position, holder.zoom, holder.translation)
+                hitTestChar(ocrLines, point.x, point.y, 0f)?.let(holder::hoverChar)
+            }
             .pointerInput(viewport, ocrLines) {
                 detectTapGestures(
                     onDoubleTap = { tap ->
@@ -462,16 +469,16 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEna
                 }
                 selected?.let { ref ->
                     val quad = lines.getOrNull(ref.line)?.original?.chars?.getOrNull(ref.char)?.box ?: return@let
-                    val padding = 3.dp.toPx() / zoom
                     val points = quad.points.map { map(it.x, it.y) }
-                    val left = points.minOf { it.x } - padding
-                    val top = points.minOf { it.y } - padding
-                    val right = points.maxOf { it.x } + padding
-                    val bottom = points.maxOf { it.y } + padding
+                    val left = points.minOf { it.x }
+                    val top = points.minOf { it.y }
+                    val width = points.maxOf { it.x } - left
+                    val height = points.maxOf { it.y } - top
+                    val padding = maxOf(4.dp.toPx() / zoom, minOf(width, height) * 0.04f)
                     drawRoundRect(
                         color = palette.accent.copy(alpha = 0.72f),
-                        topLeft = Offset(left, top),
-                        size = Size(right - left, bottom - top),
+                        topLeft = Offset(left - padding, top - padding),
+                        size = Size(width + 2 * padding, height + 2 * padding),
                         cornerRadius = CornerRadius(4.dp.toPx() / zoom),
                         style = Stroke(hairline),
                     )

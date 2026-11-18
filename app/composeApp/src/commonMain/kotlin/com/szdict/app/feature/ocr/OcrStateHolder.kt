@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import com.szdict.app.AppSession
 import com.szdict.app.WordSheetRequest
+import com.szdict.app.ui.kit.WordLookup
 import com.szdict.app.feature.conversion.ConversionNotice
 import com.szdict.app.feature.conversion.ConversionPair
 import com.szdict.app.feature.conversion.ConversionSelection
@@ -528,9 +529,20 @@ class OcrStateHolder(
     /** A tap on a glyph of the image (always the original lines, CAM-135). */
     fun tapChar(ref: CharRef) {
         val current = review ?: return
-        val line = lines.getOrNull(ref.line) ?: return
-        val offset = line.selectableOffset(ref.char) ?: return
-        open(current, current.lineStart(ref.line) + offset)
+        val offset = imageWordOffset(ref, current) ?: return
+        open(current, offset)
+    }
+
+    internal fun hoverChar(ref: CharRef): WordLookup? {
+        val current = review ?: return null
+        if (busy && current.passage.mode != session.mode) return null
+        return imageWordOffset(ref, current)?.let { WordLookup(current.passage, it) }
+    }
+
+    private fun imageWordOffset(ref: CharRef, current: ReviewText): Int? {
+        val line = lines.getOrNull(ref.line) ?: return null
+        val offset = line.selectableOffset(ref.char) ?: return null
+        return current.lineStart(ref.line) + offset
     }
 
     /** A tap on a character of a text-view line; [offset] is relative to that line's displayed text. */
@@ -545,7 +557,7 @@ class OcrStateHolder(
     private fun open(target: ReviewText, offset: Int) {
         // CAM-057: taps are ignored until the analysis matches the current dataset.
         if (busy && target.passage.mode != session.mode) return
-        session.openWordSheet(
+        session.toggleWordSheet(
             WordSheetRequest(
                 owner = this,
                 passage = target.passage,

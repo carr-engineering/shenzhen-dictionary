@@ -152,6 +152,8 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Screen capture is unavailable. You can still choose an image from the gallery." to "無法取得螢幕截圖。您仍可從相簿選擇圖片。",
     "Google Translate isn't installed" to "尚未安裝 Google 翻譯",
     "Unable to load entry" to "無法載入詞條",
+    "Click to see all {0} results" to "點擊查看全部 {0} 條結果",
+    "Word choices" to "候選詞語",
     "Unable to load word choices" to "無法載入候選詞語",
     "Text recognition timed out. Try a smaller or clearer image." to "文字辨識逾時，請使用更小或更清晰的圖片。",
     "No Chinese text found. Retake to try again." to "未辨識到中文，請重新拍攝。",

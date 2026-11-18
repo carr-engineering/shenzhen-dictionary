@@ -179,6 +179,8 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Screen capture is unavailable. You can still choose an image from the gallery." to "无法获取屏幕截图。您仍可从相册选择图片。",
     "Google Translate isn't installed" to "尚未安装 Google 翻译",
     "Unable to load entry" to "无法加载词条",
+    "Click to see all {0} results" to "点击查看全部 {0} 条结果",
+    "Word choices" to "候选词语",
     "Unable to load word choices" to "无法加载候选词语",
     "Text recognition timed out. Try a smaller or clearer image." to "文字识别超时，请使用更小或更清晰的图片。",
     "No Chinese text found. Retake to try again." to "未识别到中文，请重新拍摄。",

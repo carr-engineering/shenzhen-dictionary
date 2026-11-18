@@ -266,6 +266,11 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
         private set
     private var handwritingHiddenBySheet = false
 
+    fun toggleWordSheet(request: WordSheetRequest) {
+        if (selectionFor(request.owner, request.passage) == request.offset) closeWordSheet()
+        else openWordSheet(request)
+    }
+
     fun openWordSheet(request: WordSheetRequest) {
         if (handwritingVisible) {           // TXT-047
             handwritingVisible = false

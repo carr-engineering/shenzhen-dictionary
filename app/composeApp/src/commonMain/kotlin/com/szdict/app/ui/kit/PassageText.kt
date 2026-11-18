@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -124,6 +125,7 @@ fun PassageText(
     val prefs = LocalDisplayPrefs.current
     val text = passage.text
     var layoutResult by remember(text) { mutableStateOf<TextLayoutResult?>(null) }
+    val onCurrentTap by rememberUpdatedState(onTap)
     val measurer = rememberTextMeasurer(cacheSize = 256)
     val annotated = remember(passage, selectedOffset, prefs.toneColors, palette, ruby) {
         passageAnnotatedString(passage, selectedOffset, prefs.toneColors, palette, ruby)
@@ -205,22 +207,33 @@ fun PassageText(
                     }
                 }
             }
-            .pointerInput(text) {
+            .wordHover(passage) { position ->
+                layoutResult?.let { passageOffsetAt(it, passage, position) }?.let { WordLookup(passage, it) }
+            }
+            .pointerInput(passage) {
                 detectTapGestures { position ->
                     val layout = layoutResult ?: return@detectTapGestures
-                    val raw = layout.getOffsetForPosition(position)
-                    // getOffsetForPosition returns a caret position; pick the character under the point.
-                    val candidates = listOf(raw, raw - 1).filter { it in text.indices }
-                    val hit = candidates.firstOrNull { layout.getBoundingBox(it).contains(position) } ?: candidates.firstOrNull()
-                        ?: return@detectTapGestures
-                    val offset = passage.normaliseOffset(hit)
-                    val c = text[offset]
-                    if (c == ' ' || c == '\t' || c == '\r' || c == '\n') return@detectTapGestures
-                    onTap(offset)
+                    passageOffsetAt(layout, passage, position, allowNearest = true)?.let(onCurrentTap)
                 }
             },
         onTextLayout = { layoutResult = it },
     )
+}
+
+/** Convert Compose's nearest caret into the character cell under the pointer. */
+internal fun passageOffsetAt(
+    layout: TextLayoutResult,
+    passage: AnalysedPassage,
+    position: Offset,
+    allowNearest: Boolean = false,
+): Int? {
+    val text = passage.text
+    val raw = layout.getOffsetForPosition(position)
+    val candidates = listOf(raw, raw - 1).filter { it in text.indices }
+    val hit = candidates.firstOrNull { layout.getBoundingBox(it).contains(position) }
+        ?: (if (allowNearest) candidates.firstOrNull() else null)
+        ?: return null
+    return passage.normaliseOffset(hit).takeUnless { text[it].isWhitespace() }
 }
 
 /** A reading to draw: one syllable over its character ([tone] set) or a whole word's reading ([tone] null). */

@@ -1,5 +1,8 @@
 package com.szdict.app.feature.entry
 
+import com.szdict.app.ui.kit.WordLookup
+import com.szdict.app.ui.kit.passageOffsetAt
+import com.szdict.app.ui.kit.wordHover
 import com.szdict.app.ui.kit.WithTooltip
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -46,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -258,13 +262,23 @@ private fun ExampleRow(example: Example, derived: EntryDerived, actions: EntryAc
     val selected = session.selectionFor(owner, current)
     val text = remember(example, current, selected, prefs.toneColors, palette) {
         exampleAnnotatedString(example, current, selected, prefs.toneColors, palette) { offset ->
-            current?.let { session.openWordSheet(WordSheetRequest(owner, it, it.normaliseOffset(offset), mode, nested = true)) }
+            current?.let { session.toggleWordSheet(WordSheetRequest(owner, it, it.normaliseOffset(offset), mode, nested = true)) }
         }
     }
     Column {
         // Long press selects; a tap on a character opens the word sheet for that offset (MED-043/044).
         SelectionContainer {
-            Text(text, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 20.sp, lineHeight = 33.sp), color = palette.fg)
+            var layout by remember(example) { mutableStateOf<TextLayoutResult?>(null) }
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 20.sp, lineHeight = 33.sp),
+                color = palette.fg,
+                onTextLayout = { layout = it },
+                modifier = Modifier.wordHover(current) { position ->
+                    val source = current ?: return@wordHover null
+                    layout?.let { passageOffsetAt(it, source, position) }?.let { WordLookup(source, it) }
+                },
+            )
         }
         SelectionContainer { Text(example.translation, style = MaterialTheme.typography.bodyMedium, color = palette.muted) }
         SentenceActionsRow(example.text, key = "entry-example-${actions.route.key}-${example.id}", actions = actions, modifier = Modifier.padding(top = 6.dp))

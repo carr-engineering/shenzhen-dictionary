@@ -253,7 +253,7 @@ fun SearchScreen(session: AppSession, twoPane: Boolean, modifier: Modifier = Mod
                                 val passage = shown.result.chinese.passage
                                 if (passage != null) {
                                     keyboard?.hide()
-                                    session.openWordSheet(WordSheetRequest(holder, passage, offset, shown.mode))
+                                    session.toggleWordSheet(WordSheetRequest(holder, passage, offset, shown.mode))
                                 }
                             },
                         )

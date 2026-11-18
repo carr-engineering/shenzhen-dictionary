@@ -11,6 +11,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -84,7 +85,9 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -110,6 +113,9 @@ import com.szdict.app.ui.kit.DisplayPrefs
 import com.szdict.app.ui.kit.LocalDisplayPrefs
 import com.szdict.app.ui.kit.LocalSession
 import com.szdict.app.ui.kit.LocalSheetInset
+import com.szdict.app.ui.kit.LocalWordHover
+import com.szdict.app.ui.kit.WordHoverOverlay
+import com.szdict.app.ui.kit.WordHoverState
 import com.szdict.app.ui.kit.WordSheet
 import com.szdict.app.ui.kit.imeVisible
 import com.szdict.app.ui.theme.DictionaryTheme
@@ -130,13 +136,28 @@ fun App(session: AppSession) {
     }
     // A linked route renders in its own mode (PROD-057); the palette follows what is on screen.
     val visibleMode = session.routeMode()
+    val hover = remember(session) { WordHoverState() }
     DictionaryTheme(settings.themeMode, visibleMode) {
-        CompositionLocalProvider(LocalStrings provides strings, LocalDisplayPrefs provides prefs, LocalSession provides session) {
+        CompositionLocalProvider(
+            LocalStrings provides strings, LocalDisplayPrefs provides prefs, LocalSession provides session, LocalWordHover provides hover,
+        ) {
             val palette = LocalDictionaryPalette.current
-            BoxWithConstraints(Modifier.fillMaxSize().background(palette.bg)) {
-                val navigation = navigationStyle(maxWidth)
+            val lastPress = remember { arrayOfNulls<Offset>(1) }
+            val watchPress = Modifier.pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Press) lastPress[0] = event.changes.firstOrNull()?.position
+                    }
+                }
+            }
+            BoxWithConstraints(Modifier.fillMaxSize().background(palette.bg).then(watchPress)) {
+                val windowWidth = maxWidth
+                val navigation = navigationStyle(windowWidth)
                 val compact = navigation == NavigationStyle.BOTTOM_BAR
-                val twoPane = fitsTwoPanes(maxWidth) && session.destination in setOf(Destination.SEARCH, Destination.HSK, Destination.READING)
+                val wordDialog = navigation == NavigationStyle.EXPANDED_RAIL && maxHeight >= 460.dp
+                val wideEnoughForPanes = fitsTwoPanes(maxWidth)
+                val twoPane = wideEnoughForPanes && session.destination in setOf(Destination.SEARCH, Destination.HSK, Destination.READING)
                 val destinations = remember(session.env.voiceAvailable, session.env.settingsIsDestination) {
                     navigationDestinations(session.env.voiceAvailable, session.env.settingsIsDestination)
                 }
@@ -169,6 +190,7 @@ fun App(session: AppSession) {
                 // The word sheet takes the bottom of the screen: an open keyboard or handwriting sheet
                 // would cover it, so the field gives them up when a word is tapped.
                 val wordSheetOpen = session.wordSheet != null
+                LaunchedEffect(session.destination, topRoute?.key, wordSheetOpen) { hover.clear() }
                 LaunchedEffect(wordSheetOpen) {
                     if (wordSheetOpen) {
                         focusManager.clearFocus(force = true)
@@ -193,10 +215,15 @@ fun App(session: AppSession) {
                             NavigationStyle.EXPANDED_RAIL -> AppExpandedRail(destinations, session.destination, session::selectDestination)
                         }
                         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
-                            val sheetInset = maxOf(wordSheetHeight, handwritingHeight)
-                            // Full height stops short of the status bar (TXT-040).
-                            val sheetMaxHeight = maxHeight - WindowInsets.statusBars.asPaddingValues().calculateTopPadding() - 8.dp
-                            CompositionLocalProvider(LocalSheetInset provides sheetInset) {
+                            val panes = paneLayout(maxWidth)
+                            val ocrRight = session.destination == Destination.OCR && wideEnoughForPanes
+                            val wordsOnRight = !fullScreenRoute && (twoPane || ocrRight)
+                            val wordInset = if (wordDialog) 0.dp else wordSheetHeight
+                            val destinationInset = maxOf(handwritingHeight, if (wordsOnRight && !ocrRight) 0.dp else wordInset)
+                            val detailInset = maxOf(handwritingHeight, wordInset)
+                            val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
+                            val sheetMaxHeight = maxHeight - topInset
+                            CompositionLocalProvider(LocalSheetInset provides destinationInset) {
                                 val stateHolder = rememberSaveableStateHolder()
                                 // Saved state of the detail routes, keyed per visit (GLB-051).
                                 val routeStates = rememberSaveableStateHolder()
@@ -213,7 +240,6 @@ fun App(session: AppSession) {
                                     Modifier.focusProperties { canFocus = false }.clearAndSetSemantics { }
                                 } else Modifier
                                 // Wide windows: each pane keeps a readable width and the pair is centred (GLB-067).
-                                val panes = paneLayout(maxWidth)
                                 Row(Modifier.fillMaxSize().then(covered)) {
                                     Spacer(Modifier.width(if (twoPane) panes.start else 0.dp))
                                     Box((if (twoPane) Modifier.width(panes.list) else Modifier.weight(1f)).fillMaxHeight()) {
@@ -256,20 +282,41 @@ fun App(session: AppSession) {
                                 if (topRoute != null) lastTop[0] = topRoute
                                 val hostRoute = topRoute ?: lastTop[0]
                                 val sidePane = twoPane && (hostRoute == null || hostRoute is DetailRoute.Entry)
-                                DetailHost(
-                                    session, routeStates, twoPane,
-                                    if (sidePane) Modifier.align(Alignment.TopStart).offset(x = panes.detailStart).width(panes.detail).fillMaxHeight()
-                                    else Modifier.fillMaxSize(),
-                                )
+                                CompositionLocalProvider(LocalSheetInset provides detailInset) {
+                                    DetailHost(
+                                        session, routeStates, twoPane,
+                                        if (sidePane) Modifier.align(Alignment.TopStart).offset(x = panes.detailStart).width(panes.detail).fillMaxHeight()
+                                        else Modifier.fillMaxSize(),
+                                    )
+                                }
                             }
                             StatusBarScrim(Modifier.align(Alignment.TopCenter))
                             session.wordSheet?.let { request ->
+                                val sheetModifier = when {
+                                    wordDialog -> {
+                                        val density = LocalDensity.current
+                                        val middle = with(density) { (windowWidth - maxWidth / 2).toPx() }
+                                        // Pin across from the clicked glyph so it stays reachable for a second click.
+                                        val placeOnLeft = remember(middle) { (lastPress[0]?.x ?: 0f) >= middle }
+                                        val inset = if (wordsOnRight && twoPane) panes.start + 16.dp else 16.dp
+                                        val side = if (placeOnLeft) Alignment.TopStart else Alignment.TopEnd
+                                        Modifier.align(side).padding(
+                                            top = topInset + 8.dp,
+                                            start = if (placeOnLeft) inset else 0.dp,
+                                            end = if (placeOnLeft) 0.dp else inset,
+                                        ).widthIn(max = 460.dp)
+                                    }
+                                    wordsOnRight -> Modifier.align(Alignment.BottomStart)
+                                        .absoluteOffset(x = panes.detailStart).width(panes.detail)
+                                    else -> Modifier.align(Alignment.BottomCenter)
+                                }
                                 WordSheet(
                                     session = session,
                                     request = request,
                                     maxHeight = sheetMaxHeight,
+                                    asDialog = wordDialog,
                                     onVisibleHeight = { wordSheetHeight = it },
-                                    modifier = Modifier.align(Alignment.BottomCenter),
+                                    modifier = sheetModifier,
                                 )
                             }
                             // "Switch to keyboard" in the handwriting sheet: the platform input session restarts
@@ -299,6 +346,7 @@ fun App(session: AppSession) {
                         }
                     }
                 }
+                WordHoverOverlay(session, hover, Modifier.matchParentSize())
                 if (session.volumeNoticeVisible) {
                     Snackbar(
                         modifier = Modifier.align(Alignment.TopCenter)
