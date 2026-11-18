@@ -149,8 +149,10 @@ fun App(session: AppSession) {
                 val fullScreenRoute = topRoute != null && (!twoPane || topRoute !is DetailRoute.Entry)
                 // A full-screen detail route (an entry in single pane, Settings and its pages) covers the bottom bar; it returns when the route closes.
                 val coversNavigation = fullScreenRoute
-                // The word sheet gets the bar's room too; the sheet reports its own height, so content stays clear of it.
-                val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !coversNavigation && session.wordSheet == null
+                // Keep the OCR viewport identical while its sheet opens, resizes or closes.
+                val keepBarWithSheet = session.destination == Destination.OCR
+                val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !coversNavigation &&
+                    (session.wordSheet == null || keepBarWithSheet)
 
                 // A route that covers the destination takes the focus away from it: no caret handle,
                 // keyboard or handwriting sheet of a covered field survives or comes back (GLB-059).

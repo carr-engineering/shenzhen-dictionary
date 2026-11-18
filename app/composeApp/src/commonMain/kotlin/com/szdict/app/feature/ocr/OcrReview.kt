@@ -49,7 +49,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -71,7 +70,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -137,8 +138,7 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickImage:
 
     // On a wide window the review keeps a comfortable width, centred (GLB-067).
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-    Column(Modifier.widthIn(max = ImagePaneMaxWidth).fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.widthIn(max = ImagePaneMaxWidth).fillMaxSize()) {
             when (holder.viewMode) {
                 OcrViewMode.IMAGE -> OcrImageViewer(
                     holder = holder,
@@ -150,18 +150,21 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickImage:
                         .padding(start = 16.dp, top = headerHeight + 8.dp, end = 16.dp, bottom = 12.dp)
                         .clip(MaterialTheme.shapes.large),
                 )
-                OcrViewMode.TEXT -> OcrTextList(session, holder, topPadding = headerHeight + 8.dp)
+                OcrViewMode.TEXT -> Box(Modifier.fillMaxSize().padding(bottom = LocalSheetInset.current)) {
+                    OcrTextList(session, holder, topPadding = headerHeight + 8.dp)
+                }
             }
 
-            // CAM-050: a centred spinner over the image while recognising; header and toggle stay usable.
             if (holder.recognising) {
                 val download = holder.modelDownload
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    // CAM-134: the recogniser's one-time download takes the spinner's place.
+                val indicator = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = headerHeight + 8.dp)
+                    .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                Box(indicator, contentAlignment = Alignment.TopCenter) {
                     if (download is ModelDownload.Failed || (download is ModelDownload.InProgress && download.fraction != null)) {
                         ModelDownloadPanel(download, holder::retryModelDownload)
                     } else {
-                        CircularProgressIndicator(color = palette.accent)
+                        LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp), color = palette.accent, trackColor = palette.border)
                     }
                 }
             }
@@ -198,9 +201,6 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickImage:
                 )
             }
         }
-        // The content behind the word sheet is inset by exactly its visible height (TXT-044).
-        Spacer(Modifier.height(LocalSheetInset.current))
-    }
     }
 }
 
@@ -437,12 +437,13 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEna
                 val hairline = 1.5.dp.toPx() / zoom
                 val dots = PathEffect.dashPathEffect(floatArrayOf(hairline * 0.1f, hairline * 3.2f))
                 lines.forEachIndexed { lineIndex, line ->
-                    val box = path(line.original.box)
-                    drawPath(box, palette.accent.copy(alpha = 0.10f))
-                    drawPath(box, palette.accent, style = Stroke(hairline))
-                    line.original.chars.forEachIndexed { charIndex, char ->
+                    if (lineIndex != selected?.line) {
+                        drawPath(path(line.original.box), palette.accent.copy(alpha = 0.35f), style = Stroke(hairline))
+                    }
+                    line.original.chars.forEachIndexed glyph@{ charIndex, char ->
+                        if (lineIndex == selected?.line && charIndex == selected.char) return@glyph
                         val corrected = line.isCorrected(charIndex)
-                        if (!corrected && !char.isUncertain()) return@forEachIndexed
+                        if (!corrected && !char.isUncertain()) return@glyph
                         // Marker just under the glyph: dotted where the recogniser was unsure, solid once corrected.
                         val q = char.box
                         val lift = 0.06f
@@ -461,9 +462,19 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEna
                 }
                 selected?.let { ref ->
                     val quad = lines.getOrNull(ref.line)?.original?.chars?.getOrNull(ref.char)?.box ?: return@let
-                    val glyph = path(quad)
-                    drawPath(glyph, palette.accent.copy(alpha = 0.35f))
-                    drawPath(glyph, palette.onAccent, style = Stroke(hairline))
+                    val padding = 3.dp.toPx() / zoom
+                    val points = quad.points.map { map(it.x, it.y) }
+                    val left = points.minOf { it.x } - padding
+                    val top = points.minOf { it.y } - padding
+                    val right = points.maxOf { it.x } + padding
+                    val bottom = points.maxOf { it.y } + padding
+                    drawRoundRect(
+                        color = palette.accent.copy(alpha = 0.72f),
+                        topLeft = Offset(left, top),
+                        size = Size(right - left, bottom - top),
+                        cornerRadius = CornerRadius(4.dp.toPx() / zoom),
+                        style = Stroke(hairline),
+                    )
                 }
             }
         }
