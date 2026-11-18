@@ -338,7 +338,7 @@ internal class CardContext(
 
     /** Inside-words expander for [card] (SRCH-105); rows come from [entryId]'s `within` list. */
     fun inside(card: EntryCard, entryId: Int = card.id, word: String = card.headword): InsideWordsState? {
-        if (card.insideCount <= 0 || card.hanziCount < 2) return null
+        if (card.insideCount <= 0) return null
         val key = InsideKey(word, card.insideCount)
         return InsideWordsState(
             expanded = holder.insideExpanded[key] == true,

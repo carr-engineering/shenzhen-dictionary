@@ -62,7 +62,7 @@ class FakeDictionary(override val mode: DictMode = DictMode.MANDARIN) : Dictiona
     private fun card(e: E, script: Script): EntryCard {
         val head = head(e, script)
         val alt = if (script == Script.SIMPLIFIED) e.trad else e.simp
-        val inside = if (hanziCount(head) >= 2) insideOf(e).size else 0
+        val inside = insideOf(e).size
         val word = e.pinyin.lowercase().replace(' ', '_')
         return EntryCard(
             id = e.id, naturalKey = e.key, simplified = e.simp, traditional = e.trad, headword = head,

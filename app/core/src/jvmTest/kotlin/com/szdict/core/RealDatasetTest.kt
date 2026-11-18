@@ -343,6 +343,19 @@ class RealDatasetTest {
     }
 
     @Test
+    fun insideWordsForMixedScriptHeadwords() = real { dict ->
+        for ((word, part, script) in listOf(
+            Triple("U盘", "盘", Script.SIMPLIFIED),
+            Triple("U盤", "盤", Script.TRADITIONAL),
+        )) {
+            val card = dict.search(word, script).chinese.sections.flatMap { it.cards + it.groups.flatMap { g -> g.cards } }
+                .first { it.headword == word }
+            assertTrue(card.insideCount > 0)
+            assertTrue(dict.insideWords(card.id, script).any { it.card.headword == part })
+        }
+    }
+
+    @Test
     fun hskAndDaily() = real { dict ->
         val levels = dict.hskLevels()
         assertEquals(300, levels.first { it.level == 1 }.wordCount)

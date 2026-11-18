@@ -205,18 +205,17 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
      * (schema version 1); otherwise computed with one batched headword lookup for all entries (DATA-102).
      */
     suspend fun withinRows(entries: Collection<EntryRow>, ranked: Boolean = true): Map<Int, IntArray> {
-        val wanted = entries.filter { it.charCount >= 2 && it.simp.hanziCount() >= 2 }
+        val wanted = entries.filter { it.charCount >= 2 && !it.isUnihan }
         if (wanted.isEmpty()) return emptyMap()
-        if (store.hasWithinTable) {
-            val out = HashMap(store.within(wanted.map { it.id }))
-            for (e in wanted) if (e.id !in out && e.charCount > 8) out[e.id] = withinOnDemand(e.simp)
-            return out
-        }
+        val precomputed = if (store.hasWithinTable) store.within(wanted.map { it.id }) else emptyMap()
+        val pending = if (store.hasWithinTable) {
+            wanted.filter { it.id !in precomputed && (it.charCount > 8 || it.simp.hanziCount() < 2) }
+        } else wanted
+        if (pending.isEmpty()) return precomputed
         class Span(val start: Int, val len: Int, val keys: List<String>)
-        val plans = HashMap<Int, List<Span>>(wanted.size * 2)
+        val plans = HashMap<Int, List<Span>>(pending.size * 2)
         val keys = HashSet<String>()
-        for (e in wanted) {
-            if (e.isUnihan) continue
+        for (e in pending) {
             val forms = ArrayList<IntArray>(2)
             val simp = e.simp.cps()
             forms.add(simp)
@@ -230,8 +229,8 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
             }
             plans[e.id] = spans
         }
-        if (keys.isEmpty()) return emptyMap()
-        val out = HashMap<Int, IntArray>(plans.size * 2)
+        if (keys.isEmpty()) return precomputed
+        val out = HashMap(precomputed)
         if (!ranked) {
             // Counting only (bulk card lists): the rows of a span are unordered, read from the index alone.
             val ids = store.headwordIds(keys)

@@ -93,7 +93,7 @@ fun EntryCardView(
     val border = BorderStroke(1.dp, if (selected) palette.accent else palette.border)
     val cardModifier = modifier.fillMaxWidth().padding(vertical = 4.dp)
     CardContainer(requested) { color ->
-        if (inside != null && card.insideCount > 0 && card.hanziCount >= 2) {
+        if (inside != null && card.insideCount > 0) {
             Surface(modifier = cardModifier, shape = MaterialTheme.shapes.medium, color = color, border = border) {
                 Column {
                     Box(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
@@ -141,7 +141,7 @@ fun EntryCardGroup(
                     if (index < cards.lastIndex) HorizontalDivider(color = palette.border, modifier = Modifier.padding(horizontal = 13.dp))
                 }
                 val last = cards.last()
-                if (inside != null && last.insideCount > 0 && last.hanziCount >= 2) {
+                if (inside != null && last.insideCount > 0) {
                     InsideWordsFooter(last.headword, last.insideCount, inside, DEFAULT_DEFINITION_LINES)
                 }
             }

@@ -58,7 +58,7 @@ internal fun relatedTitle(kind: RelatedKind, word: String, strings: AppStrings):
 
 /** `Within` rows carry no inside-words button: the section already lists them (ENT-061). */
 internal fun relatedRowHasInsideWords(kind: RelatedKind, card: EntryCard): Boolean =
-    kind != RelatedKind.WITHIN && card.hanziCount >= 2 && card.insideCount > 0
+    kind != RelatedKind.WITHIN && card.insideCount > 0
 
 /**
  * Lazy-list index of each section's label in [wordsTabItems]: an optional sticky chip row, the top
