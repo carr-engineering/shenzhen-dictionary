@@ -410,16 +410,11 @@ actual fun CameraPreview(
 }
 
 @Composable
-actual fun rememberImagePickers(onPicked: (String) -> Unit): ImagePickers {
+actual fun rememberImagePicker(onPicked: (String) -> Unit): () -> Unit {
     val picked by rememberUpdatedState(onPicked)
-    // CAM-016: the Photo Picker and the document picker grant access to the one chosen image; no permission.
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { picked(it.toString()) } }
-    val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { picked(it.toString()) } }
-    return remember(photos, files) {
-        ImagePickers(
-            photos = { runCatching { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } },
-            files = { runCatching { files.launch(arrayOf("image/*")) } },
-        )
+    return remember(photos) {
+        { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
     }
 }
 

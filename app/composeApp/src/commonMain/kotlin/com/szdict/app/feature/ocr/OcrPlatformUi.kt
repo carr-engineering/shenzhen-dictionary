@@ -100,11 +100,10 @@ expect fun CameraPreview(
     modifier: Modifier = Modifier,
 )
 
-/** The photo picker and the document picker (CAM-016); neither needs a permission. */
-class ImagePickers(val photos: () -> Unit, val files: () -> Unit)
+/** Opens the platform image chooser without an intermediary menu (CAM-016). */
 
 @Composable
-expect fun rememberImagePickers(onPicked: (String) -> Unit): ImagePickers
+expect fun rememberImagePicker(onPicked: (String) -> Unit): () -> Unit
 
 /**
  * Makes the element a drop target for images from other apps (CAM-131). [onHover] reports whether

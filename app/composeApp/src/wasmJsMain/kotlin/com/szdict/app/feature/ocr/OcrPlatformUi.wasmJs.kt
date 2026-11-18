@@ -427,14 +427,10 @@ private fun jsPickImage(onPicked: (JsAny) -> Unit): Unit = js(
     }"""
 )
 
-/** The browser's file chooser serves both `Photos` and `Files` (CAM-016). */
 @Composable
-actual fun rememberImagePickers(onPicked: (String) -> Unit): ImagePickers {
+actual fun rememberImagePicker(onPicked: (String) -> Unit): () -> Unit {
     val picked by rememberUpdatedState(onPicked)
-    return remember {
-        val pick = { jsPickImage { file -> picked(WebImageRefs.register(file)) } }
-        ImagePickers(photos = pick, files = pick)
-    }
+    return remember { { jsPickImage { file -> picked(WebImageRefs.register(file)) } } }
 }
 
 // HTML drag and drop over the whole page while the destination is shown. Only files count: an

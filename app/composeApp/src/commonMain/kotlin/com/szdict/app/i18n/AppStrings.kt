@@ -63,6 +63,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Reading…" to "正在分析…",
     "Captured photo" to "已拍摄的照片",
     "Choose another image" to "选择其他图片",
+    "Choose image" to "选择图片",
     "Choose from gallery" to "从相册选择",
     "Retake" to "重新拍摄",
     "Pick new image" to "更换图片",

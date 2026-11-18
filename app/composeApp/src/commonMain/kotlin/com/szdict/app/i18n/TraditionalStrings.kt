@@ -36,6 +36,7 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Reading…" to "正在分析…",
     "Captured photo" to "已拍攝的相片",
     "Choose another image" to "選擇其他圖片",
+    "Choose image" to "選擇圖片",
     "Choose from gallery" to "從相簿選擇",
     "Retake" to "重新拍攝",
     "Pick new image" to "更換圖片",

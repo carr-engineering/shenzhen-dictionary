@@ -112,7 +112,7 @@ import com.szdict.recognition.Quad
 
 /** Review of a capture (CAM-060…CAM-070): header and the Image / Text views. */
 @Composable
-internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickers: ImagePickers) {
+internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickImage: () -> Unit) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val capture = holder.capture ?: return
@@ -189,7 +189,7 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickers: I
             }
 
             Column(Modifier.fillMaxWidth().align(Alignment.TopCenter)) {
-                ReviewHeader(holder, pickers, onHeight = { headerHeightPx = it })
+                ReviewHeader(holder, pickImage, onHeight = { headerHeightPx = it })
                 // CAM-061: the gradient shadow fades in only when the text list can scroll up.
                 Box(
                     Modifier.fillMaxWidth().height(8.dp).background(
@@ -205,7 +205,7 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickers: I
 }
 
 @Composable
-private fun ReviewHeader(holder: OcrStateHolder, pickers: ImagePickers, onHeight: (Int) -> Unit) {
+private fun ReviewHeader(holder: OcrStateHolder, pickImage: () -> Unit, onHeight: (Int) -> Unit) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -226,25 +226,21 @@ private fun ReviewHeader(holder: OcrStateHolder, pickers: ImagePickers, onHeight
             // The primary action keeps its label where there is room; on a narrow phone the gallery
             // variant, which shares the row with two more actions, is its icon alone.
             val labelled = camera || wide
-            Box {
-                var menu by remember { mutableStateOf(false) }
-                val label = strings.text(if (camera) "Retake" else "Pick new image")
-                val icon = if (camera) Icons.Rounded.Refresh else Icons.Rounded.PhotoLibrary
-                val onClick = { if (camera) { holder.backToInput(); Unit } else menu = true }
-                if (labelled) {
-                    TextButton(onClick = onClick) {
-                        Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(label, color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                } else {
-                    WithTooltip(label, Modifier.padding(start = 4.dp)) {
-                        IconButton(onClick = onClick) {
-                            Icon(icon, contentDescription = label, tint = palette.accent, modifier = Modifier.size(22.dp))
-                        }
+            val label = strings.text(if (camera) "Retake" else "Pick new image")
+            val icon = if (camera) Icons.Rounded.Refresh else Icons.Rounded.PhotoLibrary
+            val onClick: () -> Unit = if (camera) ({ holder.backToInput() }) else pickImage
+            if (labelled) {
+                TextButton(onClick = onClick) {
+                    Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(label, color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            } else {
+                WithTooltip(label, Modifier.padding(start = 4.dp)) {
+                    IconButton(onClick = onClick) {
+                        Icon(icon, contentDescription = label, tint = palette.accent, modifier = Modifier.size(22.dp))
                     }
                 }
-                PickMenu(menu, { menu = false }, pickers)
             }
             if (!camera) {
                 WithTooltip(strings.text("Camera")) {

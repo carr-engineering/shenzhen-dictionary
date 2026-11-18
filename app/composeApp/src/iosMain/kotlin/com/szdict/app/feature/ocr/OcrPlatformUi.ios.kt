@@ -114,8 +114,6 @@ import platform.UIKit.UIApplicationDidBecomeActiveNotification
 import platform.UIKit.UIApplicationOpenSettingsURLString
 import platform.UIKit.UIApplicationWillResignActiveNotification
 import platform.UIKit.UIColor
-import platform.UIKit.UIDocumentPickerDelegateProtocol
-import platform.UIKit.UIDocumentPickerViewController
 import platform.UIKit.UIInterfaceOrientationLandscapeLeft
 import platform.UIKit.UIInterfaceOrientationLandscapeRight
 import platform.UIKit.UIInterfaceOrientationPortraitUpsideDown
@@ -585,44 +583,26 @@ private class PhotoPickerDelegate(private val onPicked: (NSData) -> Unit) : NSOb
     }
 }
 
-private class FilePickerDelegate(private val onPicked: (NSData) -> Unit) : NSObject(), UIDocumentPickerDelegateProtocol {
-    override fun documentPicker(controller: UIDocumentPickerViewController, didPickDocumentsAtURLs: List<*>) {
-        val url = didPickDocumentsAtURLs.firstOrNull() as? NSURL ?: return
-        // Picked as a copy inside the app's own container, so no security scope is needed.
-        NSData.dataWithContentsOfURL(url)?.let(onPicked)
-    }
-}
-
 private fun UIViewController.topPresented(): UIViewController {
     var top = this
     while (true) top = top.presentedViewController ?: return top
 }
 
 @Composable
-actual fun rememberImagePickers(onPicked: (String) -> Unit): ImagePickers {
+actual fun rememberImagePicker(onPicked: (String) -> Unit): () -> Unit {
     val picked by rememberUpdatedState(onPicked)
     val controller = LocalUIViewController.current
-    // The pickers hold their delegates weakly.
+    // PHPicker runs out of process and holds its delegate weakly.
     val photoDelegate = remember { PhotoPickerDelegate { data -> picked(IosImages.put(data)) } }
-    val fileDelegate = remember { FilePickerDelegate { data -> picked(IosImages.put(data)) } }
-    return remember(controller) {
-        ImagePickers(
-            photos = {
-                // PHPicker runs out of process and hands over the one chosen image: no library permission.
-                val configuration = PHPickerConfiguration()
-                configuration.filter = PHPickerFilter.imagesFilter
-                configuration.selectionLimit = 1
-                val picker = PHPickerViewController(configuration = configuration)
-                picker.delegate = photoDelegate
-                controller.topPresented().presentViewController(picker, true, null)
-            },
-            files = {
-                val picker = UIDocumentPickerViewController(forOpeningContentTypes = listOf(UTTypeImage), asCopy = true)
-                picker.delegate = fileDelegate
-                picker.allowsMultipleSelection = false
-                controller.topPresented().presentViewController(picker, true, null)
-            },
-        )
+    return remember(controller, photoDelegate) {
+        {
+            val configuration = PHPickerConfiguration()
+            configuration.filter = PHPickerFilter.imagesFilter
+            configuration.selectionLimit = 1
+            val picker = PHPickerViewController(configuration = configuration)
+            picker.delegate = photoDelegate
+            controller.topPresented().presentViewController(picker, true, null)
+        }
     }
 }
 

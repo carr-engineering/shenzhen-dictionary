@@ -84,7 +84,7 @@ fun OcrScreen(session: AppSession, modifier: Modifier = Modifier) {
     val holder = remember(session) { OcrStateHolder.of(session) }
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
-    val pickers = rememberImagePickers(holder::onPicked)
+    val pickImage = rememberImagePicker(holder::onPicked)
     var dropHover by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
@@ -121,10 +121,10 @@ fun OcrScreen(session: AppSession, modifier: Modifier = Modifier) {
             },
     ) {
         when {
-            holder.inReview -> ReviewPhase(session, holder, pickers)
-            holder.galleryPending -> DecodePhase(holder, pickers)
+            holder.inReview -> ReviewPhase(session, holder, pickImage)
+            holder.galleryPending -> DecodePhase(holder, pickImage)
             // The camera is bound only while the capture phase is actually visible (CAM-025).
-            else -> CapturePhase(holder, pickers, cameraActive = session.routes.isEmpty())
+            else -> CapturePhase(holder, pickImage, cameraActive = session.routes.isEmpty())
         }
 
         holder.notice?.let { notice ->
@@ -156,7 +156,7 @@ fun OcrScreen(session: AppSession, modifier: Modifier = Modifier) {
 
 /** A picked / shared / dropped / pasted image is decoding, or failed to decode (CAM-040, CAM-042). */
 @Composable
-private fun DecodePhase(holder: OcrStateHolder, pickers: ImagePickers) {
+private fun DecodePhase(holder: OcrStateHolder, pickImage: () -> Unit) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -173,14 +173,10 @@ private fun DecodePhase(holder: OcrStateHolder, pickers: ImagePickers) {
                     modifier = Modifier.padding(horizontal = 24.dp),
                 )
                 Spacer(Modifier.height(12.dp))
-                Box {
-                    var menu by remember { mutableStateOf(false) }
-                    TextButton(onClick = { menu = true }) {
-                        Icon(Icons.Rounded.PhotoLibrary, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(strings.text("Choose another image"), color = palette.accent)
-                    }
-                    PickMenu(menu, { menu = false }, pickers)
+                TextButton(onClick = pickImage) {
+                    Icon(Icons.Rounded.PhotoLibrary, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(strings.text("Choose another image"), color = palette.accent)
                 }
                 TextButton(onClick = { holder.backToInput() }) {
                     Icon(Icons.Rounded.PhotoCamera, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
@@ -192,29 +188,17 @@ private fun DecodePhase(holder: OcrStateHolder, pickers: ImagePickers) {
     }
 }
 
-/** `Photos` (photo picker) and `Files` (document picker) — CAM-016. */
-@Composable
-internal fun PickMenu(expanded: Boolean, onDismiss: () -> Unit, pickers: ImagePickers) {
-    val strings = appStrings()
-    val palette = LocalDictionaryPalette.current
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = palette.panel, border = BorderStroke(1.dp, palette.border)) {
-        DropdownMenuItem(text = { Text(strings.text("Photos")) }, onClick = { onDismiss(); pickers.photos() })
-        DropdownMenuItem(text = { Text(strings.text("Files")) }, onClick = { onDismiss(); pickers.files() })
-    }
-}
-
 private class FocusMark(val id: Int, val position: Offset, val outcome: FocusOutcome)
 
 /** The camera-first input screen (CAM-006, CAM-133): the viewfinder frame with its controls. */
 @Composable
-private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraActive: Boolean) {
+private fun CapturePhase(holder: OcrStateHolder, pickImage: () -> Unit, cameraActive: Boolean) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val permission = rememberCameraPermission()
     val handle = remember { CameraHandle() }
     val granted = permission.status == CameraPermission.GRANTED
     val live = granted && handle.available
-    var pickMenu by remember { mutableStateOf(false) }
     var pasteMenu by remember { mutableStateOf(false) }
     var pasteEnabled by remember { mutableStateOf(false) }
     var focusMark by remember { mutableStateOf<FocusMark?>(null) }
@@ -312,17 +296,16 @@ private fun CapturePhase(holder: OcrStateHolder, pickers: ImagePickers, cameraAc
 
                 // CAM-007: the image picker, bottom-leading beside the shutter, in every capture-phase state.
                 Box(Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 32.dp)) {
-                    val label = strings.text("Choose from gallery")
+                    val label = strings.text("Choose image")
                     WithTooltip(label) {
                         OverlayButton(
                             icon = Icons.Rounded.PhotoLibrary,
-                            onClick = { pickMenu = true },
+                            onClick = pickImage,
                             live = live,
                             size = 48,
                             modifier = Modifier.semantics { contentDescription = label },
                         )
                     }
-                    PickMenu(pickMenu, { pickMenu = false }, pickers)
                 }
 
                 // CAM-132: long-press offers Paste; enabled only when the clipboard holds an image.
