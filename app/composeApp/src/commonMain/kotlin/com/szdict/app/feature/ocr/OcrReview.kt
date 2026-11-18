@@ -474,7 +474,7 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEna
                     val top = points.minOf { it.y }
                     val width = points.maxOf { it.x } - left
                     val height = points.maxOf { it.y } - top
-                    val padding = maxOf(4.dp.toPx() / zoom, minOf(width, height) * 0.04f)
+                    val padding = maxOf(5.dp.toPx() / zoom, minOf(width, height) * 0.06f)
                     drawRoundRect(
                         color = palette.accent.copy(alpha = 0.72f),
                         topLeft = Offset(left - padding, top - padding),
