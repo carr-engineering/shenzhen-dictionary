@@ -15,6 +15,22 @@ fun navigationStyle(windowWidth: Dp): NavigationStyle = when {
 /** The window is wide enough for a list and its detail side by side (GLB-125). */
 fun fitsTwoPanes(windowWidth: Dp): Boolean = windowWidth >= TwoPaneMinWidth
 
+/** Voice always uses a detail pane when it fits. OCR splits on demand in landscape. */
+internal fun usesTwoPanes(
+    width: Dp,
+    height: Dp,
+    destination: Destination,
+    wordChoicesOpen: Boolean,
+    entryOpen: Boolean,
+): Boolean = fitsTwoPanes(width) && when (destination) {
+    Destination.OCR -> width > height && (wordChoicesOpen || entryOpen)
+    Destination.SEARCH, Destination.READING, Destination.VOICE, Destination.HSK -> true
+    Destination.SETTINGS -> false
+}
+
+/** The shelf reserved when a bottom word sheet first opens, limited by the available area. */
+internal fun wordSheetPeekHeight(maxHeight: Dp): Dp = maxHeight.coerceIn(0.dp, 256.dp)
+
 /** Narrowest window with the two-pane layout: a modern phone in landscape (long edge 760 dp and up) has it, a small one does not. */
 val TwoPaneMinWidth: Dp = 760.dp
 

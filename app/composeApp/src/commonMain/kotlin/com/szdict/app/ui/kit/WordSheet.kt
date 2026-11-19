@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
 import com.szdict.app.WordSheetRequest
+import com.szdict.app.wordSheetPeekHeight
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.SpanCandidates
@@ -81,7 +82,7 @@ fun WordSheet(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val maxPx = with(density) { maxHeight.toPx() }.coerceAtLeast(0f)
-    val peekPx = with(density) { 256.dp.toPx() }.coerceAtMost(maxPx)
+    val peekPx = with(density) { wordSheetPeekHeight(maxHeight).toPx() }
     val height = remember { Animatable(0f) }
     if (!asDialog) {
         LaunchedEffect(peekPx, maxPx) { height.animateTo(height.value.coerceIn(peekPx, maxPx)) }

@@ -122,6 +122,24 @@ class ImageViewport(val imageWidth: Int, val imageHeight: Int, val viewWidth: Fl
     fun centreOn(image: Offset, zoom: Float): Offset =
         clamp(Offset(viewWidth / 2f, viewHeight / 2f) - (letterbox + image * fitScale) * zoom, zoom)
 
+    /** Preserve the zoomed centre when space changes, panning only enough to keep a selection visible. */
+    internal fun translationAfterResize(
+        previous: ImageViewport,
+        zoom: Float,
+        translation: Offset,
+        selected: Offset?,
+    ): Offset {
+        if (!valid) return translation
+        if (!previous.valid) return clamp(translation, zoom)
+        val previousCentre = Offset(previous.viewWidth / 2f, previous.viewHeight / 2f)
+        val centred = centreOn(previous.toImage(previousCentre, zoom, translation), zoom)
+        if (selected == null) return centred
+        val position = toView(selected, zoom, centred)
+        val gap = min(viewWidth, viewHeight) * 0.08f
+        val visible = Offset(position.x.coerceIn(gap, viewWidth - gap), position.y.coerceIn(gap, viewHeight - gap))
+        return clamp(centred + visible - position, zoom)
+    }
+
     /** Hit-test tolerance in image pixels for a constant on-screen [slopPx] (CAM-065). */
     fun slop(slopPx: Float, zoom: Float): Float = slopPx / (zoom * fitScale)
 

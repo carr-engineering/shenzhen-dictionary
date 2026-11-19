@@ -199,4 +199,27 @@ class DetailStackTest {
             assertEquals(1001.dp, it.detailStart)
         }
     }
+    @Test
+    fun voiceOffersASecondPaneBeforeAnEntryIsSelected() {
+        assertFalse(usesTwoPanes(440.dp, 820.dp, Destination.VOICE, wordChoicesOpen = false, entryOpen = false))
+        assertTrue(usesTwoPanes(900.dp, 560.dp, Destination.VOICE, wordChoicesOpen = false, entryOpen = false))
+        assertTrue(usesTwoPanes(820.dp, 1050.dp, Destination.VOICE, wordChoicesOpen = true, entryOpen = false))
+    }
+
+    @Test
+    fun ocrSplitsOnlyForChoicesOrAnEntryInWideLandscape() {
+        assertFalse(usesTwoPanes(940.dp, 600.dp, Destination.OCR, wordChoicesOpen = false, entryOpen = false))
+        assertTrue(usesTwoPanes(940.dp, 600.dp, Destination.OCR, wordChoicesOpen = true, entryOpen = false))
+        assertTrue(usesTwoPanes(940.dp, 600.dp, Destination.OCR, wordChoicesOpen = false, entryOpen = true))
+        assertFalse(usesTwoPanes(740.dp, 480.dp, Destination.OCR, wordChoicesOpen = true, entryOpen = false))
+        assertFalse(usesTwoPanes(820.dp, 1050.dp, Destination.OCR, wordChoicesOpen = true, entryOpen = false))
+    }
+
+    @Test
+    fun wordSheetPeekFitsTheAvailableHeight() {
+        assertEquals(256.dp, wordSheetPeekHeight(700.dp))
+        assertEquals(200.dp, wordSheetPeekHeight(200.dp))
+        assertEquals(0.dp, wordSheetPeekHeight((-8).dp))
+    }
+
 }

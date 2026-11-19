@@ -155,9 +155,11 @@ fun App(session: AppSession) {
                 val windowWidth = maxWidth
                 val navigation = navigationStyle(windowWidth)
                 val compact = navigation == NavigationStyle.BOTTOM_BAR
-                val wordDialog = navigation == NavigationStyle.EXPANDED_RAIL && maxHeight >= 460.dp
-                val wideEnoughForPanes = fitsTwoPanes(maxWidth)
-                val twoPane = wideEnoughForPanes && session.destination in setOf(Destination.SEARCH, Destination.HSK, Destination.READING)
+                val wordSheetOpen = session.wordSheet != null
+                val topRoute = session.routes.lastOrNull()
+                val isOcr = session.destination == Destination.OCR
+                val wordDialog = !isOcr && navigation == NavigationStyle.EXPANDED_RAIL && maxHeight >= 460.dp
+                val twoPane = usesTwoPanes(windowWidth, maxHeight, session.destination, wordSheetOpen, topRoute is DetailRoute.Entry)
                 val destinations = remember(session.env.voiceAvailable, session.env.settingsIsDestination) {
                     navigationDestinations(session.env.voiceAvailable, session.env.settingsIsDestination)
                 }
@@ -166,14 +168,12 @@ fun App(session: AppSession) {
                 if (session.wordSheet == null) wordSheetHeight = 0.dp
                 if (!session.handwritingVisible) handwritingHeight = 0.dp
                 val imeVisible = imeVisible()
-                val topRoute = session.routes.lastOrNull()
                 val fullScreenRoute = topRoute != null && (!twoPane || topRoute !is DetailRoute.Entry)
                 // A full-screen detail route (an entry in single pane, Settings and its pages) covers the bottom bar; it returns when the route closes.
                 val coversNavigation = fullScreenRoute
-                // Keep the OCR viewport identical while its sheet opens, resizes or closes.
-                val keepBarWithSheet = session.destination == Destination.OCR
+                // OCR reserves space for the sheet within the preview area above the navigation bar.
                 val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !coversNavigation &&
-                    (session.wordSheet == null || keepBarWithSheet)
+                    (!wordSheetOpen || isOcr)
 
                 // A route that covers the destination takes the focus away from it: no caret handle,
                 // keyboard or handwriting sheet of a covered field survives or comes back (GLB-059).
@@ -189,7 +189,6 @@ fun App(session: AppSession) {
 
                 // The word sheet takes the bottom of the screen: an open keyboard or handwriting sheet
                 // would cover it, so the field gives them up when a word is tapped.
-                val wordSheetOpen = session.wordSheet != null
                 LaunchedEffect(session.destination, topRoute?.key, wordSheetOpen) { hover.clear() }
                 LaunchedEffect(wordSheetOpen) {
                     if (wordSheetOpen) {
@@ -216,13 +215,15 @@ fun App(session: AppSession) {
                         }
                         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                             val panes = paneLayout(maxWidth)
-                            val ocrRight = session.destination == Destination.OCR && wideEnoughForPanes
-                            val wordsOnRight = !fullScreenRoute && (twoPane || ocrRight)
+                            val wordsOnRight = twoPane && !fullScreenRoute
                             val wordInset = if (wordDialog) 0.dp else wordSheetHeight
-                            val destinationInset = maxOf(handwritingHeight, if (wordsOnRight && !ocrRight) 0.dp else wordInset)
+                            val destinationInset = maxOf(handwritingHeight, if (wordsOnRight) 0.dp else wordInset)
                             val detailInset = maxOf(handwritingHeight, wordInset)
                             val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
                             val sheetMaxHeight = maxHeight - topInset
+                            val imageSheetInset = if (isOcr && wordSheetOpen && !wordsOnRight && !fullScreenRoute) {
+                                wordSheetPeekHeight(sheetMaxHeight)
+                            } else 0.dp
                             CompositionLocalProvider(LocalSheetInset provides destinationInset) {
                                 val stateHolder = rememberSaveableStateHolder()
                                 // Saved state of the detail routes, keyed per visit (GLB-051).
@@ -253,7 +254,9 @@ fun App(session: AppSession) {
                                             stateHolder.SaveableStateProvider("dest-$destination-${session.dataGeneration}") {
                                                 when (destination) {
                                                     Destination.SEARCH -> SearchScreen(session, twoPane)
-                                                    Destination.OCR -> OcrScreen(session)
+                                                    Destination.OCR -> OcrScreen(
+                                                        session, imageSheetInset = imageSheetInset, detailBesideImage = wordsOnRight,
+                                                    )
                                                     Destination.VOICE -> VoiceScreen(session)
                                                     Destination.READING -> ReadingScreen(session)
                                                     Destination.HSK -> HskScreen(session)
@@ -264,13 +267,15 @@ fun App(session: AppSession) {
                                     }
                                     if (twoPane) {
                                         Box(Modifier.width(PaneDivider).fillMaxHeight().background(palette.border))
-                                        // ENT-019: the side pane with nothing selected.
+                                        // The right-pane sheet is already offering entries to select.
                                         Box(Modifier.width(panes.detail).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                                            Text(
-                                                strings.text("Select an entry to see its detail"),
-                                                color = palette.muted,
-                                                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-                                            )
+                                            if (!wordSheetOpen || wordDialog) {
+                                                Text(
+                                                    strings.text("Select an entry to see its detail"),
+                                                    color = palette.muted,
+                                                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                                                )
+                                            }
                                         }
                                     }
                                 }

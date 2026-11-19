@@ -77,6 +77,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.szdict.app.AppSession
 import com.szdict.app.Destination
@@ -88,7 +89,12 @@ import kotlinx.coroutines.delay
 /** The OCR destination (CAM-001). The signature is the contract with the app shell. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun OcrScreen(session: AppSession, modifier: Modifier = Modifier) {
+fun OcrScreen(
+    session: AppSession,
+    modifier: Modifier = Modifier,
+    imageSheetInset: Dp = 0.dp,
+    detailBesideImage: Boolean = false,
+) {
     val holder = remember(session) { OcrStateHolder.of(session) }
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
@@ -129,7 +135,7 @@ fun OcrScreen(session: AppSession, modifier: Modifier = Modifier) {
             },
     ) {
         when {
-            holder.inReview -> ReviewPhase(session, holder, pickImage)
+            holder.inReview -> ReviewPhase(session, holder, pickImage, imageSheetInset, detailBesideImage)
             holder.galleryPending -> DecodePhase(holder, pickImage)
             // The camera is bound only while the capture phase is actually visible (CAM-025).
             else -> CapturePhase(holder, pickImage, cameraActive = session.routes.isEmpty())

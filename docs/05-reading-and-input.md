@@ -203,7 +203,8 @@ passage card, OCR text-view lines and the Voice transcript render readings above
 `TXT-040` `[MUST]` Click or tap to pin the word choices. Compact and medium windows use a **non-modal**
 bottom sheet with a 256 dp peek, a 32x4 dp drag handle and a maximum width of 720 dp. Where the window
 fits two panes, the sheet is confined to the right pane. Large windows use a floating, non-modal
-dialog that leaves the clicked character reachable. Mouse hover previews the same ranked candidates,
+dialog that leaves the clicked character reachable. OCR review uses a bottom sheet at every size.
+Mouse hover previews the same ranked candidates,
 follows the pointer and clears when the pointer leaves the character or moves into empty space. The
 preview passes input through to the content beneath it.
 
@@ -219,9 +220,11 @@ The sheet does **not** close and reopen when the selection moves.
 audio buttons. Empty state (after loading finishes): `No dictionary entry`.
 
 `TXT-044` `[MUST]` Scrollable content behind a bottom sheet is padded by the currently **visible**
-sheet height, live during the drag. The OCR image keeps its fit, zoom and translation while the
-sheet moves. The same padding rule applies to the handwriting sheet (`HW-021`); only one of the
-two sheets is visible at a time.
+sheet height, live during the drag. In single-pane OCR review, the image reserves the sheet's peek
+height from the moment it opens. Dragging the sheet beyond its peek does not resize the image again.
+In wide landscape, selecting a glyph splits OCR review into an image pane and a right pane for
+the word choices or the opened entry. The padding rule for scrollable content also applies to
+the handwriting sheet (`HW-021`).
 
 `TXT-045` `[MUST]` The sheet closes on: tapping the same character again, the close button, a drag down
 to hidden, back, tapping a row
@@ -857,10 +860,10 @@ Dropping or pasting an image during review replaces the capture (`CAM-130`).
 
 `CAM-062` `[MUST]` The image is displayed fit-centre on black, with the recognition overlay drawn in
 the same transform:
-- each unselected line's quad uses a translucent 1.5 dp outline;
-- the selected character has a padded, rounded, translucent outline with a clear interior. The
-  selected line's outline and the character's uncertainty marker are omitted to keep the glyph visible.
-  Stroke widths stay constant on screen while zooming.
+- each line uses a translucent accent outline. The selected line has a stronger, padded outline
+  around the original line and the selected character's outline;
+- the selected character keeps its padded, rounded outline and clear interior. Its uncertainty
+  marker is hidden while selected. Stroke widths stay constant on screen while zooming.
 
 `CAM-063` `[MUST]` Pinch-to-zoom between 1x and 8x with pan. The pinch centroid stays stationary.
 Translation is clamped so the image always covers the viewport (no rubber-band gaps).
@@ -1245,7 +1248,9 @@ transcript into an interactive passage: segmented, tone-coloured, with readings,
 iOS version (the iOS minimum is 26, `PROD-025`). On Web the destination, its route and any entry
 point are absent; its route falls back per `GLB-112`.
 
-`VOICE-002` `[MUST]` Layout, top to bottom:
+`VOICE-002` `[MUST]` On windows that fit two panes, Voice uses the left pane for the transcript
+and the right pane for word choices and entry details. Voice opens in this layout before a word
+is selected. The transcript pane contains, from top to bottom:
 - a header with the title `Voice`, the pronunciation toggle (`GLB-120`), the actions `Copy`
   and `Clear` (`VOICE-050`), and, to the right of them, the script-conversion split button
   (`VOICE-096`);

@@ -138,6 +138,23 @@ class OcrGeometryTest {
     }
 
     @Test
+    fun shrinkingTheViewerKeepsTheZoomedCentreAndRevealsTheSelectedGlyphIfNeeded() {
+        val wide = ImageViewport(200, 100, 400f, 400f)
+        val narrow = ImageViewport(200, 100, 200f, 400f)
+        val zoom = 2f
+        val translation = Offset(-200f, -200f)
+        val centre = wide.toImage(Offset(200f, 200f), zoom, translation)
+        val resized = narrow.translationAfterResize(wide, zoom, translation, selected = null)
+        assertEquals(centre, narrow.toImage(Offset(100f, 200f), zoom, resized))
+
+        val glyph = Offset(149f, 50f)
+        assertTrue(narrow.toView(glyph, zoom, resized).x > 190f)
+        val showingGlyph = narrow.translationAfterResize(wide, zoom, translation, glyph)
+        assertEquals(184f, narrow.toView(glyph, zoom, showingGlyph).x, 0.001f)
+        assertEquals(resized.y, showingGlyph.y)
+    }
+
+    @Test
     fun aCloseRunnerUpMarksTheCharacterUncertain() {
         fun char(vararg scores: Float) = OcrChar("己", box(0f, 0f, 1f, 1f), scores[0], scores.mapIndexed { i, s -> OcrAlt("己已巳"[i].toString(), s) })
         assertTrue(char(0.5f, 0.4f).isUncertain())

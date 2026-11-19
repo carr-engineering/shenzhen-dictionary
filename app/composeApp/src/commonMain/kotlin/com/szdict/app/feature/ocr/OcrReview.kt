@@ -114,7 +114,13 @@ import com.szdict.app.ui.theme.LocalDictionaryPalette
 
 /** Review of a capture (CAM-060…CAM-070): header and the Image / Text views. */
 @Composable
-internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickImage: () -> Unit) {
+internal fun ReviewPhase(
+    session: AppSession,
+    holder: OcrStateHolder,
+    pickImage: () -> Unit,
+    imageSheetInset: Dp,
+    detailBesideImage: Boolean,
+) {
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val capture = holder.capture ?: return
@@ -144,11 +150,10 @@ internal fun ReviewPhase(session: AppSession, holder: OcrStateHolder, pickImage:
                 OcrViewMode.IMAGE -> OcrImageViewer(
                     holder = holder,
                     capture = capture,
-                    // A page over the destination takes the wheel for itself.
-                    wheelEnabled = session.routes.isEmpty(),
+                    wheelEnabled = detailBesideImage || session.routes.isEmpty(),
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(start = 16.dp, top = headerHeight + 8.dp, end = 16.dp, bottom = 12.dp)
+                        .padding(start = 16.dp, top = headerHeight + 8.dp, end = 16.dp, bottom = 12.dp + imageSheetInset)
                         .clip(MaterialTheme.shapes.large),
                 )
                 OcrViewMode.TEXT -> Box(Modifier.fillMaxSize().padding(bottom = LocalSheetInset.current)) {
@@ -371,7 +376,14 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEna
         modifier
             .background(Color.Black)
             .clipToBounds()
-            .onSizeChanged { container = it }
+            .onSizeChanged { nextSize ->
+                if (nextSize != container) {
+                    val next = ImageViewport(image.width, image.height, nextSize.width.toFloat(), nextSize.height.toFloat())
+                    val glyph = selected?.let { ocrLines.getOrNull(it.line)?.chars?.getOrNull(it.char)?.box?.center }
+                    holder.translation = next.translationAfterResize(viewport, holder.zoom, holder.translation, glyph?.let { Offset(it.x, it.y) })
+                    container = nextSize
+                }
+            }
             // Trackpad pinch and Ctrl/Cmd + wheel zoom about the pointer; two-finger scroll pans (CAM-063).
             .wheelGestures(
                 enabled = wheelEnabled && viewport.valid,
