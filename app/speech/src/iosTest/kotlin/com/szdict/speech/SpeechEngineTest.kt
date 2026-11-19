@@ -38,39 +38,33 @@ class SpeechEngineTest {
         val engine = Speech.open(modelDir)
         println("model loaded in ${loadStart.elapsedNow().inWholeMilliseconds} ms")
         try {
-            var decoded = 0
-            for (name in listOf("1.wav", "2.wav", "6-zh-en.wav")) {
-                val samples = readWav("$wavDir/$name") ?: continue
-                val audioSeconds = samples.size / SpeechModel.SAMPLE_RATE.toDouble()
-                val stream = engine.createStream()
-                val start = TimeSource.Monotonic.markNow()
-                var previous = ""
-                var appendOnly = true
-                // 50 ms frames, as the capture delivers them.
-                val frame = SpeechModel.SAMPLE_RATE / 20
-                var at = 0
-                while (at < samples.size) {
-                    val end = minOf(at + frame, samples.size)
-                    stream.accept(samples.copyOfRange(at, end))
-                    at = end
-                    val text = stream.text()
-                    if (!text.startsWith(previous)) appendOnly = false
-                    previous = text
-                }
-                stream.finish()
+            val samples = checkNotNull(readWav("$wavDir/0.wav")) { "Missing upstream bilingual test recording" }
+            val audioSeconds = samples.size / SpeechModel.SAMPLE_RATE.toDouble()
+            val stream = engine.createStream()
+            val start = TimeSource.Monotonic.markNow()
+            var previous = ""
+            var appendOnly = true
+            // 50 ms frames, as the capture delivers them.
+            val frame = SpeechModel.SAMPLE_RATE / 20
+            var at = 0
+            while (at < samples.size) {
+                val end = minOf(at + frame, samples.size)
+                stream.accept(samples.copyOfRange(at, end))
+                at = end
                 val text = stream.text()
-                val seconds = start.elapsedNow().inWholeMicroseconds / 1e6
-                stream.release()
-                println("$name: ${fmt(audioSeconds)} s audio, decoded in ${fmt(seconds)} s, RTF ${fmt(seconds / audioSeconds)}: $text")
-                assertTrue(text.isNotBlank(), "$name decoded to nothing")
-                assertTrue(appendOnly, "$name: greedy search must be append-only")
-                decoded++
+                if (!text.startsWith(previous)) appendOnly = false
+                previous = text
             }
-            assertTrue(decoded > 0, "no recordings in $wavDir")
+            stream.finish()
+            val text = stream.text()
+            val seconds = start.elapsedNow().inWholeMicroseconds / 1e6
+            stream.release()
+            println("0.wav: ${fmt(audioSeconds)} s audio, decoded in ${fmt(seconds)} s, RTF ${fmt(seconds / audioSeconds)}: $text")
+            assertTrue("昨天" in text && "monday" in text.lowercase(), "0.wav should contain Mandarin and English: $text")
+            assertTrue(appendOnly, "0.wav: greedy search must be append-only")
 
             // Endpointing: speech followed by silence commits (rule 2), and a reset starts afresh.
-            val samples = readWav("$wavDir/1.wav")
-            if (samples != null) {
+            run {
                 val stream = engine.createStream()
                 val audio = samples + FloatArray(SpeechModel.SAMPLE_RATE * 5)
                 val frame = SpeechModel.SAMPLE_RATE / 10

@@ -3,5 +3,7 @@
 /libs/
 /src/main/jniLibs/
 /src/main/assets/voice-model/
+/src/main/voice-assets/voice-model/
 /src/androidTest/assets/voice-test/
+/src/androidTest/assets/voice-test-bilingual/
 /build/

@@ -5,7 +5,7 @@ plugins {
 }
 
 // Speech recognition engine for the Voice destination on iOS (ARCH-095): sherpa-onnx through its C
-// API (cinterop over the static xcframework) and the streaming Paraformer trilingual model. The
+// API (cinterop over the static xcframework) and the streaming Paraformer bilingual model. The
 // xcframeworks are large binaries fetched by tools/fetch-voice-model.sh, never committed. Without
 // them the module compiles a stub engine, `Speech.AVAILABLE` is false and Voice reports itself
 // unavailable; the rest of the app is unaffected (ARCH-122).
@@ -53,6 +53,6 @@ kotlin {
 // The simulator test decodes real recordings with the real model, read from the host file system
 // (both fetched by tools/fetch-voice-model.sh into :voice); it skips itself when they are absent.
 tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
-    environment("SIMCTL_CHILD_SPEECH_MODEL_DIR", rootProject.file("voice/src/main/assets/voice-model").absolutePath)
-    environment("SIMCTL_CHILD_SPEECH_WAV_DIR", rootProject.file("voice/src/androidTest/assets/voice-test").absolutePath)
+    environment("SIMCTL_CHILD_SPEECH_MODEL_DIR", rootProject.file("voice/src/main/voice-assets/voice-model").absolutePath)
+    environment("SIMCTL_CHILD_SPEECH_WAV_DIR", rootProject.file("voice/src/androidTest/assets/voice-test-bilingual").absolutePath)
 }

@@ -2,7 +2,7 @@ package com.szdict.voice
 
 import android.content.res.AssetManager
 
-/** The bundled voice model: streaming Paraformer trilingual (zh / yue / en), int8 (VOICE-020). */
+/** The bundled voice model: streaming Paraformer bilingual (zh / en), int8 (VOICE-020). */
 object VoiceModel {
     const val ASSET_DIR = "voice-model"
     const val ENCODER = "encoder.int8.onnx"

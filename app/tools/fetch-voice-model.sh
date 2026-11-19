@@ -4,8 +4,8 @@
 #
 #   1. sherpa-onnx Android AAR (static onnxruntime) -> app/voice/libs/sherpa-onnx-classes.jar
 #                                                    + app/voice/src/main/jniLibs/arm64-v8a/*.so
-#   2. streaming Paraformer trilingual (zh / yue / en), int8
-#                                                   -> app/voice/src/main/assets/voice-model/
+#   2. streaming Paraformer bilingual (zh / en), int8
+#                                                   -> app/voice/src/main/voice-assets/voice-model/
 #   3. iOS: sherpa-onnx and onnxruntime static xcframeworks (device + simulator)
 #                                                   -> app/speech/ios-frameworks/
 #
@@ -16,7 +16,7 @@ set -euo pipefail
 
 SHERPA_VERSION="2.0.1"
 AAR_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_VERSION}/sherpa-onnx-static-link-onnxruntime-${SHERPA_VERSION}.aar"
-MODEL_BASE="${VOICE_MODEL_BASE:-https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-trilingual-zh-cantonese-en/resolve/main}"
+MODEL_BASE="${VOICE_MODEL_BASE:-https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en/resolve/8e40c43232a1c5c66c82111efc5820d3accca11b}"
 ABIS="${VOICE_ABIS:-arm64-v8a}"
 TARGETS="${VOICE_TARGETS:-android ios}"
 # iOS: the same sherpa-onnx release, built against this onnxruntime (sherpa-onnx build-ios.sh).
@@ -31,8 +31,8 @@ VOICE="$HERE/../voice"
 CACHE="$VOICE/.cache"
 LIBS="$VOICE/libs"
 JNI="$VOICE/src/main/jniLibs"
-MODEL="$VOICE/src/main/assets/voice-model"
-TEST_ASSETS="$VOICE/src/androidTest/assets/voice-test"
+MODEL="$VOICE/src/main/voice-assets/voice-model"
+TEST_ASSETS="$VOICE/src/androidTest/assets/voice-test-bilingual"
 IOS_FRAMEWORKS="$HERE/../speech/ios-frameworks"
 mkdir -p "$CACHE" "$LIBS" "$JNI" "$MODEL" "$TEST_ASSETS"
 
@@ -50,7 +50,7 @@ fetch() {
     return
   fi
   echo "fetching $(basename "$dest")"
-  curl -fL --retry 20 --retry-delay 5 --retry-all-errors -C - -o "$dest.part" "$url"
+  curl -fL --retry 20 --retry-delay 5 --retry-all-errors -C - -o "$dest.part" "$url" || return
   if [[ -n "$want" && "$(sha256 "$dest.part")" != "$want" ]]; then
     echo "checksum mismatch for $(basename "$dest")" >&2
     rm -f "$dest.part"
@@ -75,16 +75,16 @@ if [[ " $TARGETS " == *" android "* ]]; then
 fi
 
 # 2. Model (small files first, so a partial run already has the vocabulary).
-fetch "$MODEL_BASE/tokens.txt" "$MODEL/tokens.txt"
+fetch "$MODEL_BASE/tokens.txt" "$MODEL/tokens.txt" \
+  59aba8873a2ed1e122c25fee421e25f283b63290efbde85c1f01a853d83cb6e6
 fetch "$MODEL_BASE/decoder.int8.onnx" "$MODEL/decoder.int8.onnx" \
-  545427acf508452b7d89969be082c8128c681e3432ff43aef09f6159f4b61a7e
+  f3cca9f77bb9d93c8fcbfb63ae617b6b1ee96818df3aa3b151c40658fe38594f
 fetch "$MODEL_BASE/encoder.int8.onnx" "$MODEL/encoder.int8.onnx" \
-  6047a644b41b236d9d8e89e3b94ef39d1b7037daab028131b722ca52e10b0357
+  81a70226a8934e6ed92aa1d4fc486b428b5398e2f2619ed4897b7294cab90e9a
 
-# 3. Short 16 kHz test recordings for the instrumented recogniser test (not packaged in the app).
-for wav in 1.wav 2.wav 6-zh-en.wav; do
-  fetch "$MODEL_BASE/test_wavs/$wav" "$TEST_ASSETS/$wav" || true
-done
+# 3. The upstream Mandarin–English sample for the instrumented recogniser tests.
+fetch "$MODEL_BASE/test_wavs/0.wav" "$TEST_ASSETS/0.wav" \
+  7d93384ca14702cc584a7a33fe2fed92e89e708549161cb12ea38c916882103b || true
 
 # 4. iOS libraries: static xcframeworks, linked by the app target and by :speech's cinterop.
 # fetch_xcframework <url> <sha256> <name>.xcframework <version stamp>

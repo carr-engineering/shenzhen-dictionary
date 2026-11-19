@@ -401,7 +401,7 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Voice" to "語音",
     "Copy" to "複製",
     "Retry" to "重試",
-    "Tap the microphone and speak Mandarin, Cantonese or English." to "輕觸麥克風，然後說普通話、粵語或英語。",
+    "Tap the microphone and speak Mandarin or English." to "輕觸麥克風，然後說普通話或英語。",
     "Recording" to "正在錄音",
     "Starting…" to "正在啟動…",
     "Stopping…" to "正在停止…",

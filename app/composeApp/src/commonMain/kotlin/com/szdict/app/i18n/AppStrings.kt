@@ -431,7 +431,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Voice" to "语音",
     "Copy" to "复制",
     "Retry" to "重试",
-    "Tap the microphone and speak Mandarin, Cantonese or English." to "点按麦克风，然后说普通话、粤语或英语。",
+    "Tap the microphone and speak Mandarin or English." to "点按麦克风，然后说普通话或英语。",
     "Recording" to "正在录音",
     "Starting…" to "正在启动…",
     "Stopping…" to "正在停止…",

@@ -453,7 +453,7 @@ the app is backgrounded or the Voice destination is left; samples are never writ
 **committed text** (an utterance closed by an endpoint), **live text** (the current utterance, append-only
 under greedy decoding) and **endpoint events**. Android: sherpa-onnx via its Android AAR (JNI);
 iOS: the sherpa-onnx C API called from Kotlin/Native (cinterop over the static framework built for
-iOS). Model: the trilingual streaming Paraformer, int8 (`PERF-070`), located through
+iOS). Model: the bilingual Mandarin–English streaming Paraformer, int8 (`PERF-070`), located through
 `VoiceModelPack` — the Play on-demand pack, the iOS Background Assets pack, or the copy bundled in the
 direct APK (`ARCH-142`). While the pack is not present the session cannot start and Voice shows its
 download state (`VOICE-095`, `GLB-035`). The session runs on its own background thread, loads the model
@@ -1167,7 +1167,7 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | OCR model (ML Kit Chinese) | 20 MB | Android only (iOS uses Vision; Web uses the next line) |
 | Web OCR model (ML Kit text recognition repackaged for the browser, `DATA-196`) + manifest | ~2.6 MB download | Web only: lazy on first OCR use, then kept offline in OPFS / Cache Storage and replaced only when the manifest version changes (`ARCH-197`) |
 | Handwriting models (simplified, traditional, Hong Kong) | 30 MB total (estimate; re-baseline at first integration) | mobile; Web: repackaged, one model per script, lazy |
-| Voice model (trilingual streaming Paraformer, int8: encoder, decoder, tokens) | ~240 MB | Play: on-demand asset pack; iOS: Background Assets pack; direct APK: bundled (`ARCH-142`) |
+| Voice model (bilingual Mandarin–English streaming Paraformer, int8: encoder, decoder, tokens) | ~240 MB | Play: on-demand asset pack; iOS: Background Assets pack; direct APK: bundled (`ARCH-142`) |
 | sherpa-onnx + onnxruntime native libraries | 10–15 MB per ABI | mobile only |
 | OpenCC dictionaries for every config used (`ARCH-196`, `DATA-195`) | ~1.35 MB raw text, < ~0.5 MB gzipped (estimate; measure the compact binaries) | mobile: bundled; Web: lazy per config, browser-cached |
 | Decomposition data (BabelStone IDS + radical mappings, `DATA-191`) plus the Make Me a Hanzi stroke → component `matches` as a separate LGPL-3.0 file (~9k characters) | ≤ 3 MB (estimate; measure when built) | mobile: bundled; Web: lazy on first Parts section, then kept offline in OPFS, versioned with the dataset (`ARCH-145`) |

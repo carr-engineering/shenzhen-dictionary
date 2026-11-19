@@ -6,14 +6,15 @@ plugins {
 }
 
 // Speech recognition engine for the Voice destination (ARCH-095): sherpa-onnx (JNI, onnxruntime
-// linked statically) and the streaming Paraformer trilingual model. The library and the model are
+// linked statically) and the streaming Paraformer bilingual model. The library and the model are
 // large binaries fetched by tools/fetch-voice-model.sh, never committed. Without the library the
 // module compiles a stub engine and Voice reports itself unavailable; the rest of the app is
 // unaffected (ARCH-122).
 val sherpaJar = file("libs/sherpa-onnx-classes.jar")
 val sherpaNative = file("src/main/jniLibs/arm64-v8a/libsherpa-onnx-jni.so")
 val hasSherpa = sherpaJar.exists() && sherpaNative.exists()
-val modelDir = file("src/main/assets/voice-model")
+val voiceAssets = file("src/main/voice-assets")
+val modelDir = voiceAssets.resolve("voice-model")
 val modelFiles = listOf("encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt")
 
 android {
@@ -30,6 +31,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     sourceSets.getByName("main").kotlin.srcDir(if (hasSherpa) "src/sherpa/kotlin" else "src/stub/kotlin")
+    // Use a separate asset root so an older trilingual download cannot enter the APK.
+    sourceSets.getByName("main").assets.setSrcDirs(listOf(voiceAssets))
     // The model is handed to the native runtime straight out of the APK.
     androidResources { noCompress += listOf("onnx") }
 }

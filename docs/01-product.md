@@ -448,7 +448,7 @@ and a speaker button plays its pronunciation. Card and widget use the same deter
 
 `PROD-108` **Transcribe speech** (Android, iOS). Tap the `Voice` destination (first time, in
 Play and iOS builds: the voice model downloads, with its size shown first — `VOICE-095`; then the
-microphone permission rationale and grant) → speak Mandarin, Cantonese or English → live text
+microphone permission rationale and grant) → speak Mandarin or English → live text
 appears already segmented and tone-coloured and updates as words arrive (in Traditional characters
 when the script setting is Traditional, with "Show original" available — `VOICE-096`); each finished utterance is
 committed on its own line and never moves → tap any hanzi → the word sheet opens, keeping its

@@ -126,8 +126,11 @@ internal val ModelCredits: List<Credit> = listOf(
     Credit("sherpa-onnx", "Voice recognition runtime", "Apache-2.0", listOf(CreditLink("sherpa-onnx", "https://github.com/k2-fsa/sherpa-onnx"))),
     Credit("ONNX Runtime", "Inference runtime for voice recognition and, in the Android and iOS apps, text recognition", "MIT", listOf(CreditLink("ONNX Runtime", "https://github.com/microsoft/onnxruntime"))),
     Credit(
-        "Streaming Paraformer (zh / Cantonese / en)", "Voice recognition model", "Apache-2.0",
-        listOf(CreditLink("ModelScope", "https://modelscope.cn/models/dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online")),
+        "Streaming Paraformer (Mandarin / English)", "Voice recognition model", "Apache-2.0",
+        listOf(
+            CreditLink("ONNX model", "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en"),
+            CreditLink("ModelScope", "https://modelscope.cn/models/damo/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8404-online"),
+        ),
     ),
     Credit(
         "PP-OCR (PaddleOCR)",

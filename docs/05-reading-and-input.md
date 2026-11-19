@@ -1228,7 +1228,7 @@ candidate is announced as its text with its position (`Candidate 1 of 8`).
 ## Voice transcription
 
 **Android and iOS only.** Voice is a primary destination on mobile; Web omits it entirely
-(`PROD-022`, `PROD-023`). It transcribes Mandarin, Cantonese and English speech live and turns the
+(`PROD-022`, `PROD-023`). It transcribes Mandarin and English speech live and turns the
 transcript into an interactive passage: segmented, tone-coloured, with readings, every Hanzi tappable.
 
 ---
@@ -1244,7 +1244,7 @@ point are absent; its route falls back per `GLB-112`.
   and `Clear` (`VOICE-050`), and, to the right of them, the script-conversion split button
   (`VOICE-096`);
 - the transcript area (`VOICE-030`), scrolling; with no transcript, the hint
-  `Tap the microphone and speak Mandarin, Cantonese or English.`;
+  `Tap the microphone and speak Mandarin or English.`;
 - a status line (`Listening…`, `Preparing…`, or an error);
 - a bottom-centre 72 dp circular accent **start/stop** button.
 
@@ -1279,7 +1279,7 @@ device), the status line shows `The microphone is unavailable right now.` and th
 
 `VOICE-020` `[MUST]` Speech recognition is behind the `SpeechRecognizer` port (`ARCH-095`), fed by the
 `AudioCapture` port (`ARCH-094`, 16 kHz mono PCM). The model is the sherpa-onnx **streaming
-Paraformer trilingual** model (Mandarin, Cantonese, English) in its int8 form; the runtime is
+Paraformer bilingual** model (Mandarin and English) in its int8 form; the runtime is
 sherpa-onnx with onnxruntime, included in the mobile builds only (`ARCH-014`).
 
 `VOICE-021` `[MUST]` The model is the **only asset delivered after install** on mobile; every other

@@ -149,7 +149,7 @@ fun VoiceScreen(session: AppSession, modifier: Modifier = Modifier) {
                     }
                 holder.isEmpty -> Box(panelPad) {
                     CenteredPanel {
-                        PanelText(strings.text("Tap the microphone and speak Mandarin, Cantonese or English."))
+                        PanelText(strings.text("Tap the microphone and speak Mandarin or English."))
                     }
                 }
                 else -> Transcript(holder, session, listState, topPad, bottomPad)

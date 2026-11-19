@@ -264,7 +264,7 @@ val stageIosAssets by tasks.registering(Sync::class) {
         into("models")
     }
     // The voice model is bundled when present (VOICE-095: without it Voice shows its unavailable state).
-    from(project(":voice").file("src/main/assets/voice-model")) {
+    from(project(":voice").file("src/main/voice-assets/voice-model")) {
         include("encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt")
         into("voice-model")
     }

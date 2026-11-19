@@ -62,7 +62,7 @@ meaningful; their full discussion is in the git history of this file.
 | `Q-091` Web | PWA keeps only the dataset offline (OPFS) and self-updates through per-release row-level changesets; other Web assets fetched when needed. Per-word SEO pages rendered at the edge at the same URLs, linking into the app | `ARCH-145`, `ARCH-146`, `DATA-216`, `PIPE-167`, `GLB-113` |
 | `Q-093` Stroke quiz | Kept | `MED-060`…`MED-071` |
 | `Q-094` Pronunciation scoring | Completely out of v1, including any placeholder interface | `PROD-030` |
-| `Q-101` Voice model licence | Apache-2.0 ([ModelScope](https://modelscope.cn/models/dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online/files)) | `SET-040` |
+| `Q-101` Voice model licence | Apache-2.0 ([ModelScope](https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en)) | `SET-040` |
 | `Q-102` HSK word list | Including the file in the repository is fine; only word → level / part-of-speech tags are used | `PIPE-161`, `SET-040` |
 | `Q-103` Mandarin language model | libime `lm_sc.arpa` (LGPL-2.1+) accepted | `PIPE-070` |
 | `Q-104` Cantonese bigrams | Same corpora as `Q-081`; derived tables published CC BY-SA 4.0; quality gate with Mandarin fallback | `PIPE-074`, `PIPE-075`, `PIPE-077` |
@@ -107,7 +107,7 @@ meaningful; their full discussion is in the git history of this file.
 | Navigation | Search · OCR · Voice · Reading · HSK (Web: Search · Reading · HSK); Settings is a card on the empty Search screen | `PROD-050`, `SRCH-115`, `SRCH-116` |
 | Pronunciation visibility | One global toggle; hidden readings keep their space; tone colours unaffected | `GLB-120`…`GLB-122` |
 | Handwriting | Bottom-sheet pad on Search and Reading, all platforms; ML Kit Digital Ink model bundled on mobile, lazily loaded on Web | `HW-*`, `ARCH-093` |
-| Voice | Mobile-only destination; streaming Paraformer trilingual model | `VOICE-*`, `ARCH-094`, `ARCH-095` |
+| Voice | Mobile-only destination; bilingual Mandarin–English Streaming Paraformer | `VOICE-*`, `ARCH-094`, `ARCH-095` |
 | Abbreviated pinyin and combinations | Any mix of full and abbreviated syllables, scored by penalty; bigram-ranked combinations | `SRCH-050`…`SRCH-068`, `TXT-026` |
 | Repository and releases | Single repository with pipeline and sources; `YYYY.MM.DD-X`; trunk-based `main` | `PIPE-160`…, `REL-*` |
 | UI languages | en, zh-Hans, zh-Hant | `GLB-100`…`GLB-103` |

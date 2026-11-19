@@ -553,7 +553,7 @@ Models, recognition and conversion engines (mobile only unless stated):
 |-----------|------|---------|
 | sherpa-onnx | voice recognition runtime (`VOICE-001`…) | Apache-2.0 |
 | onnxruntime | inference runtime used by sherpa-onnx | MIT |
-| Streaming Paraformer trilingual model (zh / Cantonese / en), [`dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online`](https://modelscope.cn/models/dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online) | voice recognition model; the only separately downloaded asset (`VOICE-095`) | Apache-2.0 |
+| Streaming Paraformer bilingual model (Mandarin / English), [`csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en`](https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en) | voice recognition model; the only separately downloaded asset (`VOICE-095`) | Apache-2.0 |
 | ML Kit Text Recognition (Chinese) | OCR destination on Android (`CAM-006`…); iOS uses the system's Vision framework | Google ML Kit terms |
 | Web OCR model (ML Kit Text Recognition model repackaged for the browser) | OCR destination on Web (`CAM-130`…, `ARCH-197`, `DATA-196`); Web only | Google ML Kit terms |
 | OpenCC KMP library (`opencc-kmp`, project-maintained, pinned version, `ARCH-196`) | runtime simplified/traditional conversion engine; all platforms | Apache-2.0 |

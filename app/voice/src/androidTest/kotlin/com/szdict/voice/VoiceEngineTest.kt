@@ -21,41 +21,41 @@ class VoiceEngineTest {
     fun recognisesTheBundledTestRecordings() {
         val assets = instrumentation.targetContext.assets
         val testAssets = instrumentation.context.assets
-        val wavs = testAssets.list("voice-test").orEmpty().filter { it.endsWith(".wav") }
-        assumeTrue("library, model and test recordings are fetched", VoiceEngines.AVAILABLE && VoiceModel.isBundled(assets) && wavs.isNotEmpty())
+        val wavs = testAssets.list("voice-test-bilingual").orEmpty()
+        assumeTrue("library, model and test recordings are fetched", VoiceEngines.AVAILABLE && VoiceModel.isBundled(assets) && "0.wav" in wavs)
 
         val loadStart = System.nanoTime()
         val engine = VoiceEngines.open(assets)
         println("VOICE-TEST model loaded in ${(System.nanoTime() - loadStart) / 1_000_000} ms")
         try {
-            for (name in wavs.sorted()) {
-                val samples = readWav(testAssets.open("voice-test/$name").use { it.readBytes() })
-                val stream = engine.createStream()
-                val committed = ArrayList<String>()
-                var previous = ""
-                val start = System.nanoTime()
-                // 100 ms frames, as the capture delivers them.
-                var i = 0
-                while (i < samples.size) {
-                    val end = minOf(samples.size, i + VoiceModel.SAMPLE_RATE / 10)
-                    stream.accept(samples.copyOfRange(i, end))
-                    val text = stream.text()
-                    assertTrue(text.startsWith(previous), "live text is append-only: '$previous' -> '$text'")
-                    previous = text
-                    if (stream.isEndpoint()) {
-                        if (text.isNotBlank()) committed += text
-                        stream.reset()
-                        previous = ""
-                    }
-                    i = end
+            val samples = readWav(testAssets.open("voice-test-bilingual/0.wav").use { it.readBytes() })
+            val stream = engine.createStream()
+            val committed = ArrayList<String>()
+            var previous = ""
+            val start = System.nanoTime()
+            // 100 ms frames, as the capture delivers them.
+            var i = 0
+            while (i < samples.size) {
+                val end = minOf(samples.size, i + VoiceModel.SAMPLE_RATE / 10)
+                stream.accept(samples.copyOfRange(i, end))
+                val text = stream.text()
+                assertTrue(text.startsWith(previous), "live text is append-only: '$previous' -> '$text'")
+                previous = text
+                if (stream.isEndpoint()) {
+                    if (text.isNotBlank()) committed += text
+                    stream.reset()
+                    previous = ""
                 }
-                stream.finish()
-                stream.text().takeIf { it.isNotBlank() }?.let { committed += it }
-                stream.release()
-                val ms = (System.nanoTime() - start) / 1_000_000
-                println("VOICE-TEST $name (${samples.size / VoiceModel.SAMPLE_RATE.toFloat()} s, decoded in $ms ms): $committed")
-                assertTrue(committed.joinToString("").any { it.code in 0x4E00..0x9FFF }, "$name produced Chinese text: $committed")
+                i = end
             }
+            stream.finish()
+            stream.text().takeIf { it.isNotBlank() }?.let { committed += it }
+            stream.release()
+            val ms = (System.nanoTime() - start) / 1_000_000
+            println("VOICE-TEST 0.wav (${samples.size / VoiceModel.SAMPLE_RATE.toFloat()} s, decoded in $ms ms): $committed")
+            val transcript = committed.joinToString(" ")
+            assertTrue("昨天" in transcript, "Expected Mandarin in the mixed recording: $transcript")
+            assertTrue("monday" in transcript.lowercase(), "Expected English in the mixed recording: $transcript")
         } finally {
             engine.release()
         }

@@ -25,7 +25,7 @@ internal expect val sherpaLinked: Boolean
 internal expect fun sherpaVersion(): String
 internal expect fun openSherpa(modelDir: String, config: SpeechEngineConfig): SpeechEngine
 
-/** The voice model: streaming Paraformer trilingual (zh / yue / en), int8 (VOICE-020). */
+/** The voice model: streaming Paraformer bilingual (zh / en), int8 (VOICE-020). */
 object SpeechModel {
     const val ENCODER = "encoder.int8.onnx"
     const val DECODER = "decoder.int8.onnx"
