@@ -137,8 +137,8 @@ fun OcrScreen(
         when {
             holder.inReview -> ReviewPhase(session, holder, pickImage, imageSheetInset, detailBesideImage)
             holder.galleryPending -> DecodePhase(holder, pickImage)
-            // The camera is bound only while the capture phase is actually visible (CAM-025).
-            else -> CapturePhase(holder, pickImage, cameraActive = session.routes.isEmpty())
+            // A detail alongside the viewfinder leaves it visible and usable (CAM-025).
+            else -> CapturePhase(holder, pickImage, cameraActive = detailBesideImage || session.routes.isEmpty())
         }
 
         holder.notice?.let { notice ->
