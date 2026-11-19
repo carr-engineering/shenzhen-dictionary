@@ -1155,6 +1155,8 @@ visible at a time.
 
 `HW-021` `[MUST]` The content behind is bottom-inset by exactly the visible sheet's height
 (`TXT-044`); the soft keyboard is never shown together with the handwriting sheet.
+In short windows, the writing pad shrinks so the search field remains visible below the status bar
+and the sheet controls stay clear of the navigation bar and display cutouts.
 
 `HW-022` `[MUST]` The primary navigation hides while the handwriting sheet is visible, as it does for
 the soft keyboard (`GLB-059`, `GLB-073`, `SRCH-123`).

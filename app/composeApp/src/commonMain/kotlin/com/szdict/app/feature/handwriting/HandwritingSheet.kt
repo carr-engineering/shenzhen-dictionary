@@ -16,15 +16,19 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -86,7 +90,8 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
     val strings = appStrings()
     val palette = LocalDictionaryPalette.current
     val density = LocalDensity.current
-    val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val systemInsets = WindowInsets.navigationBars.union(WindowInsets.displayCutout)
+        .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
     // HW-021: the soft keyboard is never shown together with the sheet, even one left over from before.
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(keyboard) { keyboard?.hide() }
@@ -102,7 +107,7 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
         border = BorderStroke(1.dp, palette.border),
         shadowElevation = 6.dp,
     ) {
-        Column(Modifier.padding(bottom = navigationInset)) {
+        Column(Modifier.windowInsetsPadding(systemInsets)) {
             Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.CenterStart) {
                 val candidates = state.candidates
                 val download = state.modelDownload
@@ -170,7 +175,8 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
             if (state.busy || state.modelDownload is ModelDownload.InProgress) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = palette.accent, trackColor = Color.Transparent)
             else Spacer(Modifier.height(2.dp))
 
-            WritingPad(state, Modifier.padding(horizontal = 12.dp).fillMaxWidth())
+            // Give the pad the remaining height after the candidate and editing controls are measured.
+            WritingPad(state, Modifier.weight(1f, fill = false).padding(horizontal = 12.dp).fillMaxWidth())
 
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -211,7 +217,7 @@ private fun WritingPad(state: HandwritingState, modifier: Modifier = Modifier) {
     val label = strings.text("Handwriting area")
     val shape = RoundedCornerShape(12.dp)
     BoxWithConstraints(modifier) {
-        // Roomy on a phone in portrait, lower when the window is short (landscape) or very wide.
+        // Prefer a roomy pad, bounded by the space the sheet can give it.
         val height = (maxWidth * 0.62f).coerceIn(150.dp, 250.dp)
         Box(
             Modifier

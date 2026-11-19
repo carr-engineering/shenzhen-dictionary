@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -333,11 +334,15 @@ fun App(session: AppSession) {
                                 withFrameNanos { }
                                 keyboardForRequest?.show()
                             }
+                            val safeTop = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
+                            val heightBelowStatusBar = (maxHeight - safeTop).coerceAtLeast(0.dp)
+                            // Leave room for the search field and its margins, even on short landscape screens.
+                            val handwritingMaxHeight = minOf(heightBelowStatusBar * 0.7f, heightBelowStatusBar - 80.dp).coerceAtLeast(0.dp)
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = session.handwritingVisible,
                                 enter = slideInVertically { it },
                                 exit = slideOutVertically { it },
-                                modifier = Modifier.align(Alignment.BottomCenter),
+                                modifier = Modifier.align(Alignment.BottomCenter).heightIn(max = handwritingMaxHeight),
                             ) {
                                 HandwritingSheet(session, onVisibleHeight = { handwritingHeight = it })
                             }
