@@ -41,7 +41,7 @@ import com.szdict.core.api.AnalysedPassage
  * (Source Sans 3 Medium, the app's Latin font): at 28 sp with 12 sp readings the cell, less the
  * 2 dp between readings, has room for 2.87 em of reading, and every Pinyin syllable up to five
  * letters (2.68 em at most) fits; only zhuang/chuang/shuang (3.10–3.13 em) and the longest
- * Jyutping (gwaang2, 3.82 em) need more, and those borrow the room their neighbours leave free ([placeRuby]).
+ * Jyutping (gwaang2, 3.82 em) can need more room, so the layout shares space between neighbouring readings ([placeRuby]).
  */
 val PassageFontSize: TextUnit = 28.sp
 
@@ -66,17 +66,6 @@ internal const val PLAIN_LINE_HEIGHT_EM = 1.45f
 
 /** Height of the reading band added above each line when readings are shown, in reading ems. */
 internal const val RUBY_BAND_EM = 0.8f
-
-/**
- * Smallest scale of a syllable that does not fit even with its neighbours' room. Pinyin never
- * needs less than 0.87 (two six-letter syllables side by side); Jyutping in the dataset's words
- * not less than about 0.8; 0.7 fits the longest Jyutping (gwaang2) between two others that fill
- * their cells.
- */
-internal const val SYLLABLE_MIN_SCALE = 0.7f
-
-/** Smallest scale of a whole-word reading (no per-character split; may be much longer than its word). */
-internal const val WORD_MIN_SCALE = 0.6f
 
 /**
  * The size decisions of a passage (TXT-034/035, GLB-120), in sp. Only [lineHeight] depends on
@@ -269,7 +258,7 @@ private fun rubyPlan(
             while (i < segment.end && n < syllables.size) {
                 val box = layout.getBoundingBox(i)
                 val measured = measure(syllables[n])
-                val slot = RubySlot(layout.getLineForOffset(i), box.center.x - trailingSpacingPx / 2f, box.width, measured.size.width.toFloat(), SYLLABLE_MIN_SCALE)
+                val slot = RubySlot(layout.getLineForOffset(i), box.center.x - trailingSpacingPx / 2f, measured.size.width.toFloat())
                 items += RubyItem(measured, box.top, tones.getOrElse(n) { 0 }, slot)
                 i += codePointLength(text, i)
                 n++
@@ -284,7 +273,7 @@ private fun rubyPlan(
                 i += codePointLength(text, i)
             }
             val measured = measure(segment.reading.display)
-            val slot = RubySlot(line, (firstBox.left + right - trailingSpacingPx) / 2f, right - firstBox.left, measured.size.width.toFloat(), WORD_MIN_SCALE)
+            val slot = RubySlot(line, (firstBox.left + right - trailingSpacingPx) / 2f, measured.size.width.toFloat())
             items += RubyItem(measured, firstBox.top, null, slot)
         }
     }
@@ -292,45 +281,33 @@ private fun rubyPlan(
     return RubyPlan(items, placeRuby(items.map { it.slot }, 0f, layout.size.width.toFloat(), gapPx), baseline)
 }
 
-/** A reading to place on [line]: centred on [center] over a cell [cellWidth] wide, [width] wide at full size. */
-internal class RubySlot(val line: Int, val center: Float, val cellWidth: Float, val width: Float, val minScale: Float)
+/** A reading of [width] pixels at full size, centred over its glyph or word. */
+internal class RubySlot(val line: Int, val center: Float, val width: Float)
 
-/** Where a reading is drawn: its left edge and its scale (1 = full size). */
+/** Where a reading is drawn (scale 1 is full size). */
 internal data class RubyPlacement(val left: Float, val scale: Float)
 
-/**
- * Places readings on their lines (GLB-120). Each reading is entitled to its own cell, less [gap]:
- * a reading that fits there is centred over its character at full size. A longer one also takes
- * the room its neighbours leave free on the sides facing it (a neighbour's own claim is its
- * centred reading, at most its cell), and the line's edges ([lineLeft]..[lineRight]) where there
- * is no neighbour; it stays centred when it can and is shifted as little as needed when it cannot.
- * Only a reading that does not fit even then is scaled down, alone, to what fits — never below its
- * [RubySlot.minScale], and never cropped. Readings on different lines do not interact.
- */
+/** Shrink readings at line edges and resolve collisions without moving their centres. */
 internal fun placeRuby(slots: List<RubySlot>, lineLeft: Float, lineRight: Float, gap: Float): List<RubyPlacement> {
-    val result = arrayOfNulls<RubyPlacement>(slots.size)
-    fun claim(s: RubySlot) = minOf(s.width, (s.cellWidth - gap).coerceAtLeast(0f))
-    val byLine = slots.indices.groupBy { slots[it].line }
-    for ((_, indices) in byLine) {
-        val ordered = indices.sortedBy { slots[it].center }
-        for ((k, index) in ordered.withIndex()) {
-            val s = slots[index]
-            val prev = ordered.getOrNull(k - 1)?.let { slots[it] }
-            val next = ordered.getOrNull(k + 1)?.let { slots[it] }
-            val from = if (prev != null) prev.center + claim(prev) / 2f + gap else lineLeft
-            val to = if (next != null) next.center - claim(next) / 2f - gap else lineRight
-            // Never less than the reading's own cell, whatever its neighbours claim.
-            val low = minOf(from, s.center - claim(s) / 2f)
-            val high = maxOf(to, s.center + claim(s) / 2f)
-            val room = high - low
-            val scale = if (s.width <= room || s.width <= 0f) 1f else (room / s.width).coerceIn(s.minScale, 1f)
-            val drawn = s.width * scale
-            val left = if (drawn <= room) (s.center - drawn / 2f).coerceIn(low, high - drawn) else s.center - drawn / 2f
-            val placement = RubyPlacement(left, scale)
-            result[index] = placement
+    val radii = FloatArray(slots.size) { i ->
+        val slot = slots[i]
+        minOf(slot.width / 2f, slot.center - lineLeft, lineRight - slot.center).coerceAtLeast(0f)
+    }
+    for (line in slots.indices.groupBy { slots[it].line }.values) {
+        val ordered = line.sortedBy { slots[it].center }
+        for (i in 1 until ordered.size) {
+            val left = ordered[i - 1]
+            val right = ordered[i]
+            val room = (slots[right].center - slots[left].center - gap).coerceAtLeast(0f)
+            if (radii[left] + radii[right] <= room) continue
+            // A shorter reading keeps its size; two wide readings share the available space.
+            radii[left] = minOf(radii[left], maxOf(room / 2f, room - radii[right]))
+            radii[right] = minOf(radii[right], room - radii[left])
         }
     }
-    return result.map { it!! }
+    return slots.mapIndexed { i, slot ->
+        RubyPlacement(slot.center - radii[i], if (slot.width > 0f) 2f * radii[i] / slot.width else 1f)
+    }
 }
 
 internal fun passageAnnotatedString(

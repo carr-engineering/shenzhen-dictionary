@@ -81,7 +81,7 @@ class PassageLayoutTest {
         val metrics = passageMetrics(fontSize, true)
         val cell = metrics.fontSize * (1f + metrics.letterSpacingEm)
         return readings.mapIndexed { k, r ->
-            RubySlot(line, (startCell + k + 0.5f) * cell, cell, em.getValue(r) * metrics.rubyFontSize, SYLLABLE_MIN_SCALE)
+            RubySlot(line, (startCell + k + 0.5f) * cell, em.getValue(r) * metrics.rubyFontSize)
         }
     }
 
@@ -120,12 +120,19 @@ class PassageLayoutTest {
     }
 
     @Test
-    fun aLongSyllableAtTheStartOfALineIsShiftedNotCropped() {
-        val slots = row("zhuàng", "de")
+    fun aLongSyllableAtTheStartOfALineShrinksAndStaysCentred() {
+        val slots = listOf(RubySlot(0, 14f, 37.32f), RubySlot(0, 50.4f, 12.72f))
         val placements = placeRuby(slots, 0f, 1000f, gap)
-        assertEquals(1f, placements[0].scale)
-        assertTrue(placements[0].left >= 0f)
+        assertTrue(placements[0].scale < 1f)
+        assertEquals(0f, placements[0].left, 0.01f)
+        assertCentred(slots, placements)
         assertNoOverlap(slots, placements)
+    }
+
+    private fun assertCentred(slots: List<RubySlot>, placements: List<RubyPlacement>) {
+        for ((slot, placement) in slots.zip(placements)) {
+            assertEquals(slot.center, placement.left + slot.width * placement.scale / 2f, 0.01f)
+        }
     }
 
     @Test
@@ -142,7 +149,8 @@ class PassageLayoutTest {
     fun jyutpingWorstCaseStaysAboveTheFloor() {
         val slots = row("de", "gwong2", "dung1", "kwaang3", "gwaang2", "ngaang6")
         val placements = placeRuby(slots, 0f, 1000f, gap)
-        assertTrue(placements.all { it.scale >= SYLLABLE_MIN_SCALE })
+        assertTrue(placements.all { it.scale >= 0.7f })
+        assertCentred(slots, placements)
         // gwong2 next to short neighbours keeps its full size; the longest three in a row shrink, without touching.
         assertEquals(1f, placements[1].scale)
         assertEquals(1f, placements[2].scale)
@@ -165,7 +173,7 @@ class PassageLayoutTest {
     fun aWholeWordReadingExtendsIntoFreeRoomInsteadOfBeingCropped() {
         val metrics = passageMetrics(fontSize, true)
         val cell = metrics.fontSize * (1f + metrics.letterSpacingEm)
-        val word = RubySlot(0, cell * 2f, cell * 2f, cell * 2.6f, WORD_MIN_SCALE)
+        val word = RubySlot(0, cell * 2f, cell * 2.6f)
         val placements = placeRuby(listOf(word), 0f, cell * 10f, gap)
         assertEquals(1f, placements[0].scale)
         assertEquals(word.center, placements[0].left + word.width / 2f, 0.01f)
