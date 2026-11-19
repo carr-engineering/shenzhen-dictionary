@@ -437,6 +437,7 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Delete" to "刪除",
     "Files" to "檔案",
     "Flash auto" to "閃光燈自動",
+    "Night mode" to "夜景模式",
     "Flash off" to "閃光燈關閉",
     "Flash on" to "閃光燈開啟",
     "Flash" to "閃光燈",

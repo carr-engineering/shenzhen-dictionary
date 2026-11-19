@@ -273,7 +273,7 @@ actual fun rememberCameraPermission(): CameraPermissionState {
 actual fun CameraPreview(
     handle: CameraHandle,
     flash: FlashMode,
-    hdr: Boolean,
+    effect: CaptureEffect?,
     onFocus: (position: Offset, outcome: FocusOutcome) -> Unit,
     onLongPress: () -> Unit,
     onCaptured: (ByteArray) -> Unit,

@@ -93,7 +93,7 @@ class OcrStateHolder(
         private set
 
     var flash: FlashMode by mutableStateOf(FlashMode.OFF)
-    var hdrEnabled by mutableStateOf(false)
+    var captureEffect: CaptureEffect? by mutableStateOf(null)
 
     // ---- review phase ----
 

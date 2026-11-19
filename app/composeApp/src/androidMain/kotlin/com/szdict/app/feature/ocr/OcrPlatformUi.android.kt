@@ -185,6 +185,8 @@ private fun cameraWithId(id: String): CameraSelector =
 private class LensTracker {
     var selector: CameraSelector? = null
     var extensions: ExtensionsManager? = null
+    var effectSelectors = emptyMap<CaptureEffect, CameraSelector>()
+    var refreshEffects = false
     var currentId: String? = null
     var info: CameraInfo? = null
     var pendingZoom: Float? = null
@@ -196,7 +198,7 @@ private class LensTracker {
 actual fun CameraPreview(
     handle: CameraHandle,
     flash: FlashMode,
-    hdr: Boolean,
+    effect: CaptureEffect?,
     onFocus: (position: Offset, outcome: FocusOutcome) -> Unit,
     onLongPress: () -> Unit,
     onCaptured: (ByteArray) -> Unit,
@@ -211,7 +213,7 @@ actual fun CameraPreview(
     val focus by rememberUpdatedState(onFocus)
     val longPress by rememberUpdatedState(onLongPress)
     val flashMode by rememberUpdatedState(flash)
-    val hdrRequested by rememberUpdatedState(hdr)
+    val effectRequested by rememberUpdatedState(effect)
     val disposed = remember { booleanArrayOf(false) }
     val focusSequence = remember { intArrayOf(0) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
@@ -229,13 +231,25 @@ actual fun CameraPreview(
     }
     val lenses = remember(controller) { LensTracker() }
 
-    fun switchCamera(selector: CameraSelector, enableHdr: Boolean, zoom: Float): Boolean {
+    fun switchCamera(selector: CameraSelector, requested: CaptureEffect?, zoom: Float, refreshEffects: Boolean = false): Boolean {
         val extensions = lenses.extensions
-        val hdrSelector = if (extensions == null) null else runCatching {
-            if (extensions.isExtensionAvailable(selector, ExtensionMode.HDR)) {
-                extensions.getExtensionEnabledCameraSelector(selector, ExtensionMode.HDR)
-            } else null
-        }.getOrNull()
+        var offered = when {
+            extensions == null -> emptyMap()
+            selector === lenses.selector && !refreshEffects -> lenses.effectSelectors
+            else -> buildMap {
+                for (candidate in CaptureEffect.entries) {
+                    val mode = when (candidate) {
+                        CaptureEffect.HDR -> ExtensionMode.HDR
+                        CaptureEffect.NIGHT -> ExtensionMode.NIGHT
+                    }
+                    runCatching {
+                        if (extensions.isExtensionAvailable(selector, mode)) {
+                            put(candidate, extensions.getExtensionEnabledCameraSelector(selector, mode))
+                        }
+                    }
+                }
+            }
+        }
         fun bind(target: CameraSelector) {
             if (controller.cameraSelector !== target) {
                 lenses.pendingZoom = zoom
@@ -243,22 +257,27 @@ actual fun CameraPreview(
             }
         }
 
-        val hdrActive = enableHdr && hdrSelector != null && runCatching { bind(hdrSelector) }.isSuccess
-        if (!hdrActive && runCatching { bind(selector) }.isFailure) {
+        val enhanced = offered[requested]
+        val active = requested?.takeIf { enhanced != null && runCatching { bind(enhanced) }.isSuccess }
+        if (active == null && runCatching { bind(selector) }.isFailure) {
             lenses.pendingZoom = null
             return false
         }
+        if (requested != null && enhanced != null && active == null) offered = offered - requested
         lenses.selector = selector
-        handle.hdrAvailable = hdrSelector != null && (!enableHdr || hdrActive)
-        handle.hdrActive = hdrActive
+        lenses.effectSelectors = offered
+        lenses.refreshEffects = false
+        handle.supportedEffects = offered.keys
+        handle.activeEffect = active
         return true
     }
 
-    fun applyHdr() {
+    fun applyCaptureEffect() {
         val selector = lenses.selector ?: return
-        if (lenses.extensions == null || handle.capturing) return
-        if (handle.hdrAvailable && handle.hdrActive == hdrRequested) return
-        switchCamera(selector, hdrRequested, controller.zoomState.value?.zoomRatio ?: 1f)
+        if (handle.capturing) return
+        val requested = effectRequested
+        if (!lenses.refreshEffects && requested?.takeIf { it in handle.supportedEffects } == handle.activeEffect) return
+        switchCamera(selector, requested, controller.zoomState.value?.zoomRatio ?: 1f, lenses.refreshEffects)
     }
 
     // CAM-036 / CAM-039: capture flash through ImageCapture; `Flashlight` is the torch with the flash off. A torch
@@ -337,7 +356,8 @@ actual fun CameraPreview(
                             extensions.addListener({
                                 if (!disposed[0]) {
                                     lenses.extensions = runCatching { extensions.get() }.getOrNull()
-                                    applyHdr()
+                                    lenses.refreshEffects = true
+                                    applyCaptureEffect()
                                 }
                             }, executor)
                         }.onFailure { Log.d("szdict.ocr", "Camera extensions unavailable", it) }
@@ -357,7 +377,7 @@ actual fun CameraPreview(
             if (cameraId == lenses.currentId) {
                 runCatching { controller.setZoomRatio(ratio) }
             } else {
-                if (!switchCamera(cameraWithId(cameraId), hdrRequested, ratio)) {
+                if (!switchCamera(cameraWithId(cameraId), effectRequested, ratio)) {
                     // Restore the chip for the camera that stayed bound.
                     handle.lens = handle.lenses.firstOrNull { it.id.substringBefore('@') == lenses.currentId }?.id
                 }
@@ -406,7 +426,7 @@ actual fun CameraPreview(
 
     // CAM-037 / CAM-038: the session's flash state is applied on every change and on every (re)open.
     LaunchedEffect(controller, flash) { applyIllumination() }
-    LaunchedEffect(controller, hdr, handle.capturing) { applyHdr() }
+    LaunchedEffect(controller, effect, handle.capturing) { applyCaptureEffect() }
 
     Box(modifier) {
         AndroidView(

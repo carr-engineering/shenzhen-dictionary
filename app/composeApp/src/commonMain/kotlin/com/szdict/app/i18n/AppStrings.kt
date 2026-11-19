@@ -467,6 +467,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Delete" to "删除",
     "Files" to "文件",
     "Flash auto" to "闪光灯自动",
+    "Night mode" to "夜景模式",
     "Flash off" to "闪光灯关闭",
     "Flash on" to "闪光灯开启",
     "Flash" to "闪光灯",

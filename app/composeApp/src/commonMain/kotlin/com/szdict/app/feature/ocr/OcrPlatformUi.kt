@@ -31,6 +31,9 @@ expect fun rememberCameraPermission(): CameraPermissionState
 /** Outcome of a tap-to-focus request, for the reticle (CAM-032). */
 enum class FocusOutcome { PENDING, FOCUSED, FAILED }
 
+/** Vendor still-capture modes. A camera can use one at a time. */
+enum class CaptureEffect { HDR, NIGHT }
+
 /** What the shared viewfinder chrome knows about, and asks of, the bound camera. */
 @Stable
 class CameraHandle {
@@ -46,9 +49,8 @@ class CameraHandle {
     /** The active camera has a flash unit or a torch: the flash control is shown (CAM-037). */
     val hasFlash: Boolean get() = flashMenu(flashModes).isNotEmpty()
 
-    /** The active camera can run the manufacturer's still-photo HDR mode. */
-    var hdrAvailable: Boolean by mutableStateOf(false)
-    var hdrActive: Boolean by mutableStateOf(false)
+    var supportedEffects: Set<CaptureEffect> by mutableStateOf(emptySet())
+    var activeEffect: CaptureEffect? by mutableStateOf(null)
 
     /** A capture is in flight (CAM-023). */
     var capturing: Boolean by mutableStateOf(false)
@@ -81,8 +83,8 @@ class CameraHandle {
         lensSwitch = null
         capturing = false
         flashModes = emptySet()
-        hdrAvailable = false
-        hdrActive = false
+        supportedEffects = emptySet()
+        activeEffect = null
         ready = false
         lenses = emptyList()
         lens = null
@@ -100,7 +102,7 @@ class CameraHandle {
 expect fun CameraPreview(
     handle: CameraHandle,
     flash: FlashMode,
-    hdr: Boolean,
+    effect: CaptureEffect?,
     onFocus: (position: Offset, outcome: FocusOutcome) -> Unit,
     onLongPress: () -> Unit,
     onCaptured: (ByteArray) -> Unit,

@@ -249,7 +249,7 @@ private fun CapturePhase(holder: OcrStateHolder, pickImage: () -> Unit, cameraAc
                         CameraPreview(
                             handle = handle,
                             flash = effectiveFlash(holder.flash, handle.flashModes),
-                            hdr = holder.hdrEnabled,
+                            effect = holder.captureEffect,
                             onFocus = { position, outcome ->
                                 focusMark = if (outcome == FocusOutcome.PENDING) FocusMark(++focusId, position, outcome)
                                 else focusMark?.let { FocusMark(it.id, it.position, outcome) }
@@ -265,27 +265,16 @@ private fun CapturePhase(holder: OcrStateHolder, pickImage: () -> Unit, cameraAc
 
                 // CAM-035…CAM-037: flash menu, hidden when the active camera has neither flash nor torch.
                 if (live) {
-                    if (handle.hdrAvailable) {
-                        val label = strings.text("HDR")
-                        Box(Modifier.align(Alignment.TopStart).padding(12.dp)) {
-                            WithTooltip(label) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (handle.hdrActive) palette.accent else Color.Black.copy(alpha = 0.42f),
-                                    contentColor = if (handle.hdrActive) palette.onAccent else Color.White,
-                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
-                                ) {
-                                    Text(
-                                        label,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        modifier = Modifier.toggleable(
-                                            value = handle.hdrActive,
-                                            enabled = handle.ready && !capturing,
-                                            role = Role.Switch,
-                                            onValueChange = { holder.hdrEnabled = it },
-                                        ).padding(horizontal = 14.dp, vertical = 10.dp),
-                                    )
-                                }
+                    Row(
+                        Modifier.align(Alignment.TopStart).padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        for (effect in CaptureEffect.entries) {
+                            if (effect !in handle.supportedEffects) continue
+                            val active = handle.activeEffect == effect
+                            val label = if (effect == CaptureEffect.HDR) "HDR" else strings.text("Night mode")
+                            CaptureEffectButton(label, active, handle.ready && !capturing) {
+                                holder.captureEffect = if (active) null else effect
                             }
                         }
                     }
@@ -373,6 +362,26 @@ private fun OverlayButton(icon: ImageVector, onClick: () -> Unit, live: Boolean,
         modifier = modifier.size(size.dp),
     ) {
         Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null, modifier = Modifier.size((size / 2).dp)) }
+    }
+}
+
+@Composable
+private fun CaptureEffectButton(label: String, active: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val palette = LocalDictionaryPalette.current
+    WithTooltip(label) {
+        Surface(
+            shape = CircleShape,
+            color = if (active) palette.accent else Color.Black.copy(alpha = 0.42f),
+            contentColor = if (active) palette.onAccent else Color.White,
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.toggleable(active, enabled = enabled, role = Role.Switch, onValueChange = { onClick() })
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
     }
 }
 
