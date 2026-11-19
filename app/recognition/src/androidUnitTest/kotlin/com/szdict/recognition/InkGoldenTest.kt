@@ -1,6 +1,8 @@
 package com.szdict.recognition
 
 import com.szdict.recognition.ink.InkFeatures
+import com.szdict.recognition.ink.InkNet
+import com.szdict.recognition.ink.InkPipeline
 import com.szdict.recognition.ink.SingleCharCtc
 import java.io.File
 import java.nio.ByteBuffer
@@ -11,6 +13,7 @@ import kotlin.math.ln
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
 
 /** The ink curve encoder and single-character decoder against the reference Python implementation. */
 class InkGoldenTest {
@@ -61,6 +64,22 @@ class InkGoldenTest {
         for (row in expected) assertEquals(row[1].toFloat(), scores[row[0].toInt()], 1e-3f, "score of label ${row[0]}")
         val top = SingleCharCtc.top(scores, 40) { true }
         assertEquals(expected.map { it[0].toInt() }, top.toList())
+    }
+
+    @Test
+    fun handwritingKeepsOnlyTheBestScoringFormOfEachDigit() = runBlocking {
+        val labels = listOf("7", "７", "8", "８", "七")
+        val logits = floatArrayOf(4f, 5f, 3f, 1f, 2f, 0f)
+        val net = object : InkNet {
+            override val classes = logits.size
+            override suspend fun infer(features: FloatArray, frames: Int) = FloatArray(frames * classes) { logits[it % classes] }
+            override fun close() = Unit
+        }
+        val pipeline = InkPipeline(net, labels)
+        val strokes = listOf(InkStroke(listOf(InkPoint(0f, 0f, 0))))
+
+        assertEquals(listOf("７", "8"), pipeline.recognize(strokes, limit = 2).map { it.text })
+        assertEquals(listOf("７", "8", "七"), pipeline.recognize(strokes, limit = labels.size).map { it.text })
     }
 
     @Test

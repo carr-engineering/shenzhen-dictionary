@@ -53,7 +53,7 @@ internal class ScriptClasses(labels: List<String>, text: String) {
 /** Curve encoding, network and single-character decoding for one handwritten character. */
 internal class InkPipeline(private val net: InkNet, private val labels: List<String>, private val scripts: ScriptClasses? = null) {
     private val han = BooleanArray(labels.size) { isHan(labels[it].firstCodePoint()) }
-    private val eligible = BooleanArray(labels.size) { han[it] || labels[it].singleOrNull()?.isDigit() == true }
+    private val digits = IntArray(labels.size) { labels[it].singleOrNull()?.digitToIntOrNull() ?: -1 }
 
     init {
         require(net.classes == labels.size + 1) { "Label table does not match the network output" }
@@ -72,7 +72,18 @@ internal class InkPipeline(private val net: InkNet, private val labels: List<Str
         val logits = net.infer(features, frames)
         val scores = SingleCharCtc.scores(logits, frames, net.classes)
         if (scripts != null) for (i in scores.indices) if (han[i]) scores[i] -= scripts.penalty(model, i)
-        return SingleCharCtc.top(scores, limit) { eligible[it] }.map { InkCandidate(labels[it], scores[it]) }
+        // Standard and full-width labels compete for one place per digit before taking the top candidates.
+        val bestDigitLabels = IntArray(10) { -1 }
+        for (i in digits.indices) {
+            val digit = digits[i]
+            if (digit < 0) continue
+            val best = bestDigitLabels[digit]
+            if (best < 0 || scores[i] > scores[best]) bestDigitLabels[digit] = i
+        }
+        return SingleCharCtc.top(scores, limit) { i ->
+            val digit = digits[i]
+            han[i] || (digit >= 0 && bestDigitLabels[digit] == i)
+        }.map { InkCandidate(labels[it], scores[it]) }
     }
 
     companion object {

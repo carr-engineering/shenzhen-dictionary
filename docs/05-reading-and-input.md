@@ -1198,7 +1198,8 @@ A mode or script change switches the model and clears the ink.
 `HW-032` `[MUST]` Candidate post-processing: the recogniser is asked for more candidates than are
 shown. Hanzi candidates are filtered against the active dataset and re-ranked by recognition
 confidence and character frequency. The recogniser's top surviving candidate stays within the
-first three. Single digits emitted by the model remain eligible without a frequency penalty.
+first three. Single digits emitted by the model remain eligible without a frequency penalty. When
+the model emits both standard and full-width forms of a digit, only the higher-scoring form is kept.
 
 `HW-033` `[SHOULD]` Up to 20 characters before the cursor are passed to the recogniser as writing
 context where the model supports it.
