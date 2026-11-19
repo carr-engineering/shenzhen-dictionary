@@ -1,6 +1,7 @@
 package com.szdict.app.feature.ocr
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import com.szdict.recognition.OcrChar
 import com.szdict.recognition.OcrLine
 import com.szdict.recognition.Quad
@@ -52,6 +53,26 @@ fun hitTestChar(lines: List<OcrLine>, x: Float, y: Float, slop: Float): CharRef?
         }
     }
     return nearest
+}
+
+/** Keep the line aligned with its original top edge and clear of the selected glyph's outline. */
+internal fun paddedLineOutline(line: List<Offset>, glyph: Rect, gap: Float): List<Offset> {
+    val edge = line[1] - line[0]
+    val length = edge.getDistance()
+    val across = if (length > 0f) edge / length else Offset(1f, 0f)
+    val down = Offset(-across.y, across.x)
+    val enclosing = line + listOf(glyph.topLeft, glyph.topRight, glyph.bottomRight, glyph.bottomLeft)
+    fun Offset.project(axis: Offset) = x * axis.x + y * axis.y
+    val left = enclosing.minOf { it.project(across) } - gap
+    val right = enclosing.maxOf { it.project(across) } + gap
+    val top = enclosing.minOf { it.project(down) } - gap
+    val bottom = enclosing.maxOf { it.project(down) } + gap
+    return listOf(
+        across * left + down * top,
+        across * right + down * top,
+        across * right + down * bottom,
+        across * left + down * bottom,
+    )
 }
 
 /**

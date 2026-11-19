@@ -1,6 +1,7 @@
 package com.szdict.app.feature.ocr
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import com.szdict.recognition.OcrAlt
 import com.szdict.recognition.OcrChar
 import com.szdict.recognition.OcrLine
@@ -27,6 +28,19 @@ class OcrGeometryTest {
 
     private fun rotated(line: OcrLine, degrees: Double): OcrLine =
         line.copy(box = rotate(line.box, degrees, 0f, 0f), chars = line.chars.map { it.copy(box = rotate(it.box, degrees, 0f, 0f)) })
+
+    @Test
+    fun paddedLineEnclosesTheSelectedGlyphWithoutStraighteningTheLine() {
+        val line = listOf(Offset(0f, 0f), Offset(80f, 40f), Offset(72f, 56f), Offset(-8f, 16f))
+        val glyphOutline = Rect(-2f, -7f, 22f, 22f)
+        val points = paddedLineOutline(line, glyphOutline, gap = 4f)
+        val quad = points.map { Point(it.x, it.y) }.let { Quad(it[0], it[1], it[2], it[3]) }
+        for (p in line + listOf(glyphOutline.topLeft, glyphOutline.topRight, glyphOutline.bottomRight, glyphOutline.bottomLeft)) {
+            assertTrue(quad.contains(p.x, p.y))
+        }
+        val edge = points[1] - points[0]
+        assertEquals(0.5f, edge.y / edge.x, 0.001f)
+    }
 
     @Test
     fun aPointInsideAGlyphSelectsItOnWhateverLine() {

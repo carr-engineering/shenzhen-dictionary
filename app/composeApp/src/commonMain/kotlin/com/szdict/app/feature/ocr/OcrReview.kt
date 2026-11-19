@@ -73,7 +73,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -111,7 +111,6 @@ import com.szdict.app.ui.kit.wordHover
 import com.szdict.app.ui.kit.PronunciationToggle
 import com.szdict.app.ui.kit.SegmentedPillRow
 import com.szdict.app.ui.theme.LocalDictionaryPalette
-import com.szdict.recognition.Quad
 
 /** Review of a capture (CAM-060…CAM-070): header and the Image / Text views. */
 @Composable
@@ -433,20 +432,31 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEna
                 val s0 = fit.fitScale
                 val b = fit.letterbox
                 fun map(x: Float, y: Float) = Offset(b.x + x * s0, b.y + y * s0)
-                fun path(quad: Quad) = Path().apply {
-                    val p = quad.points
-                    val first = map(p[0].x, p[0].y)
-                    moveTo(first.x, first.y)
-                    for (i in 1 until 4) map(p[i].x, p[i].y).let { lineTo(it.x, it.y) }
-                    close()
-                }
-                // Hairline whatever the zoom.
+                // Hairline whatever the zoom. Both borders leave the photographed ink unfilled.
                 val hairline = 1.5.dp.toPx() / zoom
                 val dots = PathEffect.dashPathEffect(floatArrayOf(hairline * 0.1f, hairline * 3.2f))
+                val glyphBounds = selected?.let { ref ->
+                    val quad = lines.getOrNull(ref.line)?.original?.chars?.getOrNull(ref.char)?.box ?: return@let null
+                    val points = quad.points.map { map(it.x, it.y) }
+                    val bounds = Rect(points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y })
+                    bounds.inflate(maxOf(5.dp.toPx() / zoom, minOf(bounds.width, bounds.height) * 0.06f))
+                }
                 lines.forEachIndexed { lineIndex, line ->
-                    if (lineIndex != selected?.line) {
-                        drawPath(path(line.original.box), palette.accent.copy(alpha = 0.35f), style = Stroke(hairline))
+                    val points = line.original.box.points.map { map(it.x, it.y) }
+                    val selectedLine = lineIndex == selected?.line
+                    val outline = if (selectedLine && glyphBounds != null) {
+                        paddedLineOutline(points, glyphBounds, 4.dp.toPx() / zoom)
+                    } else points
+                    val path = Path().apply {
+                        moveTo(outline[0].x, outline[0].y)
+                        for (i in 1 until outline.size) lineTo(outline[i].x, outline[i].y)
+                        close()
                     }
+                    drawPath(
+                        path,
+                        palette.accent.copy(alpha = if (selectedLine) 0.9f else 0.72f),
+                        style = Stroke(if (selectedLine) hairline * 1.2f else hairline),
+                    )
                     line.original.chars.forEachIndexed glyph@{ charIndex, char ->
                         if (lineIndex == selected?.line && charIndex == selected.char) return@glyph
                         val corrected = line.isCorrected(charIndex)
@@ -467,18 +477,11 @@ private fun OcrImageViewer(holder: OcrStateHolder, capture: OcrCapture, wheelEna
                         )
                     }
                 }
-                selected?.let { ref ->
-                    val quad = lines.getOrNull(ref.line)?.original?.chars?.getOrNull(ref.char)?.box ?: return@let
-                    val points = quad.points.map { map(it.x, it.y) }
-                    val left = points.minOf { it.x }
-                    val top = points.minOf { it.y }
-                    val width = points.maxOf { it.x } - left
-                    val height = points.maxOf { it.y } - top
-                    val padding = maxOf(5.dp.toPx() / zoom, minOf(width, height) * 0.06f)
+                glyphBounds?.let { glyph ->
                     drawRoundRect(
                         color = palette.accent.copy(alpha = 0.72f),
-                        topLeft = Offset(left - padding, top - padding),
-                        size = Size(width + 2 * padding, height + 2 * padding),
+                        topLeft = glyph.topLeft,
+                        size = glyph.size,
                         cornerRadius = CornerRadius(4.dp.toPx() / zoom),
                         style = Stroke(hairline),
                     )
