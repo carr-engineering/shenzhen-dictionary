@@ -113,7 +113,7 @@ class PassageLayoutTest {
     fun aLongSyllableBorrowsItsNeighboursRoomAndStaysFullSize() {
         val slots = row("bāo", "shuāng", "tāi")
         val placements = placeRuby(slots, 0f, 1000f, gap)
-        assertTrue(slots[1].width > slots[1].cellWidth - gap, "shuāng is wider than its cell")
+        assertTrue(slots[1].width > slots[1].center - slots[0].center - gap, "shuāng is wider than its cell")
         assertEquals(1f, placements[1].scale)
         assertEquals(slots[1].center, placements[1].left + slots[1].width / 2f, 0.01f)
         assertNoOverlap(slots, placements)
