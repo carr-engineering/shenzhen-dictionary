@@ -287,8 +287,15 @@ class FakeDictionary(override val mode: DictMode = DictMode.MANDARIN) : Dictiona
     }
 
     private val chars: Set<Char> = entries.flatMap { (it.simp + it.trad).toList() }.toSet()
-    override suspend fun filterHandwritingCandidates(raw: List<String>) = raw.filter { c -> c.isNotEmpty() && c.all { it in chars } }
-    override suspend fun rankHandwritingCandidates(raw: List<ScoredText>) = raw.filter { c -> c.text.isNotEmpty() && c.text.all { it in chars } }
-    override suspend fun characterAlternatives(alternatives: List<ScoredText>) = rankHandwritingCandidates(alternatives)
+    private fun onlyKnownHanzi(text: String) = text.isNotEmpty() && text.all { it in chars }
+
+    override suspend fun filterHandwritingCandidates(raw: List<String>) =
+        raw.filter { onlyKnownHanzi(it) || it.singleOrNull()?.isDigit() == true }
+
+    override suspend fun rankHandwritingCandidates(raw: List<ScoredText>) =
+        raw.filter { onlyKnownHanzi(it.text) || it.text.singleOrNull()?.isDigit() == true }
+
+    override suspend fun characterAlternatives(alternatives: List<ScoredText>) =
+        alternatives.filter { onlyKnownHanzi(it.text) }
     override fun close() {}
 }

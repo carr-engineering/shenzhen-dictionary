@@ -759,7 +759,9 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         return out
     }
 
-    private fun worstRank(text: String, ranks: Map<String, Int>): Int? {
+    private fun worstRank(text: String, ranks: Map<String, Int>, allowDigits: Boolean): Int? {
+        // Digits have no dictionary frequency. Keep their recogniser order without a frequency penalty.
+        if (allowDigits && text.singleOrNull()?.isDigit() == true) return 1
         var worst = 0
         val cps = text.cps()
         if (cps.isEmpty()) return null
@@ -773,10 +775,10 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
 
     override suspend fun filterHandwritingCandidates(raw: List<String>): List<String> = guard {
         // Without scores the recogniser's order is the confidence signal.
-        rerank(raw.mapIndexed { i, t -> ScoredText(t, -i.toDouble()) }).map { it.text }
+        rerank(raw.mapIndexed { i, t -> ScoredText(t, -i.toDouble()) }, allowDigits = true).map { it.text }
     }
 
-    override suspend fun rankHandwritingCandidates(raw: List<ScoredText>): List<ScoredText> = guard { rerank(raw) }
+    override suspend fun rankHandwritingCandidates(raw: List<ScoredText>): List<ScoredText> = guard { rerank(raw, allowDigits = true) }
 
     override suspend fun characterAlternatives(alternatives: List<ScoredText>): List<ScoredText> = guard { rerank(alternatives) }
 
@@ -784,9 +786,9 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
      * HW-032: survivors keep the recogniser's order as the primary signal; dataset frequency pulls
      * common characters ahead of rare look-alikes; the recogniser's top survivor stays in the first three.
      */
-    private suspend fun rerank(raw: List<ScoredText>): List<ScoredText> {
+    private suspend fun rerank(raw: List<ScoredText>, allowDigits: Boolean = false): List<ScoredText> {
         val ranks = charRanks(raw.map { it.text })
-        val survivors = raw.distinctBy { it.text }.mapNotNull { c -> worstRank(c.text, ranks)?.let { c to it } }
+        val survivors = raw.distinctBy { it.text }.mapNotNull { c -> worstRank(c.text, ranks, allowDigits)?.let { c to it } }
         if (survivors.size <= 1) return survivors.map { it.first }
         val byScore = survivors.sortedByDescending { it.first.score }
         val scored = byScore.mapIndexed { i, (c, rank) -> Triple(c, i + FREQ_WEIGHT * log10(rank.coerceAtLeast(1).toDouble()), i) }

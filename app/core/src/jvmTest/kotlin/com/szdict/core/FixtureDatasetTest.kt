@@ -498,6 +498,10 @@ class FixtureDatasetTest {
     @Test
     fun handwritingCandidates() = with { dict ->
         assertEquals(listOf("你", "好学", "㐀"), dict.filterHandwritingCandidates(listOf("你", "abc", "好学", "龘", "㐀", "你x", "")))
+        assertEquals(listOf("7", "０"), dict.filterHandwritingCandidates(listOf("7", "０", "A", "7x")))
+        val digit = com.szdict.core.api.ScoredText("7", 0.9)
+        assertEquals(listOf(digit), dict.rankHandwritingCandidates(listOf(digit)))
+        assertTrue(dict.characterAlternatives(listOf(digit)).isEmpty())
         val ranked = dict.rankHandwritingCandidates(listOf(com.szdict.core.api.ScoredText("㐀", 0.9), com.szdict.core.api.ScoredText("我", 0.8), com.szdict.core.api.ScoredText("龘", 0.7), com.szdict.core.api.ScoredText("命", 0.6)))
         assertEquals(listOf("我", "命", "㐀"), ranked.map { it.text }) // common characters first; the top survivor stays in the first three
         assertEquals(listOf("我"), dict.characterAlternatives(listOf(com.szdict.core.api.ScoredText("龘", 0.9), com.szdict.core.api.ScoredText("我", 0.2))).map { it.text })

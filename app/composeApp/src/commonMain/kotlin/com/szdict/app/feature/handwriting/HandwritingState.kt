@@ -181,7 +181,7 @@ class HandwritingState(
 
     private suspend fun recognise(request: Request): List<String> {
         val engine = recognizer ?: (platform?.createRecognizer() ?: error("Handwriting is unavailable")).also { recognizer = it }
-        // HW-032: ask for more than is shown; drop non-dataset candidates and re-rank by frequency.
+        // HW-032: ask for more than is shown; retain digits and use dataset frequency to rank Hanzi.
         val raw = engine.recognize(request.strokes, request.area, request.model, REQUESTED)
         val ranked = session.dictionary().rankHandwritingCandidates(raw.map { ScoredText(it.text, it.score.toDouble()) })
         return ranked.map { it.text }.distinct().take(SHOWN)
