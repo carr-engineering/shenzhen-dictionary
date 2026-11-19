@@ -28,51 +28,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.szdict.app.ui.kit.scrollUnderControls
 import kotlin.math.roundToInt
 
-/** Where the text rests from the bar's start edge (the Material text field's content padding). */
-private val StartInset = 16.dp
+/** Clear space between the query and the floating controls. */
+private val ControlGap = 8.dp
 
-/** Clear space between the end of the text (or the caret) and the first trailing button. */
-private val EndGap = 8.dp
-
-/** Length of the fade from opaque text to the faint text beneath the trailing buttons. */
-private val EndRamp = 16.dp
-
-/** Opacity of the text where it passes beneath the trailing buttons. */
-private const val UnderButtonsAlpha = 0.2f
-
-/** Length and edge opacity of the fade at the start edge once text has scrolled off it. */
-private val StartRamp = 12.dp
-private const val StartEdgeAlpha = 0.3f
-
-/**
- * The search field (SRCH-090): a single-line [BasicTextField] spanning the whole bar, with [trailing]
- * buttons floating over its end. The insets are padding inside the field's own scroll container, not a
- * margin around it: a scrolled query travels to both edges of the bar (clipped by the bar's shape) and
- * passes beneath the buttons, where it fades to [UnderButtonsAlpha] so they stay legible. The buttons
- * sit above the text, so a tap there goes to the button. The caret is kept between the start inset and
- * just before the buttons, so the end of a long query is readable at full opacity left of them.
- */
+/** The query scrolls behind the leading and trailing controls while the caret stays between them. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SearchField(
@@ -90,14 +64,18 @@ internal fun SearchField(
     modifier: Modifier = Modifier,
     /** Wraps the text field (the input-method gate); the buttons stay outside it. */
     fieldWrapper: @Composable (@Composable () -> Unit) -> Unit = { it() },
+    leading: @Composable () -> Unit,
     trailing: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
     val scroll = rememberScrollState()
+    var leadingWidth by remember { mutableIntStateOf(0) }
     var trailingWidth by remember { mutableIntStateOf(0) }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val startPx = with(density) { StartInset.toPx() }
-    val endPx = trailingWidth + with(density) { EndGap.toPx() }
+    val gapPx = with(density) { ControlGap.toPx() }
+    val startPx = leadingWidth + gapPx
+    val endPx = trailingWidth + gapPx
+    val startPadding: Dp = with(density) { startPx.toDp() }
     val endPadding: Dp = with(density) { endPx.toDp() }
 
     // The caret window for any bring-into-view request the field makes itself (focus, IME): the same
@@ -128,32 +106,7 @@ internal fun SearchField(
         }
 
         Box(
-            Modifier
-                .fillMaxWidth()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    val w = size.width
-                    if (w <= 0f) return@drawWithContent
-                    val opaqueEnd = (w - endPx).coerceIn(0f, w)
-                    val faint = (opaqueEnd + EndRamp.toPx()).coerceIn(opaqueEnd, w)
-                    val edge = 1f - (1f - StartEdgeAlpha) * (scroll.value / startPx).coerceIn(0f, 1f)
-                    val startRamp = StartRamp.toPx().coerceAtMost(opaqueEnd)
-                    val mask = Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = edge),
-                        startRamp / w to Color.Black,
-                        opaqueEnd / w to Color.Black,
-                        faint / w to Color.Black.copy(alpha = UnderButtonsAlpha),
-                        1f to Color.Black.copy(alpha = UnderButtonsAlpha),
-                        startX = 0f,
-                        endX = w,
-                    )
-                    if (layoutDirection == LayoutDirection.Rtl) {
-                        scale(scaleX = -1f, scaleY = 1f) { drawRect(mask, blendMode = BlendMode.DstIn) }
-                    } else {
-                        drawRect(mask, blendMode = BlendMode.DstIn)
-                    }
-                },
+            Modifier.fillMaxWidth().scrollUnderControls(startPadding, if (trailingWidth > 0) endPadding else 0.dp),
         ) {
             CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoView) {
                 Box(Modifier.fillMaxWidth().horizontalScroll(scroll)) {
@@ -178,7 +131,7 @@ internal fun SearchField(
                                 // The insets are inside the field (and inside the scroll container):
                                 // taps on them still place the caret, and scrolled text reaches the edges.
                                 Box(
-                                    Modifier.padding(start = StartInset, end = endPadding),
+                                    Modifier.padding(start = startPadding, end = endPadding),
                                     contentAlignment = Alignment.CenterStart,
                                 ) {
                                     if (value.text.isEmpty()) {
@@ -188,7 +141,7 @@ internal fun SearchField(
                                             color = placeholderColor,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.widthIn(max = (viewportDp - StartInset - endPadding).coerceAtLeast(0.dp)),
+                                            modifier = Modifier.widthIn(max = (viewportDp - startPadding - endPadding).coerceAtLeast(0.dp)),
                                         )
                                     }
                                     inner()
@@ -199,6 +152,10 @@ internal fun SearchField(
                 }
             }
         }
+        Row(
+            Modifier.align(Alignment.CenterStart).onSizeChanged { leadingWidth = it.width },
+            verticalAlignment = Alignment.CenterVertically,
+        ) { leading() }
         Row(
             Modifier.align(Alignment.CenterEnd).onSizeChanged { trailingWidth = it.width },
             verticalAlignment = Alignment.CenterVertically,

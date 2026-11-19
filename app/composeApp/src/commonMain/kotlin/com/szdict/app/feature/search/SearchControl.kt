@@ -152,21 +152,27 @@ internal fun SearchControl(
                 onFocused = onFieldFocused,
                 interactionSource = interactions,
                 fieldWrapper = { InputMethodGate(it) },
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 2.dp)) {
-                    when {
-                        field.text.isNotEmpty() ->
-                            ControlIcon(Icons.Rounded.Close, strings.text("Clear search"), palette.muted, onClear)
-                        canPaste ->
-                            ControlIcon(Icons.Rounded.ContentPaste, strings.text("Paste clipboard into search"), palette.accent, onPaste)
+                leading = {
+                    Box(Modifier.padding(start = 2.dp)) {
+                        ControlIcon(
+                            if (handwriting) Icons.Rounded.Keyboard else Icons.Rounded.Draw,
+                            strings.text(if (handwriting) "Switch to keyboard" else "Switch to handwriting"),
+                            palette.muted, onToggleInputMethod,
+                        )
                     }
-                    ControlIcon(
-                        if (handwriting) Icons.Rounded.Keyboard else Icons.Rounded.Draw,
-                        strings.text(if (handwriting) "Switch to keyboard" else "Switch to handwriting"),
-                        palette.muted, onToggleInputMethod,
-                    )
-                }
-            }
+                },
+                trailing = {
+                    if (field.text.isNotEmpty() || canPaste) {
+                        Box(Modifier.padding(end = 2.dp)) {
+                            if (field.text.isNotEmpty()) {
+                                ControlIcon(Icons.Rounded.Close, strings.text("Clear search"), palette.muted, onClear)
+                            } else {
+                                ControlIcon(Icons.Rounded.ContentPaste, strings.text("Paste clipboard into search"), palette.accent, onPaste)
+                            }
+                        }
+                    }
+                },
+            )
             AnimatedVisibility(
                 visible = indicatorVisible,
                 enter = fadeIn(tween(150)) + expandVertically(tween(190), expandFrom = Alignment.Top),

@@ -1,6 +1,7 @@
 package com.szdict.app.feature.handwriting
 
 import com.szdict.app.ui.kit.WithTooltip
+import com.szdict.app.ui.kit.scrollUnderControls
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -102,38 +103,31 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
         shadowElevation = 6.dp,
     ) {
         Column(Modifier.padding(bottom = navigationInset)) {
-            // Switch to keyboard, candidate row, close.
-            Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                WithTooltip(strings.text("Switch to keyboard")) {
-                    IconButton(onClick = session::switchHandwritingToKeyboard) {
-                        Icon(Icons.Rounded.Keyboard, contentDescription = strings.text("Switch to keyboard"), tint = palette.muted)
-                    }
-                }
-                Spacer(Modifier.width(4.dp))
+            Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.CenterStart) {
                 val candidates = state.candidates
                 val download = state.modelDownload
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    when {
-                        // ARCH-093 (Web): the model is fetched when the sheet first opens.
-                        download is ModelDownload.InProgress && candidates.isEmpty() -> Text(
-                            download.fraction?.let { strings.text("Downloading handwriting… {0}%", (it.coerceIn(0f, 1f) * 100).toInt()) }
-                                ?: strings.text("Loading handwriting…"),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = palette.muted,
-                        )
-                        state.failed || (download is ModelDownload.Failed && candidates.isEmpty()) -> Text(
-                            strings.text("Handwriting is unavailable."),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = palette.muted,
-                        )
-                        candidates.isEmpty() && !state.isEmpty && !state.busy -> Text(
-                            strings.text("No matching character"),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = palette.muted,
-                        )
-                        // Each candidate list gets a row of its own, starting at its first candidate:
-                        // a row updated in place kept showing the previous chips on Compose for Web.
-                        else -> key(candidates) { LazyRow(state = rememberLazyListState(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                val edge = 56.dp
+                val message = when {
+                    download is ModelDownload.InProgress && candidates.isEmpty() ->
+                        download.fraction?.let { strings.text("Downloading handwriting… {0}%", (it.coerceIn(0f, 1f) * 100).toInt()) }
+                            ?: strings.text("Loading handwriting…")
+                    state.failed || (download is ModelDownload.Failed && candidates.isEmpty()) ->
+                        strings.text("Handwriting is unavailable.")
+                    candidates.isEmpty() && !state.isEmpty && !state.busy -> strings.text("No matching character")
+                    else -> null
+                }
+                if (message != null) {
+                    Text(message, modifier = Modifier.padding(horizontal = edge), style = MaterialTheme.typography.bodyMedium, color = palette.muted)
+                } else {
+                    // Reset to the first choice when the recogniser produces a new list.
+                    key(candidates) {
+                        LazyRow(
+                            modifier = Modifier.fillMaxSize().scrollUnderControls(edge, edge),
+                            state = rememberLazyListState(),
+                            contentPadding = PaddingValues(horizontal = edge),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             itemsIndexed(candidates) { index, candidate ->
                                 val first = index == 0
                                 val label = candidate + ", " + strings.text("Candidate {0} of {1}", index + 1, candidates.size)
@@ -155,12 +149,21 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
                                     }
                                 }
                             }
-                        } }
+                        }
                     }
                 }
-                WithTooltip(strings.text("Close handwriting")) {
-                    IconButton(onClick = { session.handwritingVisible = false }) {
-                        Icon(Icons.Rounded.Close, contentDescription = strings.text("Close handwriting"), tint = palette.muted)
+                Box(Modifier.align(Alignment.CenterStart).padding(start = 4.dp)) {
+                    WithTooltip(strings.text("Switch to keyboard")) {
+                        IconButton(onClick = session::switchHandwritingToKeyboard) {
+                            Icon(Icons.Rounded.Keyboard, contentDescription = strings.text("Switch to keyboard"), tint = palette.muted)
+                        }
+                    }
+                }
+                Box(Modifier.align(Alignment.CenterEnd).padding(end = 4.dp)) {
+                    WithTooltip(strings.text("Close handwriting")) {
+                        IconButton(onClick = { session.handwritingVisible = false }) {
+                            Icon(Icons.Rounded.Close, contentDescription = strings.text("Close handwriting"), tint = palette.muted)
+                        }
                     }
                 }
             }
