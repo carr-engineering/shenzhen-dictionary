@@ -655,10 +655,9 @@ scale-in, then indicates the outcome (converged / failed) and fades out after ab
 `CAM-033` `[MUST]` The focus request has a timeout of about 5 s, after which the camera returns to
 continuous autofocus. Tapping again cancels and replaces an in-flight request.
 
-`CAM-034` `[MUST]` Where the device does not support point metering, the tap is a no-op with no
-reticle and no error. On Web tap-to-focus is offered **only where the browser exposes it** (the
-`pointsOfInterest` / `focusMode` track constraints in `getCapabilities()`); elsewhere this no-op
-applies.
+`CAM-034` `[MUST]` A tap has no effect where the active camera exposes neither point metering nor
+exposure compensation. On Web, point metering uses the track's `pointsOfInterest` and `focusMode`
+capabilities.
 
 #### 3.2 Flash / torch — NEW
 

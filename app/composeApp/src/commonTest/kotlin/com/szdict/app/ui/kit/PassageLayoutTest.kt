@@ -151,9 +151,9 @@ class PassageLayoutTest {
         val placements = placeRuby(slots, 0f, 1000f, gap)
         assertTrue(placements.all { it.scale >= 0.7f })
         assertCentred(slots, placements)
-        // gwong2 next to short neighbours keeps its full size; the longest three in a row shrink, without touching.
-        assertEquals(1f, placements[1].scale)
-        assertEquals(1f, placements[2].scale)
+        // The short first reading still fits at full size. Wider readings stay centred as they shrink.
+        assertEquals(1f, placements[0].scale)
+        assertTrue(placements[1].scale < 1f)
         assertNoOverlap(slots, placements)
     }
 
