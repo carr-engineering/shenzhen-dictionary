@@ -52,7 +52,22 @@ private fun jsCameraCreate(): JsAny = js(
         video.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
         host.appendChild(video);
         document.body.insertBefore(host, document.body.firstChild);
-        return { host: host, video: video, stream: null, track: null, capture: null, torch: false, fill: [], focus: false, deviceId: null, mirrored: false, closed: false };
+        const camera = { host, video, stream: null, track: null, capture: null, torch: false, fill: [], focus: false, deviceId: null, mirrored: false, closed: false, tuning: {} };
+        camera.adjust = async (change) => {
+            const track = camera.track;
+            if (!track) return false;
+            const previous = camera.tuning;
+            const next = { ...previous, ...change };
+            camera.tuning = next;
+            try {
+                await track.applyConstraints({ advanced: [next] });
+                return camera.track === track;
+            } catch (e) {
+                if (camera.track === track && camera.tuning === next) camera.tuning = previous;
+                return false;
+            }
+        };
+        return camera;
     })()"""
 )
 
@@ -76,6 +91,7 @@ private fun jsCameraOpen(camera: JsAny, deviceId: String?): Promise<JsString> = 
             const track = stream.getVideoTracks()[0];
             camera.stream = stream;
             camera.track = track;
+            camera.tuning = {};
             camera.video.srcObject = stream;
             try { await camera.video.play(); } catch (e) { /* autoplay starts it */ }
             const capabilities = track.getCapabilities ? track.getCapabilities() : {};
@@ -128,8 +144,29 @@ private fun jsCameraLights(camera: JsAny): String = js(
 
 // CAM-039: the continuous light of `Flashlight`.
 private fun jsCameraSetTorch(camera: JsAny, on: Boolean): Unit = js(
-    "{ if (camera.track && camera.torch) camera.track.applyConstraints({ advanced: [{ torch: on }] }).catch(() => {}); }"
+    "{ if (camera.track && camera.torch) camera.adjust({ torch: on }); }"
 )
+
+private external interface WebExposure : JsAny {
+    val min: Double
+    val max: Double
+    val step: Double
+    val value: Double
+}
+
+private fun jsCameraExposure(camera: JsAny): WebExposure? = js(
+    """(() => {
+        const range = camera.track?.getCapabilities?.()?.exposureCompensation;
+        if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max) || range.min >= range.max) return null;
+        return {
+            min: range.min, max: range.max, step: range.step || 0,
+            value: camera.track.getSettings?.()?.exposureCompensation ?? 0
+        };
+    })()"""
+)
+
+private fun jsCameraSetExposure(camera: JsAny, value: Double): Promise<JsBoolean> =
+    js("camera.adjust({ exposureCompensation: value })")
 
 private fun jsCameraDeviceId(camera: JsAny): String? = js("camera.deviceId")
 
@@ -203,12 +240,7 @@ private fun jsCameraFocusAt(camera: JsAny, x: Double, y: Double): Promise<JsBool
         const ny = (y - (box.height - video.videoHeight * scale) / 2) / (video.videoHeight * scale);
         if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return false;
         const modes = (track.getCapabilities().focusMode || []);
-        try {
-            await track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x: nx, y: ny }], focusMode: modes.includes('single-shot') ? 'single-shot' : 'manual' }] });
-            return true;
-        } catch (e) {
-            return false;
-        }
+        return camera.adjust({ pointsOfInterest: [{ x: nx, y: ny }], focusMode: modes.includes('single-shot') ? 'single-shot' : 'manual' });
     })()"""
 )
 
@@ -288,6 +320,7 @@ actual fun CameraPreview(
     val longPress by rememberUpdatedState(onLongPress)
     val flashMode by rememberUpdatedState(flash)
     var camera by remember { mutableStateOf<JsAny?>(null) }
+    val focusRequest = remember { intArrayOf(0) }
     val strings = appStrings()
     val unnamed by rememberUpdatedState { index: Int -> strings.text("Camera {0}", index) }
 
@@ -300,6 +333,43 @@ actual fun CameraPreview(
         val created = jsCameraCreate()
         camera = created
         var disposed = false
+        var exposureRequest = 0
+
+        fun stop() {
+            focusRequest[0]++
+            exposureRequest++
+            handle.ready = false
+            handle.exposure = null
+            handle.exposureChange = null
+            jsCameraStop(created)
+        }
+
+        fun readExposure() {
+            val capability = jsCameraExposure(created)
+            handle.exposure = capability?.let {
+                val range = it.min.toFloat()..it.max.toFloat()
+                ExposureCompensation(range, it.value.toFloat().coerceIn(range))
+            }
+            handle.exposureChange = capability?.let { supported ->
+                change@{ bias: Float ->
+                    val current = handle.exposure ?: return@change
+                    val step = supported.step.takeIf { it.isFinite() && it > 0 }
+                    val target = if (step == null) bias else {
+                        (supported.min + kotlin.math.round((bias - supported.min) / step) * step).toFloat().coerceIn(current.range)
+                    }
+                    if (target == current.value) return@change
+                    val request = ++exposureRequest
+                    handle.exposure = current.copy(value = target)
+                    scope.launch {
+                        val accepted = jsCameraSetExposure(created, target.toDouble()).await<JsBoolean>().toBoolean()
+                        if (!disposed && request == exposureRequest && !accepted) {
+                            val actual = jsCameraExposure(created)?.value?.toFloat() ?: current.value
+                            handle.exposure = current.copy(value = actual.coerceIn(current.range))
+                        }
+                    }
+                }
+            }
+        }
 
         // CAM-028: the video inputs by name (`Camera 1`, `Camera 2`… while the browser withholds labels).
         fun refreshCameras() {
@@ -322,6 +392,7 @@ actual fun CameraPreview(
                     "ok" -> {
                         handle.flashModes = webFlashModes(jsCameraLights(created))   // CAM-037
                         handle.lens = jsCameraDeviceId(created)
+                        readExposure()
                         handle.ready = true
                         if (flashMode == FlashMode.TORCH) jsCameraSetTorch(created, true)
                         refreshCameras()   // labels are only listed once access is granted
@@ -338,17 +409,15 @@ actual fun CameraPreview(
             // Remembered for the session; the stream restarts on that camera.
             WebCameraChoice.deviceId = lens.id
             if (lens.id != jsCameraDeviceId(created)) {
-                handle.ready = false
-                jsCameraStop(created)
+                stop()
                 open()
             }
         }
         val unlisten = jsOnVisibility { hidden ->
             if (disposed) return@jsOnVisibility
             if (hidden) {
-                handle.ready = false
                 handle.capturing = false
-                jsCameraStop(created)
+                stop()
             } else {
                 open()
             }
@@ -368,6 +437,7 @@ actual fun CameraPreview(
         }
         onDispose {
             disposed = true
+            focusRequest[0]++
             jsInvoke(unlisten)
             jsInvoke(unlistenDevices)
             handle.reset()
@@ -394,14 +464,15 @@ actual fun CameraPreview(
                 detectTapGestures(
                     onLongPress = { longPress() },
                     onTap = { position ->
-                        // CAM-030…CAM-034: only where the camera takes a focus point; otherwise a tap does nothing.
-                        val target = camera
-                        if (target != null && jsCameraFocus(target)) {
-                            focus(position, FocusOutcome.PENDING)
-                            scope.launch {
-                                val accepted = jsCameraFocusAt(target, (position.x / density).toDouble(), (position.y / density).toDouble()).await<JsBoolean>().toBoolean()
-                                focus(position, if (accepted) FocusOutcome.FOCUSED else FocusOutcome.FAILED)
-                            }
+                        val target = camera ?: return@detectTapGestures
+                        val canFocus = jsCameraFocus(target)
+                        if (!canFocus && handle.exposure == null) return@detectTapGestures
+                        val request = ++focusRequest[0]
+                        focus(position, FocusOutcome.PENDING)
+                        scope.launch {
+                            val accepted = canFocus && jsCameraFocusAt(target, (position.x / density).toDouble(), (position.y / density).toDouble())
+                                .await<JsBoolean>().toBoolean()
+                            if (request == focusRequest[0]) focus(position, if (accepted) FocusOutcome.FOCUSED else FocusOutcome.FAILED)
                         }
                     },
                 )

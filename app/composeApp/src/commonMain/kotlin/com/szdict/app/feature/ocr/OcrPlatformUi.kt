@@ -34,6 +34,9 @@ enum class FocusOutcome { PENDING, FOCUSED, FAILED }
 /** Vendor still-capture modes. A camera can use one at a time. */
 enum class CaptureEffect { HDR, NIGHT }
 
+/** Exposure bias in EV relative to auto exposure. */
+data class ExposureCompensation(val range: ClosedFloatingPointRange<Float>, val value: Float)
+
 /** What the shared viewfinder chrome knows about, and asks of, the bound camera. */
 @Stable
 class CameraHandle {
@@ -51,6 +54,13 @@ class CameraHandle {
 
     var supportedEffects: Set<CaptureEffect> by mutableStateOf(emptySet())
     var activeEffect: CaptureEffect? by mutableStateOf(null)
+    var exposure: ExposureCompensation? by mutableStateOf(null)
+    var exposureChange: ((Float) -> Unit)? = null
+
+    fun changeExposure(value: Float) {
+        val available = exposure ?: return
+        if (ready && !capturing) exposureChange?.invoke(value.coerceIn(available.range))
+    }
 
     /** A capture is in flight (CAM-023). */
     var capturing: Boolean by mutableStateOf(false)
@@ -85,6 +95,8 @@ class CameraHandle {
         flashModes = emptySet()
         supportedEffects = emptySet()
         activeEffect = null
+        exposure = null
+        exposureChange = null
         ready = false
         lenses = emptyList()
         lens = null

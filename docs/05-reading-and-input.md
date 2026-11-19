@@ -688,6 +688,13 @@ launches: every launch starts at `Off`, matching platform camera apps (decided: 
 relit on return) and whenever the camera is released (`CAM-025`); other modes never leave it on after
 a capture.
 
+After tapping to meter a point, the viewfinder shows an exposure compensation slider when the
+active camera supports bias adjustments. Android uses CameraX exposure compensation, iOS uses
+AVFoundation exposure bias, and Web uses the track's exposure compensation capability.
+
+On Android, the viewfinder offers HDR and Night mode switches according to the active lens's
+CameraX extensions. Selecting one effect turns off the other.
+
 ---
 
 ### 4. Image ingestion (picker / share / drop / paste)
@@ -1115,7 +1122,8 @@ moves. A stroke ends on pointer up; each finished stroke triggers recognition of
 ink.
 
 `HW-013` `[MUST]` The candidate row shows up to 10 candidates after filtering and re-ranking
-(`HW-032`). A candidate may be one character or several, when the user wrote several.
+(`HW-032`). Candidates scroll beneath the keyboard and close buttons, fading at both edges.
+A candidate may be one character or several, when the user wrote several.
 
 `HW-014` `[MUST]` `Undo stroke` removes the last stroke and re-recognises; `Clear` removes all ink and
 candidates. Both are disabled when the pad is empty. `Delete` is enabled when there is text before
@@ -1186,10 +1194,9 @@ or script change. Closing it does not change the persisted input method.
 A mode or script change switches the model and clears the ink.
 
 `HW-032` `[MUST]` Candidate post-processing: the recogniser is asked for more candidates than are
-shown; candidates containing any character absent from the active dataset (including non-Hanzi) are
-dropped; the survivors are re-ranked by combining recogniser confidence with dataset character
-frequency, so that among similar shapes common characters come first, while the recogniser's top
-surviving candidate stays within the first three.
+shown. Hanzi candidates are filtered against the active dataset and re-ranked by recognition
+confidence and character frequency. The recogniser's top surviving candidate stays within the
+first three. Single digits emitted by the model remain eligible without a frequency penalty.
 
 `HW-033` `[SHOULD]` Up to 20 characters before the cursor are passed to the recogniser as writing
 context where the model supports it.

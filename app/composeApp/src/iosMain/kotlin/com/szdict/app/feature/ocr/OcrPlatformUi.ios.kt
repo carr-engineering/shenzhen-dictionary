@@ -71,6 +71,10 @@ import platform.AVFoundation.AVVideoCodecKey
 import platform.AVFoundation.AVVideoCodecTypeJPEG
 import platform.AVFoundation.authorizationStatusForMediaType
 import platform.AVFoundation.defaultDeviceWithDeviceType
+import platform.AVFoundation.exposureTargetBias
+import platform.AVFoundation.minExposureTargetBias
+import platform.AVFoundation.maxExposureTargetBias
+import platform.AVFoundation.setExposureTargetBias
 import platform.AVFoundation.exposureMode
 import platform.AVFoundation.exposurePointOfInterest
 import platform.AVFoundation.exposurePointOfInterestSupported
@@ -426,6 +430,25 @@ private class IosCamera {
         output.capturePhotoWithSettings(settings, delegate)
     }
 
+    fun exposure(): ExposureCompensation? {
+        val camera = device ?: return null
+        val min = camera.minExposureTargetBias
+        val max = camera.maxExposureTargetBias
+        if (!min.isFinite() || !max.isFinite() || min >= max) return null
+        return ExposureCompensation(min..max, camera.exposureTargetBias.coerceIn(min, max))
+    }
+
+    fun setExposure(bias: Float): Boolean {
+        val camera = device ?: return false
+        if (!camera.lockForConfiguration(null)) return false
+        try {
+            camera.setExposureTargetBias(bias, completionHandler = null)
+        } finally {
+            camera.unlockForConfiguration()
+        }
+        return true
+    }
+
     /** AF + AE at a point of the preview (in view points). False when the camera can do neither. */
     fun focusAt(x: Double, y: Double): Boolean {
         val camera = device ?: return false
@@ -483,12 +506,16 @@ actual fun CameraPreview(
     // CAM-025: open while composed; the system suspends the session in the background and resumes it.
     DisposableEffect(camera) {
         disposed[0] = false
+        handle.exposureChange = { bias ->
+            if (camera.setExposure(bias)) handle.exposure = handle.exposure?.copy(value = bias)
+        }
         camera.start { device ->
             if (disposed[0]) return@start
             if (device == null) {
                 handle.available = false   // CAM-015
             } else {
                 handle.flashModes = camera.flashModes()   // CAM-037
+                handle.exposure = camera.exposure()
                 handle.lenses = camera.lenses   // CAM-028
                 handle.lens = camera.lenses.firstOrNull { !it.front && it.factor == 1f }?.id
                 handle.ready = true
@@ -496,9 +523,11 @@ actual fun CameraPreview(
             }
         }
         handle.lensSwitch = { lens ->
+            focusJob?.cancel()
             camera.select(lens.id) {
                 if (!disposed[0]) {
                     handle.flashModes = camera.flashModes()
+                    handle.exposure = camera.exposure()
                     camera.setTorch(flashMode == FlashMode.TORCH)
                 }
             }
@@ -550,9 +579,14 @@ actual fun CameraPreview(
                     onLongPress = { longPress() },
                     onTap = { position ->
                         // CAM-030…CAM-034: AF + AE at the tapped point through the preview layer's own transform.
-                        if (!camera.focusAt((position.x / density).toDouble(), (position.y / density).toDouble())) return@detectTapGestures
+                        val metered = camera.focusAt((position.x / density).toDouble(), (position.y / density).toDouble())
+                        if (!metered && handle.exposure == null) return@detectTapGestures
                         focusJob?.cancel()   // a new tap replaces an in-flight request
                         focus(position, FocusOutcome.PENDING)
+                        if (!metered) {
+                            focus(position, FocusOutcome.FAILED)
+                            return@detectTapGestures
+                        }
                         focusJob = scope.launch {
                             delay(150)
                             var waited = 150

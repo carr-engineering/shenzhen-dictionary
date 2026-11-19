@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -27,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -35,6 +38,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,6 +70,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -203,7 +209,8 @@ private fun CapturePhase(holder: OcrStateHolder, pickImage: () -> Unit, cameraAc
     val live = granted && handle.available
     var pasteMenu by remember { mutableStateOf(false) }
     var pasteEnabled by remember { mutableStateOf(false) }
-    var focusMark by remember { mutableStateOf<FocusMark?>(null) }
+    var focusMark by remember(handle.lens, handle.activeEffect, handle.ready) { mutableStateOf<FocusMark?>(null) }
+    var exposurePoint by remember(handle.lens, handle.activeEffect, handle.ready) { mutableStateOf<Offset?>(null) }
     var focusId by remember { mutableIntStateOf(0) }
     val openPasteMenu = {
         // Where pastes arrive as events there is no clipboard to offer (CAM-132).
@@ -251,8 +258,13 @@ private fun CapturePhase(holder: OcrStateHolder, pickImage: () -> Unit, cameraAc
                             flash = effectiveFlash(holder.flash, handle.flashModes),
                             effect = holder.captureEffect,
                             onFocus = { position, outcome ->
-                                focusMark = if (outcome == FocusOutcome.PENDING) FocusMark(++focusId, position, outcome)
-                                else focusMark?.let { FocusMark(it.id, it.position, outcome) }
+                                if (outcome == FocusOutcome.PENDING) {
+                                    focusMark = FocusMark(++focusId, position, outcome)
+                                    exposurePoint = position
+                                } else {
+                                    val current = focusMark
+                                    if (current?.position == position) focusMark = FocusMark(current.id, position, outcome)
+                                }
                             },
                             onLongPress = openPasteMenu,
                             onCaptured = holder::onCameraCaptured,
@@ -308,6 +320,12 @@ private fun CapturePhase(holder: OcrStateHolder, pickImage: () -> Unit, cameraAc
                             else Icon(Icons.Rounded.PhotoCamera, contentDescription = strings.text("Take photo"), modifier = Modifier.size(34.dp))
                         }
                     }
+                }
+
+                val adjustment = handle.exposure
+                val metered = exposurePoint
+                if (live && cameraActive && adjustment != null && metered != null) {
+                    ExposureSlider(metered, adjustment, handle.ready && !capturing, handle::changeExposure)
                 }
 
                 // CAM-007: the image picker, bottom-leading beside the shutter, in every capture-phase state.
@@ -381,6 +399,42 @@ private fun CaptureEffectButton(label: String, active: Boolean, enabled: Boolean
                 modifier = Modifier.toggleable(active, enabled = enabled, role = Role.Switch, onValueChange = { onClick() })
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun ExposureSlider(position: Offset, exposure: ExposureCompensation, enabled: Boolean, onChange: (Float) -> Unit) {
+    val label = appStrings().text("Exposure compensation")
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val width = minOf(176.dp, (maxWidth - 16.dp).coerceAtLeast(0.dp))
+        val x = (with(density) { position.x.toDp() } - width / 2)
+            .coerceIn(8.dp, (maxWidth - width - 8.dp).coerceAtLeast(8.dp))
+        val pointY = with(density) { position.y.toDp() }
+        val idealY = if (pointY + 36.dp <= maxHeight - 136.dp) pointY + 36.dp else pointY - 86.dp
+        val y = idealY.coerceIn(8.dp, (maxHeight - 82.dp).coerceAtLeast(8.dp))
+        Surface(
+            modifier = Modifier.absoluteOffset(x, y).width(width),
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.58f),
+            contentColor = Color.White,
+        ) {
+            Row(
+                Modifier.padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.WbSunny, contentDescription = null, modifier = Modifier.size(18.dp))
+                Slider(
+                    value = exposure.value,
+                    onValueChange = onChange,
+                    valueRange = exposure.range,
+                    enabled = enabled,
+                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.32f)),
+                    modifier = Modifier.weight(1f).semantics { contentDescription = label },
+                )
+            }
         }
     }
 }

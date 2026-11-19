@@ -68,6 +68,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -191,6 +192,7 @@ private class LensTracker {
     var info: CameraInfo? = null
     var pendingZoom: Float? = null
     var stateSource: LiveData<CameraState>? = null
+    var exposureRequest = 0
 }
 
 @OptIn(ExperimentalCamera2Interop::class)
@@ -296,10 +298,38 @@ actual fun CameraPreview(
         Observer<CameraState> { state -> if (!disposed[0] && state.type == CameraState.Type.OPEN) applyIllumination() }
     }
 
+    fun updateExposure(info: CameraInfo) {
+        val state = info.exposureState
+        val step = state.exposureCompensationStep.toFloat()
+        val indices = state.exposureCompensationRange
+        if (!state.isExposureCompensationSupported || !step.isFinite() || step <= 0f || indices.lower >= indices.upper) {
+            handle.exposure = null
+            handle.exposureChange = null
+            return
+        }
+        val range = indices.lower * step..indices.upper * step
+        handle.exposure = ExposureCompensation(range, state.exposureCompensationIndex * step)
+        handle.exposureChange = change@{ bias ->
+            val control = controller.cameraControl ?: return@change
+            val index = (bias / step).roundToInt().coerceIn(indices.lower, indices.upper)
+            if (handle.exposure?.value == index * step) return@change
+            val request = ++lenses.exposureRequest
+            handle.exposure = ExposureCompensation(range, index * step)
+            val applied = control.setExposureCompensationIndex(index)
+            applied.addListener({
+                if (disposed[0] || lenses.info !== info || request != lenses.exposureRequest) return@addListener
+                val actual = runCatching { applied.get() }.getOrElse { info.exposureState.exposureCompensationIndex }
+                handle.exposure = ExposureCompensation(range, actual * step)
+            }, executor)
+        }
+    }
+
     // A camera was bound (first open, or a switch to another camera of the lens menu).
     fun onCamera(info: CameraInfo) {
         if (info === lenses.info) return
         lenses.info = info
+        focusSequence[0]++
+        updateExposure(info)
         val id = info.cameraIdOrNull()
         lenses.currentId = id
         handle.flashModes = if (info.hasFlashUnit()) setOf(FlashMode.AUTO, FlashMode.ON, FlashMode.TORCH) else emptySet()   // CAM-037
@@ -464,9 +494,14 @@ actual fun CameraPreview(
                         val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
                             .setAutoCancelDuration(5, TimeUnit.SECONDS)
                             .build()
-                        if (!info.isFocusMeteringSupported(action)) return@detectTapGestures
+                        val supportsMetering = info.isFocusMeteringSupported(action)
+                        if (!supportsMetering && handle.exposure == null) return@detectTapGestures
                         val id = ++focusSequence[0]
                         focus(position, FocusOutcome.PENDING)
+                        if (!supportsMetering) {
+                            focus(position, FocusOutcome.FAILED)
+                            return@detectTapGestures
+                        }
                         val result = control.startFocusAndMetering(action)   // replaces an in-flight request
                         result.addListener({
                             if (disposed[0] || id != focusSequence[0]) return@addListener
