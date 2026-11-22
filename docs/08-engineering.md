@@ -705,6 +705,18 @@ new directory adds.
   the dedicated store worker (`ARCH-026`). On first install the app calls
   `navigator.storage.persist()`; if storage is not persisted and the browser evicts the dataset, the
   next visit repeats the first-visit download with its progress state.
+- **A stored dataset is never downloaded again** because the store could not be opened at that moment.
+  The pool's files can be open in one worker only: the worker that holds them holds the Web Lock
+  `szdict-store` for its life and a new worker waits for it (a reload, a navigation, the reload that
+  activates a service-worker update); the start page ends its worker on `pagehide` and starts it only
+  once it knows it will not reload for an update; opening the pool is retried and never deletes the
+  stored files on failure (sqlite-wasm's `preserveOnInitFailure`; its default removes the pool
+  directory). A second open tab reads in memory from a copy the holding tab hands over
+  (BroadcastChannel `szdict-store-share`), not from the network, and takes the store over on its next
+  load once the first tab is closed. Remaining causes of a repeat download are the browser's: eviction
+  of unpersisted storage under disk pressure, Safari's deletion of script-written storage after seven
+  days without a visit (not for a Home Screen app), private windows and cleared site data, or no free
+  quota (a nearly full disk).
 - The service worker fetches a small per-mode **manifest** (current `dataset_version`, full-file size
   and SHA-256, and the available changesets with their base version, size and SHA-256) when the app
   starts and periodically while it is open; it never blocks start-up or search.
