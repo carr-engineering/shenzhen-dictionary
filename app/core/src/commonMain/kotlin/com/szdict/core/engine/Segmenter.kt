@@ -109,7 +109,7 @@ internal class Segmenter(private val store: DictionaryStore) {
                 val lim = minOf(maxLen, re - i)
                 val row = Array(lim) { if (admissible(i, i + it + 1)) lookupKey(cps.cpString(i, i + it + 1)) else NO_KEY }
                 keys[i] = row
-                for (k in row) if (k !== NO_KEY) pending.add(k)
+                for (k in row) if (k != NO_KEY) pending.add(k)
                 if (pending.size >= BATCH_KEYS) flush()
             }
         }
@@ -291,7 +291,7 @@ internal class Segmenter(private val store: DictionaryStore) {
             for (i in rs until re) {
                 val lim = minOf(maxLen, re - i)
                 for (len in lim downTo 1) {
-                    if (keys[i]!![len - 1] !== NO_KEY && allHits[keys[i]!![len - 1]] != null) {
+                    if (keys[i]!![len - 1] != NO_KEY && allHits[keys[i]!![len - 1]] != null) {
                         for (c in i until i + len) covered[c] = true
                         break // shorter words at this start add no further coverage
                     }
@@ -315,7 +315,7 @@ internal class Segmenter(private val store: DictionaryStore) {
     companion object {
         const val UNKNOWN_SCORE = -20.0
         /** Key of a span that may not be a word (it starts or ends inside a foreign word); never looked up. */
-        private val NO_KEY = String(charArrayOf('\u0000'))
+        private val NO_KEY = charArrayOf(0.toChar()).concatToString()
         private const val BATCH_KEYS = 6000
         private const val LATTICE_BEAM = 40.0
 
