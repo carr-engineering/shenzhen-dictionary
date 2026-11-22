@@ -33,15 +33,10 @@ else
 fi
 is "$runtime_src/ort.wasm.min.js" "$JS_SHA" && is "$runtime_src/ort-wasm-simd-threaded.mjs" "$MJS_SHA" && \
 is "$runtime_src/ort-wasm-simd-threaded.wasm" "$WASM_SHA" || { echo "ONNX Runtime file SHA-256 mismatch" >&2; exit 1; }
-if is "$DST/LICENSE" "$LICENSE_SHA"; then
-    cp "$DST/LICENSE" "$runtime_tmp/LICENSE"
-elif is "$runtime_src/LICENSE" "$LICENSE_SHA"; then
-    cp "$runtime_src/LICENSE" "$runtime_tmp/LICENSE"
-else
-    curl -fL --retry 3 "https://raw.githubusercontent.com/microsoft/onnxruntime/v$VERSION/LICENSE" -o "$runtime_tmp/LICENSE"
-fi
-is "$runtime_tmp/LICENSE" "$LICENSE_SHA" || { echo "ONNX Runtime license SHA-256 mismatch" >&2; exit 1; }
+# This npm archive omits the license, and npm's version need not match an upstream Git tag.
+license="$HERE/ONNXRUNTIME-LICENSE"
+is "$license" "$LICENSE_SHA" || { echo "ONNX Runtime license SHA-256 mismatch" >&2; exit 1; }
 mkdir -p "$DST"
 for name in ort.wasm.min.js ort-wasm-simd-threaded.mjs ort-wasm-simd-threaded.wasm; do cp "$runtime_src/$name" "$DST/$name"; done
-cp "$runtime_tmp/LICENSE" "$DST/LICENSE"
+cp "$license" "$DST/LICENSE"
 echo "ONNX Runtime Web $VERSION restored"
