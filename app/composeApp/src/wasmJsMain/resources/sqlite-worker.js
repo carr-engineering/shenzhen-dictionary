@@ -20,6 +20,9 @@
 // - Opening the pool is retried while the previous holder lets go, and a failed opening never
 //   deletes the stored files (sqlite-wasm's default is to remove the pool directory when its
 //   initialisation fails: `preserveOnInitFailure`).
+// - A download that is interrupted (page closed or reloaded, network lost) continues where it
+//   stopped on the next attempt: it is written to a partial file and the rest is asked for with an
+//   HTTP Range request (see "resumable downloads" below).
 // - Files the pointer file does not name are deleted only when the pointer file was read; when it
 //   cannot be read, a stored file whose name carries the manifest's SHA-256 is verified and adopted
 //   instead of being downloaded again.
@@ -341,41 +344,129 @@ function adoptStored(name, target, wanted) {
   }
 }
 
+// ---- resumable downloads ----
+//
+// A file is downloaded into a plain OPFS file of its own version (`.szdict-partial/`), written as it
+// arrives. When the page is closed, reloaded or loses the network before the end, the next attempt
+// asks the server for the rest only (HTTP Range) and appends it. The finished file is copied into the
+// pool and verified against the manifest on the way; only then is the partial file removed. A
+// partial file of another version of the same dataset file is deleted when a download starts.
+
+const PARTIAL_DIRECTORY = '.szdict-partial';
+const PART_CHUNK = 1 << 20;
+const FLUSH_EVERY = 4 << 20;
+
+const partialName = (target) => target.replace(/^\//, '').replace(/[^A-Za-z0-9._@-]/g, '_');
+
+async function partialDirectory() {
+  const root = await navigator.storage.getDirectory();
+  return root.getDirectoryHandle(PARTIAL_DIRECTORY, { create: true });
+}
+
+/** Deletes partial downloads of `name` other than `keep` (an older or newer version of it). */
+async function dropOtherPartials(directory, name, keep) {
+  const prefix = partialName('/' + name + '@');
+  const stale = [];
+  for await (const [entry] of directory.entries()) if (entry.startsWith(prefix) && entry !== keep) stale.push(entry);
+  for (const entry of stale) await directory.removeEntry(entry).catch(() => {});
+}
+
 /**
- * Downloads `name` into the pool beside whatever is installed and verifies it. Returns the pointer
- * entry of the new file; nothing refers to that file until the entry is written.
+ * Brings the partial file of `target` up to the full size: from the start, or from where an earlier
+ * attempt stopped. Returns its size. Progress counts the bytes already there.
+ */
+async function downloadToPartial(name, handle, wanted, background) {
+  const resumable = !!(wanted && wanted.sha256 && wanted.size);
+  const total = resumable ? wanted.size : 0;
+  const access = await handle.createSyncAccessHandle();
+  let offset = 0;
+  try {
+    offset = resumable ? access.getSize() : 0;
+    if (!resumable || offset > total) { access.truncate(0); offset = 0; }
+    if (resumable && offset === total) return offset;
+    notify({ evt: 'download', file: name, loaded: offset, total, done: false, background });
+    const response = await fetch(name, offset > 0 ? { cache: 'no-store', headers: { Range: 'bytes=' + offset + '-' } } : { cache: 'no-store' });
+    if (response.status === 206) {
+      const range = /^bytes (\d+)-/.exec(response.headers.get('Content-Range') || '');
+      if (!range || Number(range[1]) !== offset) throw new Error('unexpected range for ' + name);
+    } else if (response.ok) {
+      if (offset > 0) { access.truncate(0); offset = 0; }   // the server sent the whole file
+    } else {
+      throw new Error('HTTP ' + response.status + ' for ' + name);
+    }
+    const expected = total || Number(response.headers.get('Content-Length')) || 0;
+    const reader = response.body.getReader();
+    let lastReport = 0;
+    let unflushed = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      let written = 0;
+      while (written < value.byteLength) written += access.write(value.subarray(written), { at: offset + written });
+      offset += value.byteLength;
+      unflushed += value.byteLength;
+      if (unflushed >= FLUSH_EVERY) { access.flush(); unflushed = 0; }
+      const now = Date.now();
+      if (now - lastReport > 100) {
+        lastReport = now;
+        notify({ evt: 'download', file: name, loaded: offset, total: Math.max(expected, offset), done: false, background });
+      }
+    }
+    access.flush();
+    if (total && offset !== total) throw new Error('incomplete download of ' + name + ': ' + offset + ' of ' + total + ' bytes');
+    return offset;
+  } catch (e) {
+    try { access.flush(); } catch (ignored) { /* closed below */ }
+    notify({ evt: 'download', file: name, loaded: offset, total, done: true, error: String((e && e.message) || e), background });
+    throw e;
+  } finally {
+    access.close();
+  }
+}
+
+/**
+ * Downloads `name` beside whatever is installed (resuming an interrupted download), copies it into
+ * the pool and verifies it. Returns the pointer entry of the new file; nothing refers to that file
+ * until the entry is written.
  */
 async function fetchIntoPool(name, wanted, background) {
   const target = '/' + name + '@' + (wanted && wanted.sha256 ? wanted.sha256.slice(0, 16) : 'unversioned');
   const adopted = adoptStored(name, target, wanted);
   if (adopted) return adopted;
   if (pool.getFileNames().includes(target)) pool.unlink(target);
+  const directory = await partialDirectory();
+  const partial = partialName(target);
+  await dropOtherPartials(directory, name, partial);
+  const handle = await directory.getFileHandle(partial, { create: true });
+  const size = await downloadToPartial(name, handle, wanted, background);
+
   await pool.reserveMinimumCapacity(pool.getFileCount() + 4);
+  const access = await handle.createSyncAccessHandle();
   const hash = new Sha256();
-  const chunks = [];
-  let finished = false;
-  let failure = null;
-  // importDb pulls chunks; the fetch pushes them — bridge the two with a one-slot hand-over.
-  let wake = null;
-  const signal = () => { if (wake) { wake(); wake = null; } };
-  download(name, wanted ? wanted.size : 0, background, async (chunk) => { hash.update(chunk); chunks.push(chunk); signal(); })
-    .then(() => { finished = true; signal(); }, (e) => { failure = e; signal(); });
+  let at = 0;
   try {
-    const size = await pool.importDb(target, async () => {
-      for (;;) {
-        if (chunks.length) return chunks.shift();
-        if (failure) throw failure;
-        if (finished) return undefined;
-        await new Promise((resolve) => { wake = resolve; });
-      }
+    const imported = await pool.importDb(target, async () => {
+      if (at >= size) return undefined;
+      const chunk = new Uint8Array(Math.min(PART_CHUNK, size - at));
+      const read = access.read(chunk, { at });
+      if (!read) throw new Error('short read of the download of ' + name);
+      const bytes = read === chunk.byteLength ? chunk : chunk.subarray(0, read);
+      hash.update(bytes);
+      at += read;
+      return bytes;
     });
-    verify(name, wanted, size, hash.hex());
+    verify(name, wanted, imported, hash.hex());
   } catch (e) {
+    access.close();
     if (pool.getFileNames().includes(target)) pool.unlink(target);
-    if (!failure) notify({ evt: 'download', file: name, loaded: 0, total: 0, done: true, error: String((e && e.message) || e), background });
+    // What was downloaded does not verify: the next attempt starts again from the beginning.
+    if (/checksum mismatch/.test(String(e && e.message))) await directory.removeEntry(partial).catch(() => {});
+    notify({ evt: 'download', file: name, loaded: 0, total: 0, done: true, error: String((e && e.message) || e), background });
     throw e;
   }
-  notify({ evt: 'download', file: name, loaded: wanted ? wanted.size : 0, total: wanted ? wanted.size : 0, done: true, background });
+  access.close();
+  await directory.removeEntry(partial).catch(() => {});
+  notify({ evt: 'download', file: name, loaded: size, total: size, done: true, background });
   return { file: target, sha256: wanted ? wanted.sha256 || null : null, version: wanted ? wanted.dataset_version || null : null };
 }
 

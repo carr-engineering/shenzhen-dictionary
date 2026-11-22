@@ -713,7 +713,10 @@ new directory adds.
   stored files on failure (sqlite-wasm's `preserveOnInitFailure`; its default removes the pool
   directory). A second open tab reads in memory from a copy the holding tab hands over
   (BroadcastChannel `szdict-store-share`), not from the network, and takes the store over on its next
-  load once the first tab is closed. Remaining causes of a repeat download are the browser's: eviction
+  load once the first tab is closed. An interrupted download (page closed or reloaded, network lost)
+  is kept in a partial file in OPFS and continues where it stopped (HTTP Range), so a slow first visit
+  is never started again from zero; the finished file is verified before it is installed. Remaining
+  causes of a repeat download are the browser's: eviction
   of unpersisted storage under disk pressure, Safari's deletion of script-written storage after seven
   days without a visit (not for a Home Screen app), private windows and cleared site data, or no free
   quota (a nearly full disk).
