@@ -4,9 +4,11 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -63,6 +65,7 @@ import com.szdict.app.ui.kit.CardAudio
 import com.szdict.app.ui.kit.EntryCardGroup
 import com.szdict.app.ui.kit.EntryCardView
 import com.szdict.app.ui.kit.InertRow
+import com.szdict.app.ui.kit.PunctuationRow
 import com.szdict.app.ui.kit.InsideWordsState
 import com.szdict.app.ui.kit.LocalSheetInset
 import com.szdict.app.ui.kit.PronunciationToggle
@@ -552,8 +555,33 @@ private fun LazyListScope.sectionRows(state: SectionState, context: CardContext)
 /** One exact or segmented group (SRCH-033, SRCH-098, SRCH-099, SRCH-103). */
 @Composable
 private fun GroupRow(group: WordGroup, sentence: Boolean, context: CardContext) {
+    if (group.punctuation) {
+        PunctuationRow(group.text)
+        return
+    }
     if (group.inert || group.cards.isEmpty()) {
         InertRow(group.text)
+        return
+    }
+    if (group.english) {
+        // SRCH-033a: a foreign word answered by the English side — the typed word, labelled, over its cards.
+        val palette = LocalDictionaryPalette.current
+        Column(Modifier.padding(top = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
+                Text(group.text, style = MaterialTheme.typography.titleMedium, color = palette.fg)
+                SectionLabel(text = "English match")
+            }
+            group.cards.forEach { card ->
+                EntryCardView(
+                    card = card,
+                    onClick = { context.open(card) },
+                    selected = card.id == context.selectedId,
+                    audio = context.audio(card),
+                    inside = context.inside(card),
+                )
+            }
+        }
         return
     }
     // One inside-words button per headword, after its last card, fed by the group's sub-spans.

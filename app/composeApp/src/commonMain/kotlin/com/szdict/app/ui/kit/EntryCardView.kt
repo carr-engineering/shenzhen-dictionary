@@ -281,6 +281,17 @@ fun InertRow(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** A punctuation run of a sentence (SRCH-098): a compact muted card, not tappable, without `NO MATCH`. */
+@Composable
+fun PunctuationRow(text: String, modifier: Modifier = Modifier) {
+    val palette = LocalDictionaryPalette.current
+    Surface(modifier.padding(vertical = 4.dp), shape = MaterialTheme.shapes.medium, color = palette.bgSoft,
+        border = BorderStroke(1.dp, palette.border)) {
+        Text(text, style = MaterialTheme.typography.titleMedium, color = palette.muted,
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp))
+    }
+}
+
 /**
  * Inside-words expander state, owned by the surface (ENT-073): whether it is expanded, the rows
  * (loaded when it first opens), and the row callbacks.

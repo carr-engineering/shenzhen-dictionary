@@ -96,6 +96,7 @@ internal val SimplifiedChineseStrings: Map<String, String> = mapOf(
     "Starts with" to "开头匹配",
     "Related matches" to "相关结果",
     "NO MATCH" to "无匹配",
+    "English match" to "英文匹配",
     "Please increase the volume" to "请调高音量",
     "No dictionary entry" to "未找到词条",
     "Previous character" to "上一个字",
