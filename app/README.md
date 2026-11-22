@@ -16,7 +16,7 @@ Kotlin Multiplatform + Compose Multiplatform. Targets: Android, iOS (iPhone and 
 ```bash
 uv run pipeline/fetch.py && uv run pipeline/packs/build_packs.py && uv run pipeline/build.py   # datasets + packs -> pipeline/out
 app/tools/publish-animator.sh        # stroke-order library (Android, JVM, Wasm, iOS) -> app/local-maven (needs ../shenzhen_hanzi_animator_kmp; ANIMATOR_SKIP_IOS=1 without Xcode)
-(cd app && ./gradlew :recognition:fetchModels)   # handwriting model (needs ../chinese-handwritting) and the TFLite Web runtime
+(cd app && ./gradlew :recognition:fetchModels)   # handwriting model (Google ML Kit's download) and the TFLite Web runtime
 (cd app && ./gradlew :recognition:fetchOcr2Models)   # OCR models of the Android and iOS apps (16 MB; downloads 31 MB from ModelScope, needs uv)
 app/tools/fetch-voice-model.sh       # sherpa-onnx library + voice model (~280 MB)
 (cd app && uv run --no-project --with fonttools --with cffsubr tools/stage-app-fonts.py)   # iOS/Android interface font with rare characters (below)
@@ -129,6 +129,42 @@ from the `PrivacyPolicy*.kt` sources).
   runtime they share; about 2.5 MB and 6.5 MB over gzip), verifies it and keeps it in Cache Storage.
   `/?selftest=recognition&base=testdata/&ocr=a.png,b.png&ink=ink-fixtures.txt` runs both on files
   served under `base` (the module's `androidInstrumentedTest/assets/testdata`) and logs the results.
+
+## Release and deploy
+
+Every push to `main` runs `.github/workflows/release.yml`:
+
+1. **Version.** The next `YYYY.MM.DD-X` for today's UTC date (`REL-001`); `versionCode` is
+   `YYYYMMDD × 100 + X` (`REL-002`). Gradle reads `-PappVersionName` / `-PappVersionCode`, and falls back
+   to the literal in `composeApp/build.gradle.kts` for local builds.
+2. **Inputs that are not in git.**
+   - `ci/publish-deps.sh` checks out the stroke-order animator and opencc-kmp at the commits in
+     `ci/deps.lock` and publishes them. Bump a SHA there after pushing a library change.
+   - `ci/fetch-build-inputs.sh` restores `pipeline/out` from the snapshot pinned in
+     `ci/build-inputs.lock` and runs `recognition/tools/fetch_models.sh`. The handwriting model comes
+     from Google ML Kit's own download URL; the TFLite Web runtime comes from npm.
+   - **To ship new data:** rebuild the dataset, run `ci/publish-build-inputs.sh` (needs `gh auth login`),
+     and commit the rewritten lock file.
+3. **Builds and tests.** The Web distribution, the release APK and the unit tests run in parallel.
+   The APK is signed with the Play upload key of `engineering.carr.szdict` (repository secrets
+   `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`).
+   Without those variables, local release builds stay debug-signed.
+4. **Deploy.** The precompressed distribution, plus a `version.json`, is uploaded over SSH
+   (`DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`) to `szdict-deploy@45.115.38.102`:
+   - It goes into `/var/www/szdict/releases/<version>-<sha>/`, with unchanged files hard-linked from
+     the live release.
+   - It is then activated by atomically repointing `/var/www/szdict/current`. The last 5 releases are kept.
+   - The key may only run the server's forced command `/usr/local/bin/szdict-deploy`, which allows
+     `current`, an rsync upload into `releases/` and `activate <release>`.
+   - Caddy (`/etc/caddy/Caddyfile`) serves the hosting rules above, with HTTPS from Let's Encrypt and no
+     access log.
+   - `ci/verify-site.sh` then checks the live site against the upload.
+5. **Release.** Only after a successful deploy: the annotated tag and a GitHub Release with
+   `szdict-<version>.apk`, `szdict-web-<version>.tar.gz` and `SHA256SUMS`.
+
+**Roll back** by reactivating an earlier release with the deploy key:
+`ssh -i <deploy key> szdict-deploy@45.115.38.102 activate <version>-<sha>`.
+Alternatively, as root, run `ln -sfn releases/<name> /var/www/szdict/current.tmp && mv -T /var/www/szdict/current.tmp /var/www/szdict/current` in `/var/www/szdict`.
 
 ## iOS
 

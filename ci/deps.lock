@@ -1,0 +1,7 @@
+# Sibling libraries the app consumes from Maven repositories they publish (app/README "Release and
+# deploy"). The release workflow checks each out at the pinned commit and publishes it with
+# ci/publish-deps.sh; bump a SHA (after pushing that commit) to ship a newer version of the library.
+ANIMATOR_REPO=https://github.com/carr-engineering/shenzhen-hanzi-animator-kmp.git
+ANIMATOR_SHA=ac4a4058c06b76600b0add5cd7562a3c58bc574d
+OPENCC_REPO=https://github.com/carr-engineering/opencc-kmp.git
+OPENCC_SHA=94ede821d6e4f899910098086b0ffe5ed5b1a2e0

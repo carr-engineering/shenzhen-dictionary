@@ -17,3 +17,5 @@ app/local-maven/
 app/recognition/ios-frameworks/
 # iOS: sherpa-onnx and onnxruntime, restored by app/tools/fetch-voice-model.sh
 app/speech/ios-frameworks/
+# CI: sibling-library sources and publications (ci/publish-deps.sh)
+.ci/

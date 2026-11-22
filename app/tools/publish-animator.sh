@@ -26,8 +26,9 @@ done
 
 # The browser stroke resources are reachable through two source sets of the Wasm target; an init
 # script (not a change to the animator repository) lets the resource copy keep one of each.
-INIT="$(mktemp -t publish-animator-init).gradle"
-trap 'rm -f "$INIT"' EXIT
+INIT_DIR="$(mktemp -d)"
+INIT="$INIT_DIR/publish-animator-init.gradle"
+trap 'rm -rf "$INIT_DIR"' EXIT
 cat > "$INIT" <<'GRADLE'
 allprojects {
     tasks.withType(org.gradle.language.jvm.tasks.ProcessResources).configureEach {
@@ -37,6 +38,9 @@ allprojects {
 GRADLE
 
 cd "$ANIMATOR_DIR"
+# The bundled stroke packs are generated from a pinned corpus, not committed (the animator's
+# tools/DATA_PROVENANCE.md); this is a no-op when they are already current.
+if [ -x tools/prepare_bundled_data.sh ]; then tools/prepare_bundled_data.sh; fi
 # shellcheck disable=SC2086
 ./gradlew -I "$INIT" $TASKS "-PpublicationTestRepositoryUrl=file://$REPO" --no-configuration-cache
 echo "Published engineering.carr:shenzhen-hanzi-animator-* 0.1.0 to $REPO"
