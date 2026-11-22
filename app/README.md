@@ -157,7 +157,8 @@ Every push to `main` runs `.github/workflows/release.yml`:
    - The key may only run the server's forced command `/usr/local/bin/szdict-deploy`, which allows
      `current`, an rsync upload into `releases/` and `activate <release>`.
    - Caddy (`/etc/caddy/Caddyfile`) serves the hosting rules above, with HTTPS from Let's Encrypt and no
-     access log.
+     access log. It speaks HTTP/1.1 and HTTP/2 only (global option `servers { protocols h1 h2 }`): over
+     HTTP/3 (QUIC) browsers in mainland China fetched the site at ~15 KB/s against ~8 MB/s over TCP.
    - `ci/verify-site.sh` then checks the live site against the upload.
 5. **Release.** Only after a successful deploy: the annotated tag and a GitHub Release with
    `szdict-<version>.apk`, `szdict-web-<version>.tar.gz` and `SHA256SUMS`.
