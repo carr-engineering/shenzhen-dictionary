@@ -104,8 +104,8 @@ preferences, playback ownership — `ARCH-041`).
 
 `ARCH-013` `[REC]` `feature-camera` ships on **all platforms** (`PROD-023`, `PROD-050`). It depends
 only on the `CameraController`, `TextRecognizer`, `ImagePicker`, `ImageDropTarget`, `Clipboard` and
-`ImageDecoder` ports (`ARCH-090`), so the Android ML Kit library and its bundled model never reach the
-Web bundle; Web gets its own repackaged recogniser, fetched on first use and kept out of the initial
+`ImageDecoder` ports (`ARCH-090`), so the native inference runtime stays out of
+the Web bundle. Web uses the same PP-OCR ONNX models with ONNX Runtime Web, fetched on first use and kept out of the initial
 payload (`ARCH-197`, `PERF-073`).
 
 `ARCH-014` `[MUST]` `feature-voice` is a **mobile-only** module, excluded from the Web build together
@@ -404,7 +404,7 @@ per platform, injected at the app layer:
 | Port | Android | iOS | Web |
 |------|---------|-----|-----|
 | `CameraController` (preview, capture, focus point, flash) | CameraX | AVFoundation | `getUserMedia` (rear camera preferred); flash only where the `torch` constraint is supported, focus point only where supported (`ARCH-197`) |
-| `TextRecognizer` | ML Kit Chinese (bundled model) | Vision | repackaged ML Kit text-recognition model in a worker, fetched on first use, cached offline and versioned (`ARCH-197`) |
+| `TextRecognizer` | shared Kotlin PP-OCR pipeline; bundled ONNX models via ONNX Runtime | shared Kotlin PP-OCR pipeline; bundled ONNX models via ONNX Runtime C API | same Kotlin pipeline and ONNX models; ONNX Runtime Web in a worker, fetched on first use, cached offline and versioned (`ARCH-197`) |
 | `HandwritingRecognizer` (`ARCH-093`) | ML Kit Digital Ink, bundled model | ML Kit Digital Ink, bundled model | repackaged web model, lazily loaded |
 | `AudioCapture` (`ARCH-094`) | AudioRecord | AVAudioEngine | absent |
 | `SpeechRecognizer` (`ARCH-095`) | sherpa-onnx (AAR, JNI) | sherpa-onnx C API via Kotlin/Native | absent |
@@ -460,12 +460,16 @@ download state (`VOICE-095`, `GLB-035`). The session runs on its own background 
 when Voice is entered and releases it when Voice is left. Absent on Web.
 
 `ARCH-197` `[MUST]` **OCR on all platforms** (`PROD-022`, `PROD-023`, `CAM-130`…`CAM-135`, `DATA-196`).
-- **Engines behind `TextRecognizer`:** Android — ML Kit Chinese text recognition with the bundled model;
-  iOS — Apple Vision; **Web — the ML Kit text-recognition model repackaged for the browser** (about
-  2.6 MB, `PERF-070`), run in a dedicated worker with the same Web inference runtime as the handwriting
-  model (`ARCH-093`), loaded when OCR is used and released when OCR is left (`ARCH-133`). Line boxes,
-  the coordinate system and the hit-testing contract are the same for all three, so overlay,
-  segmentation and glyph taps are shared code.
+- **Engines behind `TextRecognizer`:** all three platforms use the shared Kotlin `ocr2` pipeline in
+  `recognition/commonMain`, including image preparation, detection postprocessing, perspective crops,
+  orientation, recognition, character boxes and per-character alternatives. The open PP-OCR networks
+  are PP-OCRv4 mobile detection, text-line orientation classification and PP-OCRv6 Small recognition
+  (recogniser weights stored as 16-bit floats), restored with pinned hashes from RapidOCR. Android
+  runs the bundled ONNX networks through ONNX Runtime; iOS uses its C API; Web uses ONNX Runtime Web
+  1.31.1 with WASM SIMD in a dedicated worker (one thread, without cross-origin isolation), loaded
+  when OCR is used and released when OCR is left (`ARCH-133`). Line boxes, the coordinate system and
+  the hit-testing contract are the same for all three, so overlay, segmentation and glyph taps are
+  shared code.
 - **Web model storage and versioning.** The model is downloaded on **first use of OCR** (never at
   start-up or install) and stored for offline use in OPFS (`[REC]`; Cache Storage is acceptable),
   covered by the same `navigator.storage.persist()` request as the dataset (`ARCH-145`). A small
@@ -676,8 +680,8 @@ mobile.
 - **Direct APK:** everything, including the voice model, inside the APK; one APK per ABI. Voice never
   shows a download state in this flavour.
 - `[REC]` All mobile builds: R8 in full mode, resource shrinking, and locale stripping per `GLB-103`.
-The ML Kit Chinese OCR model and its native library are bundled on Android only and must not reach the
-Web build (`ARCH-013`); Web uses its own repackaged model (`ARCH-197`).
+The PP-OCR ONNX models are bundled on both mobile platforms and fetched lazily on Web (`ARCH-197`).
+The Web build ships PP-OCR as its only text recognition model (`ARCH-013`).
 
 `ARCH-143` `[MUST]` **Web fetches the other assets when needed**, on first use: the handwriting model
 (first open of the handwriting sheet), the abbreviation and combination data (first multi-syllable
@@ -1127,7 +1131,7 @@ enforced by `PERF-004` from that point.
 
 | Metric | p50 | p95 | Ceiling | Where |
 |--------|-----|-----|---------|-------|
-| Web OCR first use: model download (~2.6 MB at 20 Mbit/s) plus initialisation, to recogniser ready | 1.5 s | 3 s | 6 s | reference Web; shown as a loading state |
+| Web OCR first use: transfer plus model initialisation | — | — | — | PP-OCR models and runtime total ~31 MB before compression. Progress is shown during downloads. |
 | Web OCR, model cached: OCR opened to recogniser ready | 300 ms | 600 ms | 1200 ms | reference Web |
 | Web OCR: image (capped per `CAM-026`) to recognition overlay drawn | 1.5 s | 3 s | 6 s | reference Web |
 | Web OCR: manifest check when the model is current | no download; never delays recognition | | | reference Web |
@@ -1179,8 +1183,8 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | Recorded audio (words plus syllables) | 65 MB | mobile; Web: lazy |
 | Strokes | 20 MB re-encoded | mobile; Web: lazy (those a Parts section needs are then kept offline, `ARCH-145`) |
 | Example sentences (Mandarin, and Cantonese per `MED-048`) | 6 MB | mobile; Web: lazy |
-| OCR model (ML Kit Chinese) | 20 MB | Android only (iOS uses Vision; Web uses the next line) |
-| Web OCR model (ML Kit text recognition repackaged for the browser, `DATA-196`) + manifest | ~2.6 MB download | Web only: lazy on first OCR use, then kept offline in OPFS / Cache Storage and replaced only when the manifest version changes (`ARCH-197`) |
+| OCR models (PP-OCR detector, orientation classifier, recogniser and labels) | 16.12 MB uncompressed; model budget ≤ 20 MB | Android and iOS: bundled; Web: lazy on first OCR use, then kept offline and versioned (`ARCH-197`) |
+| Web OCR runtime (ONNX Runtime Web 1.31.1 WASM SIMD) + manifest | 14.93 MB uncompressed, additional to the models; transfer size depends on server compression | Web only: fetched with the OCR models, cached offline and replaced on manifest changes (`ARCH-197`) |
 | Handwriting models (simplified, traditional, Hong Kong) | 30 MB total (estimate; re-baseline at first integration) | mobile; Web: repackaged, one model per script, lazy |
 | Voice model (bilingual Mandarin–English streaming Paraformer, int8: encoder, decoder, tokens) | ~240 MB | Play: on-demand asset pack; iOS: Background Assets pack; direct APK: bundled (`ARCH-142`) |
 | sherpa-onnx + onnxruntime native libraries | 10–15 MB per ABI | mobile only |
@@ -1202,13 +1206,13 @@ loads none of the voice, handwriting or OCR models, OpenCC dictionaries or decom
 | Play AAB — as installed from the store | base + install-time packs, without the voice model | 240 MB | 260 MB |
 | Play AAB — on-demand voice pack (`ARCH-142`, `VOICE-095`) | voice model | 240 MB | 240 MB |
 | Direct APK (one per ABI; arm64-v8a measured) | everything, voice model included | 480 MB | 500 MB |
-| iOS (App Store, thinned for the device) | everything except the OCR model and the voice model | 230 MB | 250 MB |
+| iOS (App Store, thinned for the device) | everything except the voice model; PP-OCR bundled | remeasure with bundled PP-OCR | remeasure with bundled PP-OCR |
 | iOS — Background Assets voice pack | voice model | 240 MB | 240 MB |
 | Web — initial payload | code only | 4 MB compressed | — |
 | Web — first visit, one mode | code + active-mode dataset (incl. its Unihan data) into OPFS | 22 MB | 22 MB in OPFS |
 | Web — dataset update per release (`ARCH-145`) | changeset (`DATA-216`); the full dataset when the changeset would exceed half of it | ≤ 50% of the dataset line | in place in OPFS |
 | Web — on first use | LM + abbreviation data, handwriting model, OpenCC dictionaries, media (`ARCH-143`) | per `PERF-070` line | browser cache, not guaranteed offline |
-| Web — OCR model on first OCR use (`ARCH-197`) | model + manifest; afterwards only a changed version | ~2.6 MB | OPFS / Cache Storage, kept offline |
+| Web — OCR on first use (`ARCH-197`) | PP-OCR models, labels, ONNX Runtime Web and manifest; afterwards only changed files | 31.05 MB uncompressed; server compression reduces transfer size | Cache Storage, kept offline |
 | Web — decomposition on first Parts section (`ARCH-143`, `ARCH-145`) | decomposition data, `matches` file and the stroke graphics shown; afterwards only on a dataset version change | per `PERF-070` lines | OPFS, kept offline |
 
 The voice model is the largest single asset. Play and iOS installs leave it out and fetch it once,

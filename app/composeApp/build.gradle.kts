@@ -280,7 +280,7 @@ val stageIosAssets by tasks.registering(Sync::class) {
     }
     from(stageOpenccData)
     from({ strokeIosData.files.map { zipTree(it) } }) { include("strokes/**", "licenses/**") }
-    // OCR reads with the ONNX models (ocr2/); the TensorFlow Lite OCR graphs (ocr/) are the Web build's.
+    // All platforms read with the same ONNX OCR models (ocr2/).
     from(project(":recognition").file("src/androidMain/assets/models")) {
         include("ocr2/*.onnx", "ocr2/rec-labels.txt", "ink/*.tflite", "ink/labels.txt", "ink/script-classes.txt")
         into("models")
@@ -389,27 +389,34 @@ val stageWebFont by tasks.registering(Sync::class) {
 }
 
 // Recognition models and their runtime for the recognition worker (ARCH-093, ARCH-197): the same
-// graph files as the Android assets plus the TFLite Web runtime, with `models/manifest.json` naming
+// graph files as the Android assets plus ONNX Runtime Web (OCR) and TFLite Web (ink), with `models/manifest.json` naming
 // each file's size and SHA-256 and the files of each set. The worker downloads a set on first use,
 // verifies it against the manifest and keeps it in Cache Storage (CAM-134). The ink model and the
-// runtime are not in git: `./gradlew :recognition:fetchModels` restores them.
+// runtimes are not in git: recognition/tools/fetch_models.sh, fetch_ocr2_models.sh and fetch_ort_web.sh restore them.
 val stageWebModels by tasks.registering(Sync::class) {
     val assets = project(":recognition").file("src/androidMain/assets/models")
     val runtime = project(":recognition").file("web-runtime")
-    val required = listOf(assets.resolve("ink/chinese_lstm_4x192.tflite"), runtime.resolve("tflite_web_api_cc_simd.wasm"), runtime.resolve("tflite_web_api_cc_simd.js"))
+    val ortRuntime = project(":recognition").file("web-ort-runtime")
+    val ortFiles = listOf("ort.wasm.min.js", "ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm", "LICENSE")
+    val required = listOf(assets.resolve("ink/chinese_lstm_4x192.tflite"), runtime.resolve("tflite_web_api_cc_simd.wasm"), runtime.resolve("tflite_web_api_cc_simd.js")) +
+        ortFiles.map { ortRuntime.resolve(it) } + listOf("det.onnx", "cls.onnx", "rec.onnx", "rec-labels.txt").map { assets.resolve("ocr2/$it") }
     from(assets) {
-        include("ocr/*.tflite", "ocr/*-labels.txt", "ink/*.tflite", "ink/labels.txt", "ink/script-classes.txt")
+        include("ocr2/*.onnx", "ocr2/rec-labels.txt", "ink/*.tflite", "ink/labels.txt", "ink/script-classes.txt")
         into("models")
     }
     from(runtime) {
         include("tflite_web_api_cc_simd.js", "tflite_web_api_cc_simd.wasm")
         into("models/runtime")
     }
+    from(ortRuntime) {
+        include(ortFiles)
+        into("models/ort-runtime")
+    }
     into(webStaticRoots[5])
     preserve { include("models/manifest.json") }
     doFirst {
         required.filterNot { it.isFile }.let { missing ->
-            if (missing.isNotEmpty()) throw GradleException("Missing ${missing.joinToString { it.name }}: run ./gradlew :recognition:fetchModels")
+            if (missing.isNotEmpty()) throw GradleException("Missing ${missing.joinToString { it.name }}: restore models with :recognition:fetchModels, :recognition:fetchOcr2Models and recognition/tools/fetch_ort_web.sh")
         }
     }
     doLast {
@@ -420,7 +427,7 @@ val stageWebModels by tasks.registering(Sync::class) {
         val version = sha256(hashes.entries.joinToString("\n") { "${it.key}:${it.value.second}" }.toByteArray()).take(16)
         fun set(vararg folders: String) = hashes.keys.filter { path -> folders.any { path.startsWith("$it/") } }.joinToString(",") { "\"$it\"" }
         val entries = hashes.entries.joinToString(",") { (path, value) -> "\"$path\":{\"size\":${value.first},\"sha256\":\"${value.second}\"}" }
-        dir.resolve("manifest.json").writeText("{\"version\":\"$version\",\"sets\":{\"ocr\":[${set("runtime", "ocr")}],\"ink\":[${set("runtime", "ink")}]},\"files\":{$entries}}")
+        dir.resolve("manifest.json").writeText("{\"version\":\"$version\",\"sets\":{\"ocr2\":[${set("ort-runtime", "ocr2")}],\"ink\":[${set("runtime", "ink")}]},\"files\":{$entries}}")
     }
 }
 
@@ -791,12 +798,6 @@ val generateAppLogo by tasks.registering {
             else "Brush.linearGradient($stops, start = Offset(${f(n.getValue("startX"))}, ${f(n.getValue("startY"))}), end = Offset(${f(n.getValue("endX"))}, ${f(n.getValue("endY"))}))"
         }
         val body = StringBuilder()
-        val r = number(1024 * corner)
-        icon.background.forEach { group ->
-            group.paths.forEach { path ->
-                body.append("        addPath(addPathNodes(\"M${r},0H${number(1024 - 1024 * corner)}A${r},${r} 0 0 1 1024,${r}V${number(1024 - 1024 * corner)}A${r},${r} 0 0 1 ${number(1024 - 1024 * corner)},1024H${r}A${r},${r} 0 0 1 0,${number(1024 - 1024 * corner)}V${r}A${r},${r} 0 0 1 ${r},0Z\"), fill = ${brush(path)})\n")
-            }
-        }
         icon.foreground.forEach { group ->
             // Uniform scale and rotation only: the matrix is a rotation by atan2(shearY, scaleX) and a scale of its column length.
             val t = AffineTransform(icon.markTransform).apply { concatenate(iconGroupTransform(group)) }
@@ -810,8 +811,8 @@ val generateAppLogo by tasks.registering {
             body.append("        }\n")
         }
         target.asFile.writeText(
-            """// Generated by `./gradlew :composeApp:generateAppLogo` from the Android launcher vectors
-// (androidMain/res/drawable/ic_launcher_foreground.xml + ic_launcher_background.xml). Do not edit.
+            """// Generated by `./gradlew :composeApp:generateAppLogo` from the Android launcher foreground.
+// Do not edit.
 package com.szdict.app.ui.kit
 
 import androidx.compose.ui.geometry.Offset
@@ -824,7 +825,7 @@ import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.graphics.vector.group
 import androidx.compose.ui.unit.dp
 
-/** The app logo: the mark on a rounded square of the icon's paper, as on the Web tab icon. */
+/** The two-card mark used in the expanded rail. */
 internal val AppLogo: ImageVector by lazy {
     ImageVector.Builder(name = "AppLogo", defaultWidth = 60.dp, defaultHeight = 60.dp, viewportWidth = 1024f, viewportHeight = 1024f).apply {
 $body    }.build()
@@ -857,7 +858,7 @@ tasks.matching { it.name == "wasmJsBrowserDistribution" }.configureEach {
         val lazyRoots = setOf("data", "opencc", "strokes", "fonts", "models", "licenses")
         val shell = dist.walkTopDown().filter { it.isFile }.map { it.relativeTo(dist).invariantSeparatorsPath }.filter { path ->
             // Of the icons only the tab icon is part of a start; the installer fetches the others itself.
-            path.substringBefore('/') !in lazyRoots && path != "sw.js" && (!path.startsWith("icons/") || path == "icons/favicon.svg" || path == "icons/favicon-32.png") &&
+            (path == "fonts/index.json" || path.substringBefore('/') !in lazyRoots) && path != "sw.js" && (!path.startsWith("icons/") || path == "icons/favicon.svg" || path == "icons/favicon-32.png") &&
                 !path.endsWith(".map") && !path.endsWith(".LICENSE.txt") && !path.endsWith(".br") && !path.endsWith(".gz")
         }.sorted().toList()
         val digest = MessageDigest.getInstance("SHA-256")

@@ -159,14 +159,21 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     }
 
     // ---- dictionaries ----
-    private val dictMutex = Mutex()
-    private val dictionaries = HashMap<DictMode, Dictionary>()
+    private class DictionarySlot {
+        val mutex = Mutex()
+        var dictionary: Dictionary? = null
+    }
+
+    private val dictionaries = DictMode.entries.associateWith { DictionarySlot() }
 
     /** The engine for [mode] (default: the user's mode). Opening is a file open + metadata read (ARCH-131). */
-    suspend fun dictionary(mode: DictMode = this.mode): Dictionary = dictMutex.withLock {
-        dictionaries[mode] ?: env.openDictionary(mode).also { opened ->
-            dictionaries[mode] = opened
-            scope.launch { opened.companionGeneration.drop(1).collect { companionArrivals.value++ } }
+    suspend fun dictionary(mode: DictMode = this.mode): Dictionary {
+        val slot = dictionaries.getValue(mode)
+        return slot.mutex.withLock {
+            slot.dictionary ?: env.openDictionary(mode).also { opened ->
+                slot.dictionary = opened
+                scope.launch { opened.companionGeneration.drop(1).collect { companionArrivals.value++ } }
+            }
         }
     }
 

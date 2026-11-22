@@ -97,13 +97,13 @@ internal class OrtOcr2Nets(modelDir: String, threads: Int) : Ocr2Nets {
         }
     }
 
-    override fun detect(height: Int, width: Int, fill: (FloatSink) -> Unit): FloatArray =
+    override suspend fun detect(height: Int, width: Int, fill: (FloatSink) -> Unit): FloatArray =
         detector.run(longArrayOf(1, 3, height.toLong(), width.toLong()), fill).first
 
-    override fun classify(batch: Int, fill: (FloatSink) -> Unit): FloatArray =
+    override suspend fun classify(batch: Int, fill: (FloatSink) -> Unit): FloatArray =
         classifier.run(longArrayOf(batch.toLong(), 3, 48, 192), fill).first
 
-    override fun recognize(batch: Int, width: Int, fill: (FloatSink) -> Unit): RecognitionOutput {
+    override suspend fun recognize(batch: Int, width: Int, fill: (FloatSink) -> Unit): RecognitionOutput {
         val (data, shape) = recogniser.run(longArrayOf(batch.toLong(), 3, 48, width.toLong()), fill)
         return RecognitionOutput(data, shape[1].toInt(), shape[2].toInt())
     }

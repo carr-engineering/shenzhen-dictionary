@@ -2,6 +2,8 @@
 src/androidMain/assets/models/ink/*.tflite
 # The TFLite Web runtime of the browser build, restored by the same script.
 web-runtime/
+# ONNX Runtime Web, restored by tools/fetch_ort_web.sh.
+web-ort-runtime/
 build/
 # The TensorFlow Lite C runtime of the iOS build, restored by tools/fetch_ios_frameworks.sh.
 ios-frameworks/

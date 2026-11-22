@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ComposeViewport
+import com.szdict.app.feature.hsk.HskStates
 import com.szdict.app.feature.search.SearchStateHolder
 import com.szdict.app.i18n.AppStrings
 import com.szdict.app.platform.LocalStorageSettings
@@ -44,12 +45,14 @@ import com.szdict.app.platform.latinFontReady
 import com.szdict.app.platform.requestPersistentStorage
 import com.szdict.app.ui.theme.DictionaryTheme
 import com.szdict.app.ui.theme.LocalDictionaryPalette
+import com.szdict.core.api.DictMode
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.w3c.dom.HTMLElement
 import kotlin.js.ExperimentalWasmJsInterop
 
 private fun jsReload(): Unit = js("{ window.location.reload(); }")
@@ -65,8 +68,10 @@ fun main() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     // Read before the history rewrites the address to the canonical route (GLB-110).
     val selfTest = window.location.search.contains("selftest=1")
+    val modeSegment = window.location.pathname.trimStart('/').substringBefore('/')
+    val initialMode = DictMode.entries.firstOrNull { it.routeSegment == modeSegment }
     val audio = WebAudioPlayer()
-    val datasets = WebDatasets(audio, scope)
+    val datasets = WebDatasets(audio, scope, initialMode)
     val env = AppEnv(
         openDictionary = datasets::open,
         settingsStorage = LocalStorageSettings(),
@@ -86,6 +91,7 @@ fun main() {
     // Read before the history layer rewrites the URL.
     window.location.search.let { query -> if (query.contains("selftest=recognition")) scope.launch { com.szdict.app.feature.ocr.RecognitionSelfTest.run(query) } }
     requestPersistentStorage()
+    if (initialMode != null) scope.launch { runCatching { session.dictionary(initialMode) } }
     // Search starts with the page, not with its first frame: a tab that is loading in the
     // background gets few frames or none, and the linked or restored query, its search and the
     // empty state's content must not wait for one.
@@ -96,15 +102,18 @@ fun main() {
     window.addEventListener("pagehide", { session.flushNow(); session.stopPlayback() })
     document.addEventListener("visibilitychange", { if (jsPageHidden()) session.flushNow() })
 
-    ComposeViewport(document.body!!) {
+    val appHost = document.getElementById("app") as? HTMLElement ?: document.body!!
+    ComposeViewport(appHost) {
         // The start page stays up until the Latin font is here: no frame shows text in another face.
         if (!latinFontReady()) return@ComposeViewport
-        LaunchedEffect(Unit) { document.getElementById("loading")?.remove() }
-        WithCjkFont(session) {
-            Box(Modifier.fillMaxSize()) {
-                App(session)
-                DatasetDownloadState(session, datasets)
-                DatasetUpdatedNotice(session, datasets)
+        WithCjkFont(session, initialMode) { fontReady ->
+            if (fontReady) {
+                LaunchedEffect(Unit) { document.getElementById("loading")?.remove() }
+                Box(Modifier.fillMaxSize()) {
+                    App(session)
+                    DatasetDownloadState(session, datasets, initialMode)
+                    DatasetUpdatedNotice(session, datasets)
+                }
             }
         }
     }
@@ -114,17 +123,24 @@ fun main() {
 
 /** First-visit download of a mode's dataset (ARCH-004): a progress card over the shell, or the failure with a reload. */
 @Composable
-private fun DatasetDownloadState(session: AppSession, datasets: WebDatasets) {
-    val progress = datasets.datasetProgress
-    val failed = datasets.failed
-    if (progress == null && !failed) return
+private fun DatasetDownloadState(session: AppSession, datasets: WebDatasets, initialMode: DictMode?) {
+    val linkedMode = when (session.destination) {
+        Destination.SEARCH -> SearchStateHolder.of(session).linkMode
+        Destination.HSK -> HskStates.of(session).linkMode
+        else -> null
+    }
+    val activeMode = if (datasets.initialOpenPending && initialMode != null) initialMode else
+        (session.routes.lastOrNull() as? DetailRoute.Entry)?.mode ?: linkedMode ?: session.mode
+    val progress = datasets.progress(activeMode)
+    val failed = datasets.failed(activeMode)
+    if (progress == null && !failed && !datasets.initialOpenPending) return
     val settings by session.settings.collectAsState()
     val strings = AppStrings(settings.uiLanguage.resolve(session.env.systemLocaleTag()))
     DictionaryTheme(settings.themeMode, session.routeMode()) {
         val palette = LocalDictionaryPalette.current
         // The shell underneath cannot answer anything yet: the scrim takes its pointer input.
         Box(
-            Modifier.fillMaxSize().background(palette.bg.copy(alpha = 0.86f)).pointerInput(Unit) { }.padding(24.dp),
+            Modifier.fillMaxSize().background(palette.bg).pointerInput(Unit) { }.padding(24.dp),
             contentAlignment = Alignment.Center,
         ) {
             Column(
@@ -146,10 +162,13 @@ private fun DatasetDownloadState(session: AppSession, datasets: WebDatasets) {
                         color = palette.muted,
                         style = MaterialTheme.typography.bodySmall,
                     )
-                } else {
+                } else if (failed) {
                     Text(strings.text("The dictionary could not be downloaded"), color = palette.fg, style = MaterialTheme.typography.titleMedium)
                     Text(strings.text("Check the connection and try again."), color = palette.muted, style = MaterialTheme.typography.bodyMedium)
                     OutlinedButton(onClick = { jsReload() }) { Text(strings.text("Try again"), color = palette.accent) }
+                } else {
+                    Text(strings.text("Loading…"), color = palette.fg, style = MaterialTheme.typography.titleMedium)
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = palette.accent, trackColor = palette.border)
                 }
             }
         }

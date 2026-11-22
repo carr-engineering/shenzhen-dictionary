@@ -869,7 +869,7 @@ the repository lock file, `PIPE-162`), and are credited in `SET-040`.
 | Voice model: sherpa-onnx streaming Paraformer, bilingual Mandarin/English, int8 (`VOICE-001`…) | about 240 MB | Apache-2.0 (per the model's ModelScope page; decided: `Q-101`) | **The only separate download on mobile** (`VOICE-095`): Google Play — on-demand Play Asset Delivery pack, requested when Voice is first opened and downloaded by Play (no app networking); iOS — Apple-hosted Background Assets pack (`Q-116`); direct APK — bundled. Not on Web |
 | OpenCC dictionaries (`DATA-195`) — shipped by the OpenCC Kotlin Multiplatform library (`ARCH-196`), used at runtime for script conversion on Reading, OCR text and Voice transcript (`TXT-081`…, `CAM-130`…, `VOICE-096`) | about 1.35 MB raw text for all configurations used (under about 0.5 MB gzipped, estimate) | Apache-2.0 | Android, iOS: installed with the app (bundled with the library); Web: fetched lazily per configuration when conversion is first used, browser-cached, not guaranteed offline |
 | Handwriting model: ML Kit Digital Ink, simplified / traditional / Hong Kong (`HW-001`…) | about 20 MB per script model (measure) | ML Kit terms (`SET-040`) | Android, iOS: installed with the app; Web: repackaged, fetched on demand |
-| OCR model: ML Kit Chinese text recognition (`CAM-001`…, `DATA-196`) | Android about 15 to 20 MB; Web about 2.61 MB | ML Kit terms (`SET-040`) | Android: installed with the app. iOS: none (Apple Vision). Web: the model repackaged for the browser (`ARCH-197`), downloaded on first use of OCR, **stored offline** and updated only when its manifest version changes (`DATA-196`) |
+| OCR models: PP-OCR ONNX (`CAM-001`…, `DATA-196`) | Models about 16 MB; Web runtime about 15 MB | Apache-2.0 model source and MIT runtime (`SET-040`) | Android and iOS: bundled. Web: downloaded with the runtime on first use of OCR, **stored offline** and updated when its manifest version changes (`DATA-196`) |
 | CJK fallback font for characters missing from platform fonts (decided: `Q-109`) — an OFL-1.1 CJK font, subset by the pipeline to dataset code points the platform fonts lack | measure; budget line in `PERF-070` | SIL OFL 1.1 | Android, iOS: installed with the app. Not on Web: no CJK font is bundled there; Compose Multiplatform's web font fallback fetches its font from a third-party font server when needed, outside the offline set (decided: `Q-117`; `GLB-090`); it is not a pipeline artefact |
 
 `DATA-195` `[MUST]` **OpenCC dictionaries.** Runtime script conversion (`TXT-081`…`TXT-084`,
@@ -890,23 +890,22 @@ the earlier Voice-only "OpenCC conversion table". (Build-time conversions — ex
 same pinned OpenCC release inside the pipeline.)
 
 `DATA-196` `[MUST]` **Web OCR model and manifest** (`ARCH-197`, `CAM-130`…). The Web OCR engine's
-model — the ML Kit text-recognition model repackaged for the browser, about 2.61 MB — is published
-with the Web deployment together with a small **OCR model manifest**:
+PP-OCR ONNX models and ONNX Runtime Web (about 31 MB together, uncompressed) are published with
+the Web deployment and listed in `models/manifest.json`:
 
 | Manifest field | Notes |
 |----------------|-------|
-| `model_version` | version of the repackaged model, independent of `dataset_version` |
-| `url` | location of the model file(s) on `szdict.com` |
-| `size` | bytes |
-| `sha256` | of each model file |
-| `min_app_version` | oldest Web app build that can run this model |
+| `version` | Model asset version, independent of the dataset |
+| `sets.ocr2` | Paths of the OCR model and runtime files on `szdict.com` |
+| `files[<path>].size` | File size in bytes |
+| `files[<path>].sha256` | File checksum |
 
 Behaviour:
 - the model is downloaded on the **first use of OCR**, verified against the manifest's SHA-256 and
   stored for offline use (OPFS or Cache Storage, with the persistent storage already requested for the
   dataset, `DATA-215`);
 - when online, opening OCR fetches the manifest and downloads the model again **only when
-  `model_version` changed**; an up-to-date model triggers no download; offline, the stored model is
+  the assets in the OCR set changed**; an up-to-date model triggers no download; offline, the stored model is
   used without any check;
 - a new version is downloaded and verified completely before it replaces the stored one (`DATA-210`);
   a failed download or a hash mismatch leaves the stored model in use;

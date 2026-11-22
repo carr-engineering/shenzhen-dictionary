@@ -2,6 +2,12 @@ package com.szdict.recognition.ocr2
 
 import com.szdict.recognition.OcrImage
 import com.szdict.recognition.OcrLine
+import com.szdict.recognition.OcrResult
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.startCoroutine
+import kotlin.coroutines.suspendCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -9,6 +15,26 @@ import kotlin.test.assertTrue
 
 /** The pipeline's geometry and bookkeeping around scripted networks. */
 class Ocr2PipelineTest {
+    /** Scripted graphs complete immediately; actual suspension is controlled explicitly below. */
+    private fun runImmediate(block: suspend () -> Unit) {
+        var completion: Result<Unit>? = null
+        block.startCoroutine(object : Continuation<Unit> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(result: Result<Unit>) { completion = result }
+        })
+        checkNotNull(completion) { "Scripted test did not complete" }.getOrThrow()
+    }
+
+    private class Gate {
+        private var pending: Continuation<Unit>? = null
+        suspend fun await() = suspendCoroutine<Unit> { pending = it }
+        fun release() {
+            val continuation = checkNotNull(pending)
+            pending = null
+            continuation.resume(Unit)
+        }
+    }
+
     /**
      * Networks that "detect" the given kernels (x0, y0, x1, y1 in detector pixels, inclusive), call
      * every line upright or turned as [turned] says, and read "你好" then a space and "A" at fixed frames.
@@ -22,7 +48,7 @@ class Ocr2PipelineTest {
             override fun put(offset: Int, source: FloatArray, count: Int) = Unit
         }
 
-        override fun detect(height: Int, width: Int, fill: (FloatSink) -> Unit): FloatArray {
+        override suspend fun detect(height: Int, width: Int, fill: (FloatSink) -> Unit): FloatArray {
             fill(sink)
             detectorSize = width to height
             return FloatArray(width * height) { i ->
@@ -32,12 +58,12 @@ class Ocr2PipelineTest {
             }
         }
 
-        override fun classify(batch: Int, fill: (FloatSink) -> Unit): FloatArray {
+        override suspend fun classify(batch: Int, fill: (FloatSink) -> Unit): FloatArray {
             fill(sink)
             return FloatArray(batch * 2) { if ((it % 2 == 1) == turned) 0.99f else 0.01f }
         }
 
-        override fun recognize(batch: Int, width: Int, fill: (FloatSink) -> Unit): RecognitionOutput {
+        override suspend fun recognize(batch: Int, width: Int, fill: (FloatSink) -> Unit): RecognitionOutput {
             fill(sink)
             recogniserCalls.add(batch to width)
             val frames = width / 8
@@ -67,7 +93,7 @@ class Ocr2PipelineTest {
     private fun OcrLine.ys() = chars.map { it.box.center.y }
 
     @Test
-    fun aLineIsReadWithBoxesInImageCoordinates() {
+    fun aLineIsReadWithBoxesInImageCoordinates() = runImmediate {
         val nets = Scripted(listOf(intArrayOf(100, 300, 499, 339)))
         val pipeline = Ocr2Pipeline(nets, labels)
         val result = pipeline.recognize(white(736, 736))
@@ -104,7 +130,7 @@ class Ocr2PipelineTest {
     }
 
     @Test
-    fun aTurnedLineKeepsItsGlyphRelativeCorners() {
+    fun aTurnedLineKeepsItsGlyphRelativeCorners() = runImmediate {
         val result = Ocr2Pipeline(Scripted(listOf(intArrayOf(100, 300, 499, 339)), turned = true), labels).recognize(white(736, 736))
         val line = result.lines.single()
         assertEquals("你好 A", line.text)
@@ -117,7 +143,7 @@ class Ocr2PipelineTest {
     }
 
     @Test
-    fun aTallBoxIsAColumnReadTopToBottom() {
+    fun aTallBoxIsAColumnReadTopToBottom() = runImmediate {
         val result = Ocr2Pipeline(Scripted(listOf(intArrayOf(300, 100, 339, 499))), labels).recognize(white(736, 736))
         val line = result.lines.single()
         assertEquals(true, line.vertical)
@@ -131,7 +157,7 @@ class Ocr2PipelineTest {
     }
 
     @Test
-    fun smallImagesAreEnlargedForTheDetectorAndBoxesScaledBack() {
+    fun smallImagesAreEnlargedForTheDetectorAndBoxesScaledBack() = runImmediate {
         // 368 x 176 is doubled: the kernel is given in detector pixels.
         val nets = Scripted(listOf(intArrayOf(100, 200, 499, 239)))
         val result = Ocr2Pipeline(nets, labels).recognize(white(368, 176))
@@ -144,7 +170,7 @@ class Ocr2PipelineTest {
     }
 
     @Test
-    fun flatImagesArePaddedAndBoxesMovedBack() {
+    fun flatImagesArePaddedAndBoxesMovedBack() = runImmediate {
         // 800 x 60 (wider than 8:1) gets (max(800 / 8, 30) x 2 - 60) / 2 = 70 black rows above and
         // below; the 800 x 200 result is doubled for the detector (400 rows rounded to 384).
         val nets = Scripted(listOf(intArrayOf(200, 180, 1000, 200)))
@@ -156,13 +182,13 @@ class Ocr2PipelineTest {
     }
 
     @Test
-    fun unsureAndEmptyLinesAreDropped() {
+    fun unsureAndEmptyLinesAreDropped() = runImmediate {
         assertTrue(Ocr2Pipeline(Scripted(listOf(intArrayOf(100, 300, 499, 339)), probability = 0.45f), labels).recognize(white(736, 736)).lines.isEmpty())
         assertTrue(Ocr2Pipeline(Scripted(emptyList()), labels).recognize(white(736, 736)).lines.isEmpty())
     }
 
     @Test
-    fun linesAreBatchedByAspectAndColumnsFollowRows() {
+    fun linesAreBatchedByAspectAndColumnsFollowRows() = runImmediate {
         val kernels = ArrayList<IntArray>()
         // Seven rows of growing length and one column at the right.
         for (i in 0 until 7) kernels.add(intArrayOf(40, 40 + i * 90, 240 + i * 50, 69 + i * 90))
@@ -186,12 +212,59 @@ class Ocr2PipelineTest {
     }
 
     @Test
-    fun theCheckpointCancelsBetweenStages() {
+    fun theCheckpointCancelsBetweenStages() = runImmediate {
         val nets = Scripted(listOf(intArrayOf(100, 300, 499, 339)))
         var calls = 0
         assertFailsWith<IllegalStateException> {
             Ocr2Pipeline(nets, labels).recognize(white(736, 736)) { if (++calls == 3) error("cancelled") }
         }
         assertTrue(nets.recogniserCalls.isEmpty())
+    }
+
+    @Test
+    fun modelCallsCanSuspendWithoutLosingTheLineOrAlternatives() = runImmediate {
+        val kernels = listOf(intArrayOf(100, 300, 499, 339))
+        val scripted = Scripted(kernels)
+        val detector = Gate()
+        val classifier = Gate()
+        val recogniser = Gate()
+        val calls = ArrayList<String>()
+        val nets = object : Ocr2Nets by scripted {
+            override suspend fun detect(height: Int, width: Int, fill: (FloatSink) -> Unit): FloatArray {
+                calls.add("detect")
+                detector.await()
+                return scripted.detect(height, width, fill)
+            }
+
+            override suspend fun classify(batch: Int, fill: (FloatSink) -> Unit): FloatArray {
+                calls.add("classify")
+                classifier.await()
+                return scripted.classify(batch, fill)
+            }
+
+            override suspend fun recognize(batch: Int, width: Int, fill: (FloatSink) -> Unit): RecognitionOutput {
+                calls.add("recognize")
+                recogniser.await()
+                return scripted.recognize(batch, width, fill)
+            }
+        }
+        var completion: Result<OcrResult>? = null
+        val recognize: suspend () -> OcrResult = { Ocr2Pipeline(nets, labels).recognize(white(736, 736)) }
+        recognize.startCoroutine(object : Continuation<OcrResult> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(result: Result<OcrResult>) { completion = result }
+        })
+        assertEquals(listOf("detect"), calls)
+        assertEquals(null, completion)
+        detector.release()
+        assertEquals(listOf("detect", "classify"), calls)
+        assertEquals(null, completion)
+        classifier.release()
+        assertEquals(listOf("detect", "classify", "recognize"), calls)
+        assertTrue(scripted.recogniserCalls.isEmpty())
+        assertEquals(null, completion)
+        recogniser.release()
+        val expected = Ocr2Pipeline(Scripted(kernels), labels).recognize(white(736, 736))
+        assertEquals(expected, checkNotNull(completion).getOrThrow())
     }
 }

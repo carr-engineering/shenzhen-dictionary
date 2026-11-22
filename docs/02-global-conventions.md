@@ -218,16 +218,15 @@ Three cases have a **download or loading state** instead:
   pack and iOS as an Apple-hosted Background Assets pack; the direct APK bundles it. While the pack is
   missing, the Voice destination shows its download state (size, progress, retry) in place of the
   transcript; every other destination works normally.
-- **Web OCR model** (`ARCH-197`, `DATA-196`). The Web OCR engine (the ML Kit text-recognition model
-  repackaged for the browser, ~2.6 MB) is downloaded from `szdict.com` on the **first use of OCR**, then
+- **Web OCR model** (`ARCH-197`, `DATA-196`). The browser uses the same PP-OCR ONNX models as Android and iOS
+  with ONNX Runtime Web (~31 MB combined, uncompressed). The model and runtime set is downloaded from `szdict.com` on the **first use of OCR**, then
   stored for offline use alongside the dataset. It is versioned by a manifest (model version + SHA-256):
   when online, opening OCR checks the manifest and downloads the model again **only when its version
   changed**, otherwise nothing is downloaded; offline, the stored model is used. While no model is
   stored, the OCR destination shows its download state (size, progress, retry) in place of recognition,
   and its capture and input controls stay usable so the image is recognised once the model arrives; a
   failed or impossible download (offline before the first download) follows `GLB-034` on OCR only.
-  Every other destination works normally. (Android bundles ML Kit and iOS uses Apple Vision, so mobile
-  has no OCR download.)
+  Every other destination works normally. Android and iOS bundle the models.
 - **Web.** The Web PWA stores exactly four things for offline use: the app shell (code); the dataset;
   once downloaded, the versioned OCR model (above); and, once the Parts section of the DICT tab has first loaded
   them, the decomposition data together with the stroke graphics and Make Me a Hanzi stroke-to-component

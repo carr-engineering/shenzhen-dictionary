@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(process.argv[2] || path.join(here, '../composeApp/build/dist/wasmJs/productionExecutable'));
-const compressible = new Set(['.html', '.js', '.mjs', '.wasm', '.json', '.webmanifest', '.txt', '.svg', '.css', '.otf', '.ttf', '.db', '.ocd2', '.hzb', '.tflite']);
+const compressible = new Set(['.html', '.js', '.mjs', '.wasm', '.json', '.webmanifest', '.txt', '.svg', '.css', '.otf', '.ttf', '.db', '.ocd2', '.hzb', '.tflite', '.onnx']);
 const brotli = promisify(zlib.brotliCompress);
 const gzip = promisify(zlib.gzip);
 

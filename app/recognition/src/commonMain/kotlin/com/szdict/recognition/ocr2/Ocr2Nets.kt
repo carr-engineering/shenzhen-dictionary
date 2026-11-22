@@ -13,17 +13,18 @@ internal class RecognitionOutput(val data: FloatArray, val frames: Int, val clas
  * The three neural graphs of the pipeline: PP-OCRv4 mobile detector, PP-OCR mobile v2.0 orientation
  * classifier and PP-OCRv6 Small recogniser, all float32 NCHW with channels in B, G, R order.
  * Implemented with ONNX Runtime on Android (Java API) and iOS (C API); everything else is plain Kotlin.
- * Not thread-safe; the recogniser serialises calls.
+ * Calls may suspend so a browser backend can await inference in a worker. Native backends run
+ * their existing synchronous sessions inside these calls. Not thread-safe; the recogniser serialises calls.
  */
 internal interface Ocr2Nets {
     /** `[1, 3, height, width]` (both multiples of 32) -> the `height x width` text probability map. */
-    fun detect(height: Int, width: Int, fill: (FloatSink) -> Unit): FloatArray
+    suspend fun detect(height: Int, width: Int, fill: (FloatSink) -> Unit): FloatArray
 
     /** `[batch, 3, 48, 192]` -> `batch x 2` probabilities of the line being upright / turned by 180 degrees. */
-    fun classify(batch: Int, fill: (FloatSink) -> Unit): FloatArray
+    suspend fun classify(batch: Int, fill: (FloatSink) -> Unit): FloatArray
 
     /** `[batch, 3, 48, width]` -> per-frame class probabilities; class 0 is the CTC blank. */
-    fun recognize(batch: Int, width: Int, fill: (FloatSink) -> Unit): RecognitionOutput
+    suspend fun recognize(batch: Int, width: Int, fill: (FloatSink) -> Unit): RecognitionOutput
 
     fun close()
 }

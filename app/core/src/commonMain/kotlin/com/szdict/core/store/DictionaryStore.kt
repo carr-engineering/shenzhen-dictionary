@@ -613,13 +613,23 @@ internal class DictionaryStore private constructor(
     }
 
     /** Candidates of the daily pick (SET-063): distinct primary entry ids of the masked levels, ascending. */
-    suspend fun hskEntryIds(levelMask: Int): IntArray = read { c ->
+    /** Keep the daily selection's stable ordering without returning the whole list to the caller. */
+    suspend fun dailyEntryId(levelMask: Int, index: (Int) -> Int): Int? {
         val levels = (1..7).filter { levelMask and (1 shl (it - 1)) != 0 }
-        val out = ArrayList<Int>()
-        if (levels.isNotEmpty()) {
-            c.query("SELECT DISTINCT entry_id FROM hsk_row WHERE level IN (${levels.joinToString(",")}) ORDER BY entry_id", {}) { out.add(it.getLong(0).toInt()) }
+        if (levels.isEmpty()) return null
+        val filter = "FROM hsk_row WHERE level IN (${levels.joinToString(",")})"
+        return read { c ->
+            var count = 0
+            c.query("SELECT COUNT(DISTINCT entry_id) $filter", {}) { count = it.getLong(0).toInt() }
+            val offset = index(count)
+            var id: Int? = null
+            if (offset in 0 until count) {
+                c.query("SELECT DISTINCT entry_id $filter ORDER BY entry_id LIMIT 1 OFFSET ?", {
+                    it.bindLong(1, offset.toLong())
+                }) { id = it.getLong(0).toInt() }
+            }
+            id
         }
-        out.toIntArray()
     }
 
     // ---- language-model companion ----

@@ -24,8 +24,8 @@ const KEEP_CACHE = 'szdict-keep-v1';
 const LAZY_CACHE = 'szdict-lazy-v1';
 const FONT_HOSTS = ['cdn.jsdelivr.net'];
 // Small files the app reads while it starts — before a first install controls the page — kept
-// here so the first offline start finds them: which font subsets exist, which clips are recorded.
-const START_FILES = ['fonts/index.json', 'data/packs/audio/catalog.json'];
+// here so the first offline start finds which clips are recorded. The font index is in the shell.
+const START_FILES = ['data/packs/audio/catalog.json'];
 const scope = new URL(self.registration.scope);
 
 self.addEventListener('install', (event) => {
@@ -143,6 +143,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(request.headers.has('range') ? ranged(request, LAZY_CACHE) : cacheFirst(request, LAZY_CACHE));
   } else if (path.startsWith('strokes/')) {
     event.respondWith(staleWhileRevalidate(event, KEEP_CACHE));
+  } else if (path.startsWith('fonts/') && /-[0-9a-f]{12}\.(otf|ttf)$/.test(path)) {
+    event.respondWith(cacheFirst(request, LAZY_CACHE));
   } else if (path.startsWith('data/packs/audio/') || path.startsWith('opencc/') || path.startsWith('fonts/')) {
     event.respondWith(staleWhileRevalidate(event, LAZY_CACHE));
   }

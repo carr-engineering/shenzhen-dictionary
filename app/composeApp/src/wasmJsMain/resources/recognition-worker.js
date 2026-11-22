@@ -1,11 +1,11 @@
-// Recognition worker (ARCH-093, ARCH-197): runs the OCR or the handwriting graphs with the TFLite
-// Web runtime, off the UI thread. One worker serves one model set ("ocr" or "ink"); the page talks
+// Recognition worker (ARCH-093, ARCH-197): runs OCR with ONNX Runtime Web and handwriting with
+// TFLite Web, off the UI thread. One worker serves one model set ("ocr2" or "ink"); the page talks
 // to it with { id, op, … } messages and gets { id, … } or { id, error } back. Geometry, image
 // preparation and decoding stay in the shared Kotlin pipeline; this file only fetches, verifies
 // and stores the model files (CAM-134) and evaluates graphs.
 //
 // Model files live under models/ next to this script and are described by models/manifest.json
-// ({ version, sets: { ocr: [paths], ink: [paths] }, files: { path: { size, sha256 } } }). A verified
+// ({ version, sets: { ocr2: [paths], ink: [paths] }, files: { path: { size, sha256 } } }). A verified
 // file is kept in Cache Storage under its content hash, with the manifest of its set beside it, so
 // later loads never need the network; a changed manifest is downloaded in the background and takes
 // effect the next time the set is loaded.
@@ -20,8 +20,11 @@ const RUNTIME_WASM = 'runtime/tflite_web_api_cc_simd.wasm';
 // requantisations differently from the NEON kernels LiteRT uses on Android, so logits can differ by
 // a quantisation step or two: the same text in practice, slightly different alternative scores.
 let M = null;            // the runtime's Emscripten module
-let ocr = null;          // { detector, lines: { script|hani|latn: { encoder, decoder, … } } }
 let ink = null;          // { graph, classes }
+let ocr2 = null;         // { det, cls, rec }: ONNX Runtime Web sessions
+const ORT_JS = 'ort-runtime/ort.wasm.min.js';
+const ORT_MJS = 'ort-runtime/ort-wasm-simd-threaded.mjs';
+const ORT_WASM = 'ort-runtime/ort-wasm-simd-threaded.wasm';
 
 // ---------------------------------------------------------------- model files
 
@@ -135,7 +138,7 @@ async function storeSubset(cache, kind, subset) {
     await cache.put(setManifestUrl(kind), new Response(JSON.stringify(subset), { headers: { 'Content-Type': 'application/json' } }));
     // Drop files no stored set refers to any more.
     const wanted = new Set();
-    for (const k of ['ocr', 'ink']) {
+    for (const k of ['ocr2', 'ink']) {
       const s = k === kind ? subset : await storedSubset(cache, k);
       if (!s) continue;
       wanted.add(setManifestUrl(k));
@@ -300,59 +303,6 @@ async function startRuntime(files) {
   M = await self.tflite_web_api_ModuleFactory({ wasmBinary: files[RUNTIME_WASM], print: () => {}, printErr: () => {} });
 }
 
-function buildOcr(files) {
-  const lines = {};
-  for (const name of ['script', 'hani', 'latn']) {
-    const encoder = new Graph(files['ocr/' + name + '-encoder.tflite']);
-    const decoder = new Graph(files['ocr/' + name + '-decoder.tflite']);
-    decoder.open(null, false);
-    // Decoder contract: inputs [features, c0, h0, c1, h1]; outputs [probabilities, c0, h0, c1, h1, logits].
-    // The recognisers expose their logits as output 5; the script classifier's probabilities are output 0.
-    const result = name === 'script' ? 0 : 5;
-    lines[name] = {
-      encoder,
-      decoder,
-      result,
-      classes: decoder.outputShape(result).pop(),
-      featureSize: decoder.inputs[0].data().length,
-      quant: decoder.info.outputs[result],
-      stateZero: [1, 2, 3, 4].map((k) => decoder.info.inputs[k].zeroPoint),
-    };
-  }
-  return { detector: new Graph(files['ocr/detector.tflite']), lines };
-}
-
-function detect(gray, width, height) {
-  const graph = ocr.detector;
-  graph.open([1, height, width, 1], false);
-  graph.inputs[0].data().set(gray);
-  graph.infer();
-  const shape = graph.outputShape(0);
-  const quant = graph.info.outputs[0];
-  return { data: graph.outputs[0].data().slice(), rows: shape[1], cols: shape[2], scale: quant.scale, zeroPoint: quant.zeroPoint };
-}
-
-/** A convolutional encoder over the whole line, then the recurrent decoder stepped once per 4-px column. */
-function sequence(model, columns, width) {
-  const line = ocr.lines[model];
-  line.encoder.open([1, width, 24, 1], false);
-  line.encoder.inputs[0].data().set(columns);
-  line.encoder.infer();
-  const features = line.encoder.outputs[0].data().slice();
-  const decoder = line.decoder;
-  const frames = features.length / line.featureSize;
-  // Recurrent state starts at real zero for every line.
-  for (let k = 1; k < 5; k++) decoder.inputs[k].data().fill(line.stateZero[k - 1]);
-  const out = new Uint8Array(frames * line.classes);
-  for (let t = 0; t < frames; t++) {
-    decoder.inputs[0].data().set(features.subarray(t * line.featureSize, (t + 1) * line.featureSize));
-    decoder.infer();
-    out.set(decoder.outputs[line.result].data(), t * line.classes);
-    for (let k = 1; k < 5; k++) decoder.inputs[k].data().set(decoder.outputs[k].data());
-  }
-  return { data: out, frames, classes: line.classes, scale: line.quant.scale, zeroPoint: line.quant.zeroPoint };
-}
-
 /** Four bidirectional LSTM layers: float [frames, 1, 10] in, [frames, 1, classes] out. */
 function inferInk(features, frames) {
   // A fresh interpreter per drawing: its recurrent state must not carry over.
@@ -366,6 +316,54 @@ function inferInk(features, frames) {
 
 const text = (buffer) => new TextDecoder('utf-8').decode(buffer);
 
+async function buildOcr2(files) {
+  const jsUrl = URL.createObjectURL(new Blob([files[ORT_JS]], { type: 'text/javascript' }));
+  const mjsUrl = URL.createObjectURL(new Blob([files[ORT_MJS]], { type: 'text/javascript' }));
+  const sessions = {};
+  try {
+    if (!self.ort) importScripts(jsUrl);
+    // One thread works without cross-origin isolation; inference already has its own worker.
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.proxy = false;
+    ort.env.wasm.wasmPaths = { mjs: mjsUrl };
+    ort.env.wasm.wasmBinary = files[ORT_WASM];
+    for (const name of ['det', 'cls', 'rec']) {
+      sessions[name] = await ort.InferenceSession.create(new Uint8Array(files['ocr2/' + name + '.onnx']), {
+        executionProviders: ['wasm'], graphOptimizationLevel: 'all',
+        enableCpuMemArena: false, enableMemPattern: false,
+      });
+    }
+    ocr2 = sessions;
+    return { labels: [text(files['ocr2/rec-labels.txt']), ''], classes: 0 };
+  } catch (e) {
+    await Promise.all(Object.values(sessions).map((session) => session.release()));
+    throw e;
+  } finally {
+    URL.revokeObjectURL(jsUrl);
+    URL.revokeObjectURL(mjsUrl);
+  }
+}
+
+async function inferOcr2(model, data, shape) {
+  if (!['det', 'cls', 'rec'].includes(model) || !ocr2) throw new Error('OCR model is not loaded');
+  if (!(data instanceof Float32Array) || shape.length !== 4 || shape[1] !== 3 ||
+      shape.some((n) => !Number.isInteger(n) || n <= 0) ||
+      shape.reduce((a, b) => a * b, 1) !== data.length) throw new Error('Invalid OCR input tensor');
+  const session = ocr2[model];
+  const input = new ort.Tensor('float32', data, shape);
+  let outputs;
+  try {
+    outputs = await session.run({ [session.inputNames[0]]: input });
+    const output = outputs[session.outputNames[0]];
+    if (output.type !== 'float32') throw new Error('Unexpected OCR output type: ' + output.type);
+    return { data: output.data.slice(), frames: output.dims.length === 3 ? output.dims[1] : 0,
+      classes: output.dims[output.dims.length - 1] };
+  } finally {
+    input.dispose();
+    if (outputs) for (const output of Object.values(outputs)) output.dispose();
+  }
+}
+
 async function load(id, kind, check) {
   let reported = -1;
   const progress = (loaded, total) => {
@@ -378,11 +376,8 @@ async function load(id, kind, check) {
   let got = await obtain(kind, check, progress);
   postMessage({ id, progress: true, loaded: -1, total: 0 });   // downloaded: now loading
   const build = async (files) => {
+    if (kind === 'ocr2') return buildOcr2(files);
     await startRuntime(files);
-    if (kind === 'ocr') {
-      ocr = buildOcr(files);
-      return { labels: [text(files['ocr/hani-labels.txt']), text(files['ocr/latn-labels.txt'])], classes: 0 };
-    }
     const graph = new Graph(files['ink/chinese_lstm_4x192.tflite']);
     graph.open([1, 1, 10], true);
     const classes = graph.outputShape(0).pop();
@@ -408,19 +403,14 @@ self.onmessage = (event) => {
   queue = queue.then(async () => {
     try {
       switch (message.op) {
+        case 'ocr2': {
+          const out = await inferOcr2(message.model, message.data, message.shape);
+          postMessage({ id: message.id, ...out }, [out.data.buffer]);
+          break;
+        }
         case 'load': {
           const loaded = await load(message.id, message.kind, message.check);
           postMessage({ id: message.id, labels: loaded.labels, classes: loaded.classes });
-          break;
-        }
-        case 'detect': {
-          const out = detect(message.gray, message.width, message.height);
-          postMessage({ id: message.id, ...out }, [out.data.buffer]);
-          break;
-        }
-        case 'sequence': {
-          const out = sequence(message.model, message.columns, message.width);
-          postMessage({ id: message.id, ...out }, [out.data.buffer]);
           break;
         }
         case 'ink': {

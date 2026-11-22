@@ -63,6 +63,7 @@ internal class CharacterNotingDictionary(private val inner: Dictionary) : Dictio
     override suspend fun popular(script: Script): List<EntryCard> = inner.popular(script).noted()
     override suspend fun wordOfTheDay(epochDay: Long, script: Script, levelMask: Int): EntryCard? = inner.wordOfTheDay(epochDay, script, levelMask).noted()
     override suspend fun entryDetail(id: Int, script: Script): EntryDetail = inner.entryDetail(id, script).noted()
+    override suspend fun entryOverview(id: Int, script: Script): EntryDetail = inner.entryOverview(id, script).noted()
     override suspend fun entryDetailByKey(naturalKey: String, script: Script): EntryDetail = inner.entryDetailByKey(naturalKey, script).noted()
     override suspend fun related(id: Int, kind: RelatedKind, script: Script, offset: Int, limit: Int) = inner.related(id, kind, script, offset, limit).noted()
     override suspend fun insideWords(id: Int, script: Script) = inner.insideWords(id, script).noted()

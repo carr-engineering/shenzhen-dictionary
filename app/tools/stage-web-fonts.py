@@ -255,8 +255,21 @@ def main():
         print(f'{name}: {kept} of {len(rare)} rare characters, {os.path.getsize(os.path.join(args.out, name)) / 1e6:.2f} MB')
     print(f'rare characters: {len(rare)}, without a glyph in any font: {len(left)}' + (f' ({ranges(left)})' if left else ''))
 
-    # Every file's SHA-256: the app verifies what it downloads (WebFont.kt).
-    index['sha256'] = {name: sha256(os.path.join(args.out, name)) for name in sorted(os.listdir(args.out)) if name != 'index.json'}
+    # Content-addressed URLs keep a cached font from being mistaken for the next release's font.
+    digests = {name: sha256(os.path.join(args.out, name)) for name in sorted(os.listdir(args.out))}
+    names = {}
+    for name, digest in digests.items():
+        base, extension = os.path.splitext(name)
+        names[name] = f'{base}-{digest[:12]}{extension}'
+        os.rename(os.path.join(args.out, name), os.path.join(args.out, names[name]))
+    for variant in VARIANTS:
+        entry = index[variant]
+        entry['tiers'] = [names[name] for name in entry['tiers']]
+        if 'full' in entry:
+            entry['full'] = names[entry['full']]
+    for entry in index['rare']:
+        entry['file'] = names[entry['file']]
+    index['sha256'] = {names[name]: digest for name, digest in digests.items()}
     with open(os.path.join(args.out, 'index.json'), 'w') as f:
         json.dump(index, f)
     print('wrote', os.path.join(args.out, 'index.json'))

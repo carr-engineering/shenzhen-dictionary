@@ -57,6 +57,7 @@ internal val TraditionalChineseStrings: Map<String, String> = mapOf(
     "Popular words" to "常用詞",
     "No matches" to "找不到相符的結果",
     "English · Pinyin · 汉字" to "英文 · 拼音 · 漢字",
+    "Loading…" to "正在載入…",
     "Downloading the dictionary…" to "正在下載詞典…",
     "{0} of {1} MB · kept on this device for offline use" to "{0} / {1} MB · 儲存在本裝置上，可離線使用",
     "The dictionary could not be downloaded" to "無法下載詞典",

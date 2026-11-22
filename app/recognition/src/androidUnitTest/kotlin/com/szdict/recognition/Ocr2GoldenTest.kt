@@ -1,6 +1,7 @@
 package com.szdict.recognition
 
 import java.io.File
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -13,10 +14,10 @@ import kotlin.test.assertTrue
 class Ocr2GoldenTest {
     private val testdata = File("src/androidInstrumentedTest/assets/testdata")
 
-    private fun withPipeline(block: (read: (String) -> OcrResult) -> Unit) {
+    private fun withPipeline(block: suspend (read: suspend (String) -> OcrResult) -> Unit) = runBlocking {
         if (!Ocr2Host.available) {
             println("OCR models not fetched: skipped")
-            return
+            return@runBlocking
         }
         val nets = Ocr2Host.nets()
         try {

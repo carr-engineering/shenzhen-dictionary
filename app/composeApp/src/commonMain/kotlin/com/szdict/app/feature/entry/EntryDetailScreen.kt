@@ -135,7 +135,7 @@ fun EntryDetailScreen(
         // Previous content stays while re-fetching; the bar shows only for slow refreshes (GLB-033).
         val bar = if (shown != null) launch { delay(150); refreshing = true } else null
         load = try {
-            val detail = session.dictionary(route.mode).entryDetail(route.entryId, script)
+            val detail = session.dictionary(route.mode).entryOverview(route.entryId, script)
             cache.derivedFor(detail)
             EntryLoad.Ready(detail)
         } catch (e: CancellationException) {

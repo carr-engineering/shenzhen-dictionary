@@ -25,16 +25,12 @@ private fun jsTerminate(worker: JsAny): Unit = js("worker.terminate()")
 private fun jsPostLoad(worker: JsAny, id: Int, kind: String, check: Boolean): Unit =
     js("worker.postMessage({ id: id, op: 'load', kind: kind, check: check })")
 
-private fun jsPostDetect(worker: JsAny, id: Int, address: Int, size: Int, width: Int, height: Int): Unit = js(
-    "{ const gray = new Uint8Array(wasmExports.memory.buffer, address, size).slice(); worker.postMessage({ id: id, op: 'detect', gray: gray, width: width, height: height }, [gray.buffer]); }"
-)
-
-private fun jsPostSequence(worker: JsAny, id: Int, model: String, address: Int, size: Int, width: Int): Unit = js(
-    "{ const columns = new Uint8Array(wasmExports.memory.buffer, address, size).slice(); worker.postMessage({ id: id, op: 'sequence', model: model, columns: columns, width: width }, [columns.buffer]); }"
-)
-
 private fun jsPostInk(worker: JsAny, id: Int, address: Int, count: Int, frames: Int): Unit = js(
     "{ const features = new Float32Array(wasmExports.memory.buffer, address, count).slice(); worker.postMessage({ id: id, op: 'ink', features: features, frames: frames }, [features.buffer]); }"
+)
+
+private fun jsPostOcr2(worker: JsAny, id: Int, model: String, address: Int, count: Int, batch: Int, height: Int, width: Int): Unit = js(
+    "{ const data = new Float32Array(wasmExports.memory.buffer, address, count).slice(); worker.postMessage({ id: id, op: 'ocr2', model: model, data: data, shape: [batch, 3, height, width] }, [data.buffer]); }"
 )
 
 private fun jsInt(o: JsAny, name: String): Int = js("(o[name] | 0)")
@@ -143,24 +139,6 @@ internal class WorkerClient(url: String) {
     suspend fun load(kind: String, check: Boolean, onProgress: (loaded: Long, total: Long) -> Unit): JsAny =
         call(onProgress) { id -> jsPostLoad(worker, id, kind, check) }
 
-    suspend fun detect(gray: ByteArray, width: Int, height: Int): JsAny = call { id ->
-        val size = width * height
-        withScopedMemoryAllocator { allocator ->
-            val base = allocator.allocate(size)
-            for (i in 0 until size) (base + i).storeByte(gray[i])
-            jsPostDetect(worker, id, base.address.toInt(), size, width, height)
-        }
-    }
-
-    suspend fun sequence(model: String, columns: ByteArray, width: Int): JsAny = call { id ->
-        val size = width * 24
-        withScopedMemoryAllocator { allocator ->
-            val base = allocator.allocate(size)
-            for (i in 0 until size) (base + i).storeByte(columns[i])
-            jsPostSequence(worker, id, model, base.address.toInt(), size, width)
-        }
-    }
-
     suspend fun ink(features: FloatArray, frames: Int): JsAny = call { id ->
         val count = frames * 10
         withScopedMemoryAllocator { allocator ->
@@ -173,5 +151,14 @@ internal class WorkerClient(url: String) {
     fun terminate() {
         jsTerminate(worker)
         fail("Recognizer is closed")
+    }
+
+    suspend fun ocr2(model: String, data: FloatArray, batch: Int, height: Int, width: Int): JsAny = call { id ->
+        require(data.size == batch * 3 * height * width)
+        withScopedMemoryAllocator { allocator ->
+            val base = allocator.allocate(data.size * 4)
+            for (i in data.indices) (base + i * 4).storeInt(data[i].toRawBits())
+            jsPostOcr2(worker, id, model, base.address.toInt(), data.size, batch, height, width)
+        }
     }
 }

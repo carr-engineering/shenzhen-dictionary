@@ -124,7 +124,7 @@ internal val DataSourceCredits: List<Credit> = listOf(
 
 internal val ModelCredits: List<Credit> = listOf(
     Credit("sherpa-onnx", "Voice recognition runtime", "Apache-2.0", listOf(CreditLink("sherpa-onnx", "https://github.com/k2-fsa/sherpa-onnx"))),
-    Credit("ONNX Runtime", "Inference runtime for voice recognition and, in the Android and iOS apps, text recognition", "MIT", listOf(CreditLink("ONNX Runtime", "https://github.com/microsoft/onnxruntime"))),
+    Credit("ONNX Runtime", "Inference runtime for voice recognition and text recognition", "MIT", listOf(CreditLink("ONNX Runtime", "https://github.com/microsoft/onnxruntime"))),
     Credit(
         "Streaming Paraformer (Mandarin / English)", "Voice recognition model", "Apache-2.0",
         listOf(
@@ -134,11 +134,11 @@ internal val ModelCredits: List<Credit> = listOf(
     ),
     Credit(
         "PP-OCR (PaddleOCR)",
-        "Text recognition models of the Android and iOS apps: PP-OCRv4 text detector, PP-OCRv6 recogniser (weights stored as 16-bit floats) and text-line orientation classifier (© PaddlePaddle Authors; ONNX files from RapidOCR)",
+        "Text recognition models on Android, iOS and Web: PP-OCRv4 text detector, PP-OCRv6 recogniser (weights stored as 16-bit floats) and text-line orientation classifier (© PaddlePaddle Authors; ONNX files from RapidOCR)",
         "Apache-2.0",
         listOf(CreditLink("PaddleOCR", "https://github.com/PaddlePaddle/PaddleOCR"), CreditLink("RapidOCR", "https://github.com/RapidAI/RapidOCR")),
     ),
-    Credit("LiteRT", "On-device runtime for handwriting recognition and, in the web app, text recognition", "Apache-2.0", listOf(CreditLink("LiteRT", "https://github.com/google-ai-edge/LiteRT"))),
+    Credit("LiteRT", "On-device runtime for handwriting recognition", "Apache-2.0", listOf(CreditLink("LiteRT", "https://github.com/google-ai-edge/LiteRT"))),
     Credit("opencc-kmp", "Simplified and Traditional Chinese conversion engine", "Apache-2.0", emptyList()),
 )
 
@@ -152,8 +152,9 @@ internal val LibraryCredits: List<LibraryCredit> = listOf(
     LibraryCredit("AndroidX Activity Compose", "1.12.2", "Android activity and Compose integration", "Apache-2.0", "https://developer.android.com/jetpack/androidx/releases/activity"),
     LibraryCredit("AndroidX DataStore Preferences", "1.2.1", "Persistent app settings", "Apache-2.0", "https://developer.android.com/jetpack/androidx/releases/datastore"),
     LibraryCredit("AndroidX Glance", "1.1.1", "Home screen widgets", "Apache-2.0", "https://developer.android.com/jetpack/androidx/releases/glance"),
-    LibraryCredit("LiteRT", "1.4.2", "On-device runtime for handwriting recognition and, in the web app, text recognition", "Apache-2.0", "https://github.com/google-ai-edge/LiteRT"),
+    LibraryCredit("LiteRT", "1.4.2", "On-device runtime for handwriting recognition", "Apache-2.0", "https://github.com/google-ai-edge/LiteRT"),
     LibraryCredit("ONNX Runtime", "1.23.2", "Text recognition runtime of the Android app", "MIT", "https://github.com/microsoft/onnxruntime"),
+    LibraryCredit("ONNX Runtime Web", "1.31.1", "Text recognition runtime of the web app", "MIT", "https://github.com/microsoft/onnxruntime"),
     LibraryCredit("Source Sans 3", "3.052", "Typeface for English, Pinyin and Jyutping (© Adobe; on iOS and Android with rare characters added, renamed)", "SIL OFL 1.1", "https://github.com/adobe-fonts/source-sans"),
     LibraryCredit("Noto Sans CJK", "2.004", "Chinese typeface of the web app", "SIL OFL 1.1", "https://github.com/notofonts/noto-cjk"),
     LibraryCredit("Plangothic", "2.9.5795", "Rare Chinese characters in the web, iOS and Android apps (subset, renamed)", "SIL OFL 1.1", "https://github.com/Fitzgerald-Porthmouth-Koenigsegg/Plangothic_Project"),

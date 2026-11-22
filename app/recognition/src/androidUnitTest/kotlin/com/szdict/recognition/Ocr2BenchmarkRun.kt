@@ -1,6 +1,7 @@
 package com.szdict.recognition
 
 import com.szdict.recognition.ocr2.Ocr2Options
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
 
@@ -21,9 +22,9 @@ import kotlin.test.Test
  */
 class Ocr2BenchmarkRun {
     @Test
-    fun run() {
-        val images = System.getenv("RECOGNITION_OCR2_IMAGES")?.let(::File) ?: return
-        val out = System.getenv("RECOGNITION_OCR2_OUT")?.let(::File) ?: return
+    fun run() = runBlocking {
+        val images = System.getenv("RECOGNITION_OCR2_IMAGES")?.let(::File) ?: return@runBlocking
+        val out = System.getenv("RECOGNITION_OCR2_OUT")?.let(::File) ?: return@runBlocking
         val settings = System.getenv("RECOGNITION_OCR2_OPTIONS").orEmpty().split(',').filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') }
         out.mkdirs()
         val scales = File(images, "scales.tsv").takeIf { it.isFile }?.readLines().orEmpty().filter { it.isNotBlank() }.associate { it.substringBefore('\t') to it.substringAfter('\t') }

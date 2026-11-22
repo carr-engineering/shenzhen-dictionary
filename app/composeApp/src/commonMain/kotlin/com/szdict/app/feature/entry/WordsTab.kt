@@ -8,12 +8,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,6 +47,7 @@ import com.szdict.app.ui.kit.TranslucentChipBar
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 import com.szdict.core.api.EntryCard
 import com.szdict.core.api.RelatedKind
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 internal const val RELATED_PAGE_SIZE = 25
@@ -91,6 +95,10 @@ internal fun wordsSectionAt(labels: IntArray, firstIndex: Int): Int {
 internal fun LazyListScope.wordsTabItems(derived: EntryDerived, actions: EntryActions, strings: AppStrings, list: LazyListState? = null) {
     val rowPadding = Modifier.padding(horizontal = 16.dp)
     val sections = derived.related
+    if (sections == null) {
+        item(key = "words-loading") { RelatedLoading(derived, actions, rowPadding) }
+        return
+    }
     val nav = list != null && sections.count { it.total > 0 || it.cards.isNotEmpty() } >= 2
     if (nav) {
         val labels = wordsLabelIndices(sections.map { it.cards.size }, sections.map { it.hasMore }, nav = true)
@@ -178,6 +186,35 @@ private fun WordsNav(sections: List<RelatedSection>, labels: IntArray, list: Laz
     }
 }
 
+@Composable
+private fun RelatedLoading(derived: EntryDerived, actions: EntryActions, modifier: Modifier) {
+    val strings = appStrings()
+    val palette = LocalDictionaryPalette.current
+    var attempt by remember(derived) { mutableIntStateOf(0) }
+    var failed by remember(derived) { mutableStateOf(false) }
+    LaunchedEffect(derived, attempt) {
+        failed = false
+        try {
+            val dictionary = actions.session.dictionary(actions.route.mode)
+            val script = derived.detail.script
+            derived.installRelatedPages(derived.detail.related.ifEmpty {
+                RelatedKind.entries.map { dictionary.related(derived.detail.id, it, script) }
+            })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            failed = true
+        }
+    }
+    Box(modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+        if (failed) {
+            TextButton(onClick = { attempt++ }) { Text(strings.text("Try again")) }
+        } else {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = palette.accent)
+        }
+    }
+}
+
 /** Fetches the next page of a section (ENT-064); failures leave the section as it is. */
 private fun loadMore(section: RelatedSection, derived: EntryDerived, actions: EntryActions) {
     if (section.loading || !section.hasMore) return
@@ -185,9 +222,9 @@ private fun loadMore(section: RelatedSection, derived: EntryDerived, actions: En
     actions.session.scope.launch {
         try {
             val page = actions.session.dictionary(actions.route.mode)
-                .related(derived.detail.id, section.kind, actions.script, offset = section.fetched, limit = RELATED_PAGE_SIZE)
+                .related(derived.detail.id, section.kind, derived.detail.script, offset = section.fetched, limit = RELATED_PAGE_SIZE)
             section.append(page)
-        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // GLB-034: stays recoverable — the button can be tapped again.

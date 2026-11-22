@@ -107,6 +107,19 @@ jobs:
         with:
           node-version: 22
       - run: ci/fetch-build-inputs.sh
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/cache@v4
+        with:
+          path: |
+            app/recognition/build/ocr2-models
+            app/recognition/web-ort-runtime
+            app/composeApp/build/web/font-cache
+          key: web-models-fonts-${{ hashFiles('app/recognition/tools/fetch_ocr2_models.sh', 'app/recognition/tools/pack_ocr2_recogniser.py', 'app/recognition/tools/fetch_ort_web.sh', 'app/tools/stage-web-fonts.py') }}
+      - name: Restore Web OCR models and stage CJK fonts
+        run: |
+          sh app/recognition/tools/fetch_ocr2_models.sh
+          sh app/recognition/tools/fetch_ort_web.sh
+          uv run --no-project --with fonttools app/tools/stage-web-fonts.py
       - name: Build
         working-directory: app
         run: >-

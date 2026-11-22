@@ -10,6 +10,7 @@ import com.szdict.core.api.DictMode
 import com.szdict.core.api.Dictionary
 import com.szdict.core.api.DictionaryFactory
 import com.szdict.core.web.WebStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.w3c.dom.MessageEvent
@@ -56,13 +57,24 @@ class Download(val file: String, val loaded: Long, val total: Long)
  * query first needs it and never holds up a search (ARCH-143). This class starts the worker, opens
  * dictionaries over it and exposes the first-visit progress and an installed update to the shell.
  */
-class WebDatasets(private val audio: WebAudioPlayer, private val scope: CoroutineScope) {
+class WebDatasets(
+    private val audio: WebAudioPlayer,
+    private val scope: CoroutineScope,
+    private val initialMode: DictMode?,
+) {
     /** Files being fetched now, by URL. */
     val downloads = mutableStateMapOf<String, Download>()
 
-    /** The last dataset download failed (offline first visit, missing file). Cleared by the next attempt. */
-    var failed by mutableStateOf(false)
+    /** Keep the startup screen visible until the first dictionary has opened. */
+    var initialOpenPending by mutableStateOf(true)
         private set
+
+    /** The last dataset download failed (offline first visit, missing file). Cleared by the next attempt. */
+    private val failures = mutableStateMapOf<String, Boolean>()
+
+    val failed: Boolean get() = failures.isNotEmpty()
+
+    fun failed(mode: DictMode): Boolean = datasetFile(mode) in failures
 
     /** False when the dataset could not be kept in OPFS and lives in memory for this page only. */
     var persistent by mutableStateOf(true)
@@ -101,9 +113,9 @@ class WebDatasets(private val audio: WebAudioPlayer, private val scope: Coroutin
                 if (event.background) return   // an update beside the dataset in use: nothing to wait for
                 if (event.done) {
                     downloads.remove(file)
-                    if (event.error != null && isDataset(file)) failed = true
+                    if (event.error != null && isDataset(file)) failures[file] = true
                 } else {
-                    if (isDataset(file)) failed = false
+                    failures.remove(file)
                     downloads[file] = Download(file, event.loaded.toLong(), event.total.toLong())
                 }
             }
@@ -111,12 +123,9 @@ class WebDatasets(private val audio: WebAudioPlayer, private val scope: Coroutin
     }
 
     /** Progress over the dataset files (not the lazily fetched packs), or null when none is downloading. */
-    val datasetProgress: Download?
-        get() {
-            val active = downloads.values.filter { isDataset(it.file) }
-            if (active.isEmpty()) return null
-            return Download(active.first().file, active.sumOf { it.loaded }, active.sumOf { it.total })
-        }
+    val datasetProgress: Download? get() = downloads.values.firstOrNull { isDataset(it.file) }
+
+    fun progress(mode: DictMode): Download? = downloads[datasetFile(mode)]
 
     suspend fun open(mode: DictMode): Dictionary {
         if (!catalogRequested) {
@@ -132,10 +141,23 @@ class WebDatasets(private val audio: WebAudioPlayer, private val scope: Coroutin
             }
         }
         // Its answers name the characters about to be shown: the rare-character font follows them (WebFont.kt).
-        return CharacterNotingDictionary(DictionaryFactory.open(DATA_DIR, mode))
+        return try {
+            CharacterNotingDictionary(DictionaryFactory.open(DATA_DIR, mode)).also {
+                failures.remove(datasetFile(mode))
+                if (initialMode == null || initialMode == mode) initialOpenPending = false
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            downloads.remove(datasetFile(mode))
+            failures[datasetFile(mode)] = true
+            throw e
+        }
     }
 
     /** The files of the first-visit progress: a mode's main dataset, not its packs or language model. */
+    private fun datasetFile(mode: DictMode) = "$DATA_DIR/${mode.datasetName}.db"
+
     private fun isDataset(file: String) = !file.contains("/packs/") && !file.endsWith("-lm.db")
 
     companion object {

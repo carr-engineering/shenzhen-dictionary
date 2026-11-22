@@ -212,8 +212,8 @@ private fun ExamplesSection(detail: EntryDetail, derived: EntryDerived, actions:
     // Read after the entry has rendered; absence is silent (GLB-035, ENT-108).
     LaunchedEffect(derived) {
         if (derived.examples != null) return@LaunchedEffect
-        derived.examples = if (detail.exampleCount <= 0) emptyList() else try {
-            actions.session.dictionary(actions.route.mode).examples(detail.id, actions.script).items
+        derived.examples = try {
+            actions.session.dictionary(actions.route.mode).examples(detail.id, detail.script).items
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

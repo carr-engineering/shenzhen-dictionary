@@ -23,8 +23,9 @@
     <link rel="preload" href="composeResources/com.szdict.app.resources/font/source_sans_3_bold.otf" as="fetch" crossorigin>
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #faf7f1; }
+        #app { position: absolute; inset: 0; }
         #loading {
-            position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
             gap: 14px; font: 15px system-ui, sans-serif; color: #6b665c; background: #faf7f1;
         }
         #loading .name { font-size: 22px; font-weight: 600; color: #2b2925; }
@@ -43,6 +44,7 @@
     </style>
 </head>
 <body>
+<div id="app"></div>
 <div id="loading" role="status">
     <div class="name" id="loading-name">Shenzhen Dictionary</div>
     <div class="bar"></div>
@@ -64,15 +66,25 @@
         document.getElementById('loading-name').textContent = name;
         if (name !== 'Shenzhen Dictionary') document.documentElement.lang = name === '深圳词典' ? 'zh-Hans' : 'zh-Hant';
     } catch (e) {}
+    var language = document.documentElement.lang;
+    var loadingText = language === 'zh-Hans' ? '正在加载…' : language === 'zh-Hant' ? '正在載入…' : 'Loading…';
+    var downloadText = language === 'zh-Hans' ? '正在下载词典…' :
+        language === 'zh-Hant' ? '正在下載詞典…' : 'Downloading the dictionary…';
+    document.getElementById('loading-text').textContent = loadingText;
 
     // The CJK font's first tier is fetched with the page, beside the code and the dataset, and is
     // here when the app asks for it (WebFont.kt chooses the same variant from the same settings).
+    var routeMode = /^\/yue(\/|$)/.test(location.pathname) ? 'cantonese' : /^\/zh(\/|$)/.test(location.pathname) ? 'mandarin' : null;
     try {
         var stored = function (key) { try { return localStorage.getItem('szdict.setting.' + key); } catch (e) { return null; } };
-        var dictMode = (stored('dictionary_mode') || '').trim().toLowerCase();
+        var dictMode = routeMode || (stored('dictionary_mode') || '').trim().toLowerCase();
         var variant = dictMode === 'cantonese' || dictMode === 'yue' ? 'hk'
             : (stored('script.mandarin') || '').trim().toLowerCase() === 'traditional' ? 'tc' : 'sc';
-        fetch('fonts/index.json').then(function (r) { return r.ok ? r.json() : null; }).then(function (index) {
+        window.szdictFontIndex = fetch('fonts/index.json').then(function (r) {
+            return r.ok ? r.text() : null;
+        }).catch(function () { return null; });
+        window.szdictFontIndex.then(function (indexText) {
+            var index = indexText && JSON.parse(indexText);
             var tiers = index && index[variant] && index[variant].tiers;
             if (!tiers || !tiers.length) return;
             var link = document.createElement('link');
@@ -91,12 +103,20 @@
         if (storeStarted) return;
         storeStarted = true;
         try {
-            var mode = /^\/yue(\/|$)/.test(location.pathname) ? 'cantonese' : /^\/zh(\/|$)/.test(location.pathname) ? 'mandarin' : null;
-            try { mode = mode || localStorage.getItem('szdict.setting.dictionary_mode'); } catch (e) {}
+            var mode = routeMode;
+            try { mode = mode || (localStorage.getItem('szdict.setting.dictionary_mode') || '').trim().toLowerCase(); } catch (e) {}
             var worker = new Worker('sqlite-worker.js', { type: 'module' });
             var events = [];
-            worker.addEventListener('message', function (event) { if (event.data && event.data.id === -1) events.push(event.data); });
-            worker.postMessage({ warm: 'data/' + (mode === 'cantonese' ? 'cantonese' : 'mandarin') + '.db' });
+            var dataset = 'data/' + (mode === 'cantonese' || mode === 'yue' ? 'cantonese' : 'mandarin') + '.db';
+            worker.addEventListener('message', function (event) {
+                if (!event.data || event.data.id !== -1) return;
+                events.push(event.data);
+                var update = event.data.data;
+                var message = document.getElementById('loading-text');
+                if (!message || update.evt !== 'download' || update.file !== dataset || update.background) return;
+                message.textContent = update.done ? loadingText : downloadText;
+            });
+            worker.postMessage({ warm: dataset });
             window.szdictStore = { worker: worker, events: events };
             // Leaving the page (reload, navigation, closing) ends the worker at once, so the next
             // page opens the stored datasets instead of waiting for them or downloading them again.
@@ -117,16 +137,20 @@
     }
     var sw = navigator.serviceWorker;
     if (!sw) { boot(); return; }
-    // A newer app shell that an earlier visit downloaded takes over now, before the app starts
-    // (ARCH-145); otherwise the page starts with the shell it has.
+    window.addEventListener('load', function () { sw.register('sw.js').catch(function () {}); });
+    if (!sw.controller) { boot(); return; }
+    // Only a controlled page can have a shell update to activate. Cap the registration lookup so
+    // a busy service worker cannot delay the dictionary and app code on a normal startup.
+    var check = setTimeout(boot, 250);
     sw.getRegistration().then(function (registration) {
-        if (registration && registration.waiting && sw.controller) {
-            sw.addEventListener('controllerchange', function () { location.reload(); });
+        clearTimeout(check);
+        if (started) return;
+        if (registration && registration.waiting) {
+            sw.addEventListener('controllerchange', function () { location.reload(); }, { once: true });
             registration.waiting.postMessage('activate');
             setTimeout(boot, 2000);
         } else boot();
-    }, boot);
-    window.addEventListener('load', function () { sw.register('sw.js').catch(function () {}); });
+    }, function () { clearTimeout(check); boot(); });
 })();
 </script>
 </body>

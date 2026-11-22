@@ -3,12 +3,11 @@ package com.szdict.recognition
 import com.szdict.recognition.ink.InkNet
 import com.szdict.recognition.ink.InkPipeline
 import com.szdict.recognition.ink.ScriptClasses
-import com.szdict.recognition.ocr.DetectorOutput
-import com.szdict.recognition.ocr.OcrNets
-import com.szdict.recognition.ocr.OcrOptions
-import com.szdict.recognition.ocr.OcrPipeline
-import com.szdict.recognition.ocr.SequenceModel
-import com.szdict.recognition.ocr.SequenceOutput
+import com.szdict.recognition.ocr2.FloatSink
+import com.szdict.recognition.ocr2.Ocr2Nets
+import com.szdict.recognition.ocr2.Ocr2Options
+import com.szdict.recognition.ocr2.Ocr2Pipeline
+import com.szdict.recognition.ocr2.RecognitionOutput
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -130,11 +129,11 @@ class WebModel internal constructor(private val kind: String) {
 
 /**
  * Entry points for the browser recognisers. Both run fully in the page (a dedicated worker with
- * the TFLite Web runtime); the only network requests are the model files and their manifest.
+ * ONNX Runtime Web for OCR and TFLite Web for handwriting); network requests fetch model files and their manifest.
  */
 object WebRecognizers {
-    /** The seven OCR graphs with their label tables, and the runtime. */
-    val textModel = WebModel("ocr")
+    /** The three PP-OCR graphs, recogniser label table and ONNX runtime. */
+    val textModel = WebModel("ocr2")
 
     /** The Digital Ink network with its label table, and the runtime. */
     val handwritingModel = WebModel("ink")
@@ -159,15 +158,26 @@ object WebRecognizers {
 
 private fun labels(text: String): List<String> = text.split('\n').let { if (it.last().isEmpty()) it.dropLast(1) else it }
 
-private class WorkerOcrNets(private val worker: WorkerClient) : OcrNets {
-    override suspend fun detect(gray: ByteArray, width: Int, height: Int): DetectorOutput {
-        val reply = worker.detect(gray, width, height)
-        return DetectorOutput(replyBytes(reply, "data"), replyInt(reply, "rows"), replyInt(reply, "cols"), replyFloat(reply, "scale"), replyInt(reply, "zeroPoint"))
+private class WorkerOcr2Nets(private val worker: WorkerClient) : Ocr2Nets {
+    private suspend fun run(model: String, batch: Int, height: Int, width: Int, fill: (FloatSink) -> Unit): JsAny {
+        val data = FloatArray(batch * 3 * height * width)
+        fill(object : FloatSink {
+            override fun put(offset: Int, source: FloatArray, count: Int) { source.copyInto(data, offset, 0, count) }
+        })
+        return worker.ocr2(model, data, batch, height, width)
     }
 
-    override suspend fun sequence(model: SequenceModel, columns: ByteArray, width: Int): SequenceOutput {
-        val reply = worker.sequence(model.assetPrefix, columns, width)
-        return SequenceOutput(replyBytes(reply, "data"), replyInt(reply, "frames"), replyInt(reply, "classes"), replyFloat(reply, "scale"), replyInt(reply, "zeroPoint"))
+    override suspend fun detect(height: Int, width: Int, fill: (FloatSink) -> Unit): FloatArray =
+        replyFloats(run("det", 1, height, width, fill), "data").also { check(it.size == height * width) }
+
+    override suspend fun classify(batch: Int, fill: (FloatSink) -> Unit): FloatArray =
+        replyFloats(run("cls", batch, 48, 192, fill), "data").also { check(it.size == batch * 2) }
+
+    override suspend fun recognize(batch: Int, width: Int, fill: (FloatSink) -> Unit): RecognitionOutput {
+        val reply = run("rec", batch, 48, width, fill)
+        val frames = replyInt(reply, "frames")
+        val classes = replyInt(reply, "classes")
+        return RecognitionOutput(replyFloats(reply, "data").also { check(it.size == batch * frames * classes) }, frames, classes)
     }
 
     override fun close() = Unit   // the worker belongs to the WebModel
@@ -182,7 +192,7 @@ private class WorkerInkNet(private val worker: WorkerClient, override val classe
 private class WebTextRecognizer(private val model: WebModel, private val alternatives: Int) : TextRecognizer {
     private val mutex = Mutex()
     private var closed = false
-    private var loaded: Pair<WebModel.Session, OcrPipeline>? = null
+    private var loaded: Pair<WebModel.Session, Ocr2Pipeline>? = null
 
     override suspend fun recognize(image: OcrImage): OcrResult {
         check(!closed) { "Recognizer is closed" }
@@ -190,7 +200,7 @@ private class WebTextRecognizer(private val model: WebModel, private val alterna
         return mutex.withLock {
             check(!closed) { "Recognizer is closed" }
             val pipeline = loaded?.takeIf { it.first === session }?.second
-                ?: OcrPipeline(WorkerOcrNets(session.worker), labels(session.labels[0]), labels(session.labels[1]), OcrOptions(alternatives = alternatives))
+                ?: Ocr2Pipeline(WorkerOcr2Nets(session.worker), labels(session.labels[0]), Ocr2Options(alternatives = alternatives))
                     .also { loaded = session to it }
             val context = coroutineContext
             try {

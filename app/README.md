@@ -17,7 +17,8 @@ Kotlin Multiplatform + Compose Multiplatform. Targets: Android, iOS (iPhone and 
 uv run pipeline/fetch.py && uv run pipeline/packs/build_packs.py && uv run pipeline/build.py   # datasets + packs -> pipeline/out
 app/tools/publish-animator.sh        # stroke-order library (Android, JVM, Wasm, iOS) -> app/local-maven (needs ../shenzhen_hanzi_animator_kmp; ANIMATOR_SKIP_IOS=1 without Xcode)
 (cd app && ./gradlew :recognition:fetchModels)   # handwriting model (Google ML Kit's download) and the TFLite Web runtime
-(cd app && ./gradlew :recognition:fetchOcr2Models)   # OCR models of the Android and iOS apps (16 MB; downloads 31 MB from ModelScope, needs uv)
+(cd app && ./gradlew :recognition:fetchOcr2Models)   # shared OCR models (16 MB; downloads 31 MB from ModelScope, needs uv)
+sh app/recognition/tools/fetch_ort_web.sh   # ONNX Runtime Web for OCR (~15 MB)
 app/tools/fetch-voice-model.sh       # sherpa-onnx library + voice model (~280 MB)
 (cd app && uv run --no-project --with fonttools --with cffsubr tools/stage-app-fonts.py)   # iOS/Android interface font with rare characters (below)
 ```
@@ -38,8 +39,8 @@ cd app
   to the evaluated file). Android packages them as assets and runs them with
   `com.microsoft.onnxruntime:onnxruntime-android` 1.23.2 (19 MB of native code, arm64); iOS gets them
   through `stageIosAssets` and runs them on the onnxruntime xcframework that `speech` links. The
-  TensorFlow Lite OCR graphs in `assets/models/ocr/` are the Web build's and are left out of the
-  Android package and the iOS bundle. Without the models the apps build with a warning and OCR fails
+  Web build serves the same models with ONNX Runtime Web. The browser downloads them on first
+  use of OCR. Without the models the mobile apps build with a warning and OCR fails
   with an error. `RECOGNITION_OCR2_IMAGES=<dir of png> RECOGNITION_OCR2_OUT=<dir> ./gradlew
   :recognition:testDebugUnitTest --tests '*Ocr2BenchmarkRun*'` runs the pipeline on the host and
   writes results that `ocr-baseline/tools/score.py` scores.
@@ -101,8 +102,8 @@ from the `PrivacyPolicy*.kt` sources).
   variant in use from the font host. `uv run --no-project --with fonttools tools/stage-web-fonts.py`
   cuts the SC, TC and HK variants into frequency tiers under `build/web/static/cjk/fonts` — about
   1.5 MB for the first, which also holds every character of the interface text. The
-  distribution includes them and the app fetches them in order; `index.html` requests the first
-  tier with the page (beside the code and the dataset), so hanzi appear with the first frames.
+  release workflow stages them and the app fetches them in order. The page requests the first
+  tier beside the code and dataset and waits for it before showing the app.
   The option
   `--full` stages the complete fonts for a deployment that must not ask the font host. The
   same run cuts the rare tier: the 2,432 characters of the datasets and packs that Noto Sans CJK

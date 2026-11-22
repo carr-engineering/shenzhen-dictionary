@@ -77,7 +77,7 @@ internal class Ocr2Pipeline(
     private class Reading(val symbols: List<Symbol>, val frames: Int, val aspect: Double, val batchAspect: Double)
 
     /** @param checkpoint called between stages and batches; throw from it to cancel. */
-    fun recognize(image: OcrImage, checkpoint: () -> Unit = {}): OcrResult {
+    suspend fun recognize(image: OcrImage, checkpoint: () -> Unit = {}): OcrResult {
         timings.clear()
         var page = timed("prepare") { BgrImage.fromArgb(image) }
         val longest = max(page.width, page.height)
@@ -180,7 +180,7 @@ internal class Ocr2Pipeline(
         return OcrResult(image.width, image.height, Geometry.readingOrder(horizontal, false, ::bounds) + Geometry.readingOrder(vertical, true, ::bounds))
     }
 
-    private fun detect(page: BgrImage): List<TextBox> {
+    private suspend fun detect(page: BgrImage): List<TextBox> {
         val shorter = min(page.width, page.height)
         val longer = max(page.width, page.height)
         val grow = when {
@@ -213,7 +213,7 @@ internal class Ocr2Pipeline(
 
     private fun aspect(image: BgrImage): Double = image.width / image.height.toDouble()
 
-    private fun classify(crops: List<Crop>, checkpoint: () -> Unit) {
+    private suspend fun classify(crops: List<Crop>, checkpoint: () -> Unit) {
         val order = crops.indices.sortedBy { aspect(crops[it].image) }
         for (start in order.indices step options.batch) {
             checkpoint()
@@ -238,7 +238,7 @@ internal class Ocr2Pipeline(
         }
     }
 
-    private fun read(crops: List<Crop>, checkpoint: () -> Unit): Array<Reading?> {
+    private suspend fun read(crops: List<Crop>, checkpoint: () -> Unit): Array<Reading?> {
         val out = arrayOfNulls<Reading>(crops.size)
         val order = crops.indices.sortedBy { aspect(crops[it].image) }
         for (start in order.indices step options.batch) {

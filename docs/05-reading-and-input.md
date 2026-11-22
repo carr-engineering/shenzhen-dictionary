@@ -445,8 +445,8 @@ handled without index errors.
 
 **Android, iOS and Web** (`PROD-021`, `PROD-022`, `PROD-052`). Every platform offers the same image
 inputs — live camera feed, picking a local file, drag and drop, and paste (`CAM-130`) — and only the
-recognition engine differs: the bundled PP-OCR models on Android and iOS, and the ML Kit model
-repackaged for the browser on Web (`CAM-051`, `CAM-134`). Read
+recognition runtime differs: the PP-OCR ONNX models are bundled on Android and iOS and fetched
+on first use of OCR on Web (`CAM-051`, `CAM-134`). Read
 [02 — Global Conventions](02-global-conventions.md) and the Text Analysis part of this document first
 — the tap-to-word behaviour is shared.
 
@@ -799,8 +799,8 @@ stored as 16-bit floats), **bundled** (models inside the app, never downloaded a
 builds have no network permission, `ARCH-104`) and run on the CPU with ONNX Runtime; the apps depend
 on neither ML Kit nor Apple Vision. Every recognised character carries the recogniser's next-best
 readings (up to 8, best first), which the review offers as alternatives for that character. Web:
-the ML Kit Chinese text-recognition model **repackaged for the browser**, run locally in the page;
-its one-time download and version checks are the only network requests OCR makes on Web and carry no
+the same PP-OCR ONNX models run locally in a worker with ONNX Runtime Web.
+The models and runtime are downloaded on first use of OCR. These downloads and version checks carry no
 user data (`CAM-134`). The 20 s timeout of `CAM-050` covers recognition only, never the model
 download.
 
@@ -833,15 +833,14 @@ raw image and recognition result are dataset-independent). Taps are ignored unti
 completes.
 
 `CAM-134` `[MUST]` **Web recognition model** (`GLB-035`, `ARCH-197`, `DATA-196`; budgets `PERF-059`):
-- **Delivery.** The model (~2.61 MB) is not part of the app shell. It is downloaded from `szdict.com`
+- **Delivery.** The model and runtime set (~31 MB uncompressed) is not part of the app shell. It is downloaded from `szdict.com`
   on the **first use of OCR** — the first time the OCR destination is opened — off the UI thread,
   verified against the SHA-256 in the model manifest, and **stored for offline use** in persistent
   browser storage (OPFS or Cache Storage, like the dataset, `ARCH-145`).
 - **Download state.** While no verified model is stored, the review phase shows, in place of the
-  recognition spinner, `Downloading text recognition… 45%` with progress (the size, `2.6 MB`, is
-  stated); the capture and input controls stay usable, and an image supplied meanwhile is recognised
+  recognition spinner, `Downloading text recognition… 45%` with progress (the size reported by the manifest is stated); the capture and input controls stay usable, and an image supplied meanwhile is recognised
   as soon as the model is ready. A failed download, or opening OCR offline before the first download,
-  shows `Text recognition needs a one-time download of 2.6 MB. Check your connection and try again.`
+  shows a message with the download size and connection guidance
   with `Retry` (`GLB-034`); the image stays on screen and the rest of the app is unaffected.
 - **Versioning.** The manifest carries the model version and its SHA-256. When online, opening the
   OCR destination fetches the manifest (at most once per session); if the published version equals
@@ -1030,7 +1029,7 @@ discarded (`CAM-003`).
 |---------|---------|-----|-----|
 | OCR destination | Required | Required | Required (`PROD-022`, `PROD-052`) |
 | Input methods (`CAM-130`) | camera, pick, drop, paste | camera, pick, drop, paste | camera, pick, drop, paste |
-| Recogniser | ML Kit Chinese, bundled model (on-device) | Apple Vision | ML Kit Chinese model repackaged for the browser, run in the page (`CAM-051`) |
+| Recogniser | Bundled PP-OCR models via ONNX Runtime | Bundled PP-OCR models via ONNX Runtime | Same PP-OCR models via ONNX Runtime Web in a worker (`CAM-051`) |
 | Recogniser delivery | inside the app | system framework | ~2.61 MB download on first OCR use, stored offline, versioned by manifest (`CAM-134`) |
 | Camera | CameraX | AVFoundation | `getUserMedia`, browser permission prompt (`CAM-010`) |
 | Tap to focus | supported where the device meters | supported where the device meters | only where the browser exposes focus constraints (`CAM-034`) |

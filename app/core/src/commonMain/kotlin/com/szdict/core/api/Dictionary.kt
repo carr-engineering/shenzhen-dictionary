@@ -109,6 +109,9 @@ interface Dictionary {
 
     suspend fun entryDetail(id: Int, script: Script): EntryDetail
 
+    /** Definitions and header, without loading examples or related-word pages. */
+    suspend fun entryOverview(id: Int, script: Script): EntryDetail = entryDetail(id, script)
+
     /** Lookup by natural key (DATA-014); throws [DictError.RecordMissing] when unknown. */
     suspend fun entryDetailByKey(naturalKey: String, script: Script): EntryDetail
 

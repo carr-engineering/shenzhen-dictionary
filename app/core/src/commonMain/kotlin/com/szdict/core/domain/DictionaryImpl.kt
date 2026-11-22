@@ -384,9 +384,8 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
     override suspend fun popular(script: Script): List<EntryCard> = guard { cards.build(store.popular().map { RowRef(it) }, script) }
 
     override suspend fun wordOfTheDay(epochDay: Long, script: Script, levelMask: Int): EntryCard? = guard {
-        val ids = store.hskEntryIds(levelMask)
-        val i = DailyPick.index(epochDay, levelMask, ids.size)
-        if (i < 0) null else cards.build(listOf(RowRef(ids[i])), script, merge = false).firstOrNull()
+        val id = store.dailyEntryId(levelMask) { count -> DailyPick.index(epochDay, levelMask, count) }
+        id?.let { cards.build(listOf(RowRef(it)), script, merge = false).firstOrNull() }
     }
 
     // ------------------------------------------------------------------ entry detail
@@ -402,6 +401,10 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
 
     override suspend fun entryDetail(id: Int, script: Script): EntryDetail = guard { detail(id, script) }
 
+    override suspend fun entryOverview(id: Int, script: Script): EntryDetail = guard {
+        detail(id, script, includeSupplementary = false)
+    }
+
     private fun blockKind(s: String): BlockKind = when (s) {
         "cantonese" -> BlockKind.CANTONESE
         "cantonese_adapted" -> BlockKind.CANTONESE_ADAPTED
@@ -410,13 +413,15 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         else -> BlockKind.MANDARIN
     }
 
-    private suspend fun detail(id: Int, script: Script): EntryDetail = coroutineScope {
+    private suspend fun detail(id: Int, script: Script, includeSupplementary: Boolean = true): EntryDetail = coroutineScope {
         val e = entryOrThrow(id)
         val labels = store.labels()
         val pos = store.posLabels()
         val card = cards.build(listOf(RowRef(id)), script).firstOrNull() ?: throw DictException(DictError.RecordMissing("entry $id"))
-        val relatedJob = async { RelatedKind.entries.map { relatedPage(e, it, script, 0, 25) }.filter { it.total > 0 } }
-        val examplesJob = async { exampleIds(e).size }
+        val relatedJob = if (includeSupplementary) {
+            async { RelatedKind.entries.map { relatedPage(e, it, script, 0, 25) }.filter { it.total > 0 } }
+        } else null
+        val examplesJob = if (includeSupplementary) async { exampleIds(e).size } else null
 
         val entries = HashMap(store.entries(card.memberIds))
         val targets = entries.values.mapNotNull { m -> m.body.redirect?.takeIf { it.resolved }?.target }.filter { it !in entries }
@@ -488,7 +493,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
             HskBadge(level, tokens, tokens.map { pos[it] ?: Label.missing(it) })
         }
         val chars = card.headword.cps().filter { isHanzi(it) }.distinct().map { cpToString(it) }
-        EntryDetail(mode, script, card, cards.altReadings(e, labels), badges, sections, merged, relatedJob.await(), chars, examplesJob.await())
+        EntryDetail(mode, script, card, cards.altReadings(e, labels), badges, sections, merged, relatedJob?.await().orEmpty(), chars, examplesJob?.await() ?: 0)
     }
 
     // ------------------------------------------------------------------ related / inside words

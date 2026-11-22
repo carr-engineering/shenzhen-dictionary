@@ -577,7 +577,13 @@ class FixtureDatasetTest {
         val yj = dict.entryDetail(dict.search("研究", s).groups()[0].cards[0].id, s)
         assertEquals(listOf(RelatedKind.STARTING_WITH), yj.related.map { it.kind })
         val sh = dict.search("上海", s).groups()[0].cards[0].id
-        val rel = dict.entryDetail(sh, s).related.associate { it.kind to it.cards.map { c -> c.headword } }
+        val full = dict.entryDetail(sh, s)
+        val overview = dict.entryOverview(sh, s)
+        assertEquals(full.card.headword, overview.card.headword)
+        assertEquals(full.members, overview.members)
+        assertTrue(overview.related.isEmpty())
+        assertEquals(0, overview.exampleCount)
+        val rel = full.related.associate { it.kind to it.cards.map { c -> c.headword } }
         assertEquals(listOf("海"), rel[RelatedKind.WITHIN])
         assertEquals(listOf("海上"), rel[RelatedKind.CONTAINING_REVERSED])
         val sheng = dict.search("生", s).groups()[0].cards[0].id

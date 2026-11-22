@@ -1,9 +1,12 @@
+@file:OptIn(ExperimentalWasmJsInterop::class)
+
 package com.szdict.app.platform
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -17,6 +20,7 @@ import com.szdict.app.AppSession
 import com.szdict.app.Destination
 import com.szdict.core.api.DictMode
 import com.szdict.core.api.Script
+import kotlinx.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -24,6 +28,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlin.js.ExperimentalWasmJsInterop
+import kotlin.js.Promise
 
 /**
  * The Web CJK font (ARCH-005, GLB-008). Compose draws text itself and cannot use the browser's
@@ -44,7 +50,7 @@ import kotlinx.serialization.json.JsonPrimitive
  *  2. the further tiers, down to every character the datasets and packs contain;
  *  3. the complete font, only once Reading or OCR is opened, where text from outside the dictionary is shown.
  * Without staged subsets the complete font of the variant is fetched from the font host at once.
- * Start-up never waits for any of it: text laid out before a font arrived is laid out again.
+ * Start-up waits for the staged core font; later tiers refresh the text as they arrive.
  *
  * Characters of the datasets that Noto Sans CJK has no glyph for (rare ideographs of the CJK
  * extensions, about 2,400) come from the rare tier, files shared by every variant: each is fetched
@@ -52,9 +58,10 @@ import kotlinx.serialization.json.JsonPrimitive
  * Staged files are verified against the SHA-256 of `fonts/index.json`.
  */
 @Composable
-fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
+fun WithCjkFont(session: AppSession, initialMode: DictMode?, content: @Composable (Boolean) -> Unit) {
     val resolver = LocalFontFamilyResolver.current
     var generation by remember { mutableIntStateOf(0) }
+    var coreReady by remember(resolver) { mutableStateOf(false) }
     LaunchedEffect(resolver) {
         var hashes: Map<String, String> = emptyMap()
         suspend fun register(name: String, urls: List<String>): Boolean {
@@ -89,21 +96,28 @@ fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
         val controlled = serviceWorkerControls()
         val settings = session.settings.value
         val variant = when {
-            settings.dictionaryMode == DictMode.CANTONESE -> CjkVariant.HK
+            (initialMode ?: settings.dictionaryMode) == DictMode.CANTONESE -> CjkVariant.HK
             settings.script(DictMode.MANDARIN) == Script.TRADITIONAL -> CjkVariant.TC
             else -> CjkVariant.SC
         }
         val staged = index?.variants?.get(variant.key)
         val complete = listOfNotNull(staged?.full, FONT_HOST + variant.hostPath)
         if (staged == null || !register("NotoSansCJK-0", listOf(staged.tiers.first()))) {
+            // Only the fallback may come from another host. Keep startup usable if it is slow.
+            val deadline = launch { delay(FALLBACK_FONT_WAIT_MS); coreReady = true }
             register("NotoSansCJK", complete)
+            deadline.cancel()
+            coreReady = true
             return@LaunchedEffect
         }
+        coreReady = true
         // On a first visit the service worker was still installing: once it controls the page the
         // first tier is asked for again (from the HTTP cache), so it keeps it for an offline start,
         // and the further tiers wait for it.
-        awaitServiceWorker()
-        if (!controlled && serviceWorkerControls()) jsWarm(staged.tiers.first())
+        if (!controlled) launch {
+            awaitServiceWorker(timeoutMs = 30_000)
+            if (serviceWorkerControls()) jsWarm(staged.tiers.first())
+        }
         // The first frames and the first search come first; the long tail follows — on a first
         // visit only once the dataset is here, so it never shares the connection with it (PERF-060).
         runCatching { session.dictionary() }
@@ -121,7 +135,7 @@ fun WithCjkFont(session: AppSession, content: @Composable () -> Unit) {
     val refreshed = remember(density, generation) {
         if (generation == 0) density else Density(density.density, density.fontScale * (1f + generation * REFRESH_STEP))
     }
-    CompositionLocalProvider(LocalDensity provides refreshed, content = content)
+    CompositionLocalProvider(LocalDensity provides refreshed) { content(coreReady) }
 }
 
 private enum class CjkVariant(val key: String, @Suppress("unused") val file: String, val hostPath: String) {
@@ -157,8 +171,10 @@ private class StagedIndex(val variants: Map<String, StagedSubsets>, val rare: Li
  *    "rare": [{ "file": "rare-1.ttf", "ranges": "20000-20003,2A6D6,…" }, …], "sha256": { "sc-core.otf": "…", … } }`.
  * URLs are relative to the page (`fonts/…`), and so are the keys of [StagedIndex.sha256].
  */
+private fun jsPreloadedFontIndex(): Promise<JsString?>? = js("window.szdictFontIndex || null")
+
 private suspend fun stagedIndex(): StagedIndex? {
-    val text = fetchText("fonts/index.json") ?: return null
+    val text = (jsPreloadedFontIndex()?.await<JsString?>()?.toString() ?: fetchText("fonts/index.json")) ?: return null
     return try {
         val root = Json.parseToJsonElement(text) as JsonObject
         val variants = CjkVariant.entries.mapNotNull { variant ->
@@ -204,6 +220,7 @@ private fun fontLog(message: String) {
     if (jsFontLogEnabled()) consoleLog("[font] ${jsNow().toInt()} $message")
 }
 
+private const val FALLBACK_FONT_WAIT_MS = 2500L
 private const val REFRESH_STEP = 1f / 4096
 private const val TIER_DELAY_MS = 1500L
 private const val FONT_HOST = "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@Sans2.004/Sans/OTF/"

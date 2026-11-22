@@ -32,8 +32,6 @@
 //   { evt: "storage", persistent }                                      whether OPFS is in use
 //   { evt: "updated", version }                                         a newer dataset is installed for the next visit
 // and tells the other tabs about an installed update on the BroadcastChannel "szdict-datasets".
-import sqlite3InitModule from './sqlite3/index.mjs';
-
 const POOL_DIRECTORY = '.szdict-sqlite';
 const MANIFEST_URL = 'data/manifest.json';
 const POINTER_FILE = 'szdict-datasets.json';
@@ -41,14 +39,15 @@ const FIRST_CHECK_MS = 4000;
 const RECHECK_MS = 6 * 60 * 60 * 1000;
 const STORE_LOCK = 'szdict-store';
 /** How long a new worker waits for the previous holder of the store (a page being unloaded) to end. */
-const LOCK_WAIT_MS = 4000;
+const LOCK_WAIT_MS = 600;
 /** Delays between attempts to open the pool while its files are still held elsewhere. */
 const POOL_RETRY_MS = [100, 250, 500, 1000, 2000];
 const SHARE_CHANNEL = 'szdict-store-share';
-const SHARE_WAIT_MS = 3000;
+const SHARE_WAIT_MS = 1200;
 
 let sqlite3 = null;
 let pool = null;
+let canShareFromHolder = false;
 /** name → { file, sha256, version }: the verified, installed files. */
 let pointers = {};
 let nextId = 1;
@@ -241,7 +240,10 @@ function serveOtherTabs() {
     const request = event.data;
     if (!request || request.type !== 'request' || !pool) return;
     const installed = pointers[request.name];
-    if (!installed || (request.sha256 && installed.sha256 !== request.sha256)) return;
+    if (!installed) {
+      channel.postMessage({ type: 'missing', id: request.id });
+      return;
+    }
     try {
       const bytes = pool.exportFile(installed.file);
       channel.postMessage({ type: 'file', id: request.id, name: request.name, sha256: installed.sha256, bytes });
@@ -249,12 +251,24 @@ function serveOtherTabs() {
   };
 }
 
+const initialPointers = (async () => {
+  if (!opfsAvailable()) return null;
+  if (!await takeStoreLock()) {
+    canShareFromHolder = true;
+    return null;
+  }
+  return readPointers();
+})();
+
 const ready = (async () => {
-  sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} });
-  if (opfsAvailable() && await takeStoreLock()) {
-    try {
+  try {
+    const [module, read] = await Promise.all([
+      import('./sqlite3/index.mjs').then(({ default: init }) => init({ print: () => {}, printErr: () => {} })),
+      initialPointers,
+    ]);
+    sqlite3 = module;
+    if (read) {
       pool = await installPool();
-      const read = await readPointers();
       pointers = read.pointers;
       const stored = pool.getFileNames();
       if (read.trusted) {
@@ -265,10 +279,11 @@ const ready = (async () => {
       for (const name of Object.keys(pointers)) {
         if (!pointers[name] || !stored.includes(pointers[name].file)) delete pointers[name];
       }
-    } catch (e) {
-      pool = null;
-      releaseStoreLock();
     }
+  } catch (e) {
+    pool = null;
+    (await initialPointers) && releaseStoreLock();
+    if (!sqlite3) throw e;
   }
   if (pool) serveOtherTabs();
   notify({ evt: 'storage', persistent: pool !== null });
@@ -429,16 +444,12 @@ async function downloadToPartial(name, handle, wanted, background) {
  * the pool and verifies it. Returns the pointer entry of the new file; nothing refers to that file
  * until the entry is written.
  */
-async function fetchIntoPool(name, wanted, background) {
-  const target = '/' + name + '@' + (wanted && wanted.sha256 ? wanted.sha256.slice(0, 16) : 'unversioned');
+async function fetchIntoPool(name, wanted, background, prefetched) {
+  const target = poolName(name, wanted);
   const adopted = adoptStored(name, target, wanted);
   if (adopted) return adopted;
   if (pool.getFileNames().includes(target)) pool.unlink(target);
-  const directory = await partialDirectory();
-  const partial = partialName(target);
-  await dropOtherPartials(directory, name, partial);
-  const handle = await directory.getFileHandle(partial, { create: true });
-  const size = await downloadToPartial(name, handle, wanted, background);
+  const { directory, partial, handle, size } = prefetched || await fetchPartial(name, wanted, background);
 
   await pool.reserveMinimumCapacity(pool.getFileCount() + 4);
   const access = await handle.createSyncAccessHandle();
@@ -470,6 +481,45 @@ async function fetchIntoPool(name, wanted, background) {
   return { file: target, sha256: wanted ? wanted.sha256 || null : null, version: wanted ? wanted.dataset_version || null : null };
 }
 
+function poolName(name, wanted) {
+  return '/' + name + '@' + (wanted && wanted.sha256 ? wanted.sha256.slice(0, 16) : 'unversioned');
+}
+
+async function fetchPartial(name, wanted, background) {
+  const directory = await partialDirectory();
+  const partial = partialName(poolName(name, wanted));
+  await dropOtherPartials(directory, name, partial);
+  const handle = await directory.getFileHandle(partial, { create: true });
+  const size = await downloadToPartial(name, handle, wanted, background);
+  return { directory, partial, handle, size };
+}
+
+// Only the startup dataset with a trusted missing pointer begins transferring before SQLite is
+// ready. This worker holds the store lock, so it can use the same resumable file as a normal open.
+let warm = null;
+function warmDataset(name) {
+  if (warm) return;
+  const download = initialPointers.then(async (read) => {
+    if (!read?.trusted || read.pointers[name]) return null;
+    const wanted = listed(await manifest(false), name);
+    if (!wanted?.sha256) return null;
+    return { wanted, partial: await fetchPartial(name, wanted, false) };
+  });
+  download.catch(() => {});
+  warm = { name, download };
+  initialPointers.then((read) => {
+    if (read === null) return ensureMemory(name);
+  }).catch(() => {});
+  ready.then(() => pool ? ensurePooled(name) : ensureMemory(name)).catch(() => {});
+}
+
+function takeWarmDownload(name) {
+  if (warm?.name !== name) return null;
+  const download = warm.download;
+  warm = null;
+  return download;
+}
+
 // One import at a time: a chunked import claims its pool slot only when it completes.
 let importChain = Promise.resolve();
 const pending = new Map();
@@ -491,7 +541,9 @@ function ensurePooled(name) {
   if (!p) {
     p = queued(async () => {
       if (pointers[name]) return pointers[name].file;
-      const entry = await fetchIntoPool(name, listed(await manifest(false), name), false);
+      const prefetched = await takeWarmDownload(name);
+      const wanted = prefetched?.wanted || listed(await manifest(false), name);
+      const entry = await fetchIntoPool(name, wanted, false, prefetched?.partial);
       pointers[name] = entry;
       await writePointers();
       return entry.file;
@@ -565,7 +617,7 @@ async function checkForUpdate() {
  * The installed file from the tab that holds the pool, verified like a download; null when no tab
  * answers in time (none holds it, or it does not have this file).
  */
-function fromHolder(name, wanted) {
+function fromHolder(name) {
   let channel;
   try { channel = new BroadcastChannel(SHARE_CHANNEL); } catch (e) { return Promise.resolve(null); }
   const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -574,8 +626,10 @@ function fromHolder(name, wanted) {
     const timer = setTimeout(() => finish(null), SHARE_WAIT_MS);
     channel.onmessage = (event) => {
       const reply = event.data;
-      if (!reply || reply.type !== 'file' || reply.id !== id || !(reply.bytes instanceof Uint8Array)) return;
-      const expected = wanted && wanted.sha256 ? wanted : { size: reply.bytes.byteLength, sha256: reply.sha256 };
+      if (!reply || reply.id !== id) return;
+      if (reply.type === 'missing') { finish(null); return; }
+      if (reply.type !== 'file' || !(reply.bytes instanceof Uint8Array)) return;
+      const expected = { size: reply.bytes.byteLength, sha256: reply.sha256 };
       try {
         const hash = new Sha256();
         hash.update(reply.bytes);
@@ -585,7 +639,7 @@ function fromHolder(name, wanted) {
         finish(null);
       }
     };
-    channel.postMessage({ type: 'request', id, name, sha256: wanted && wanted.sha256 ? wanted.sha256 : null });
+    channel.postMessage({ type: 'request', id, name });
   });
 }
 
@@ -612,6 +666,31 @@ async function downloadToMemory(name, wanted) {
 /** Files this page has open, by name: an update installed meanwhile does not change them. */
 const opened = new Map();
 
+const memoryDownloads = new Map();
+
+function ensureMemory(name) {
+  let transfer = memoryDownloads.get(name);
+  if (!transfer) {
+    transfer = (async () => {
+      const shared = canShareFromHolder ? await fromHolder(name) : null;
+      if (shared) return shared;
+      const prefetched = await takeWarmDownload(name);
+      if (prefetched) {
+        const bytes = new Uint8Array(await (await prefetched.partial.handle.getFile()).arrayBuffer());
+        const hash = new Sha256();
+        hash.update(bytes);
+        verify(name, prefetched.wanted, bytes.byteLength, hash.hex());
+        notify({ evt: 'download', file: name, loaded: bytes.byteLength, total: bytes.byteLength, done: true, background: false });
+        return bytes;
+      }
+      return downloadToMemory(name, listed(await manifest(false), name));
+    })();
+    memoryDownloads.set(name, transfer);
+    transfer.catch(() => memoryDownloads.delete(name));
+  }
+  return transfer;
+}
+
 async function open(name) {
   await ready;
   let db;
@@ -623,8 +702,8 @@ async function open(name) {
     }
     db = new sqlite3.oo1.DB(target, 'r', pool.vfsName);
   } else {
-    const wanted = listed(await manifest(false), name);
-    const bytes = (await fromHolder(name, wanted)) || (await downloadToMemory(name, wanted));
+    const bytes = await ensureMemory(name);
+    memoryDownloads.delete(name);
     const size = bytes.byteLength;
     const p = sqlite3.wasm.allocFromTypedArray(bytes);
     db = new sqlite3.oo1.DB();
@@ -694,8 +773,7 @@ let chain = ready;
 self.onmessage = (event) => {
   if (event.data && event.data.warm) {
     // The start page names the dataset the app is about to open: fetched or found ahead of the request.
-    const name = event.data.warm;
-    ready.then(() => { if (pool && !opened.has(name)) return ensurePooled(name); }).catch(() => {});
+    warmDataset(event.data.warm);
     return;
   }
   const { id, data } = event.data;

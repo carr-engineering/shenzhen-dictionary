@@ -53,9 +53,14 @@ internal class RelatedSection(first: RelatedPage) {
 internal class EntryDerived(val detail: EntryDetail) {
     var examples by mutableStateOf<List<Example>?>(null)
     val passages = HashMap<Int, AnalysedPassage>()
-    val related: List<RelatedSection> = detail.related.filter { it.total > 0 && it.cards.isNotEmpty() }.map { page ->
-        // ENT-062: one entry never appears twice in a section.
-        RelatedSection(page.copy(cards = page.cards.distinctBy { it.id }))
+    var related by mutableStateOf<List<RelatedSection>?>(null)
+        private set
+
+    fun installRelatedPages(pages: List<RelatedPage>) {
+        related = pages.filter { it.total > 0 && it.cards.isNotEmpty() }.map { page ->
+            // ENT-062: one entry never appears twice in a section.
+            RelatedSection(page.copy(cards = page.cards.distinctBy { it.id }))
+        }
     }
 }
 
