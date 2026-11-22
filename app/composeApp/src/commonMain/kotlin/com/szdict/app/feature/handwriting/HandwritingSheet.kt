@@ -1,5 +1,6 @@
 package com.szdict.app.feature.handwriting
 
+import com.szdict.app.ui.kit.InputMethodIcon
 import com.szdict.app.ui.kit.WithTooltip
 import com.szdict.app.ui.kit.scrollUnderControls
 import androidx.compose.foundation.BorderStroke
@@ -38,7 +39,6 @@ import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
-import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -158,9 +158,10 @@ fun HandwritingSheet(session: AppSession, onVisibleHeight: (Dp) -> Unit, modifie
                     }
                 }
                 Box(Modifier.align(Alignment.CenterStart).padding(start = 4.dp)) {
-                    WithTooltip(strings.text("Switch to keyboard")) {
+                    val label = strings.text("Switch to keyboard")
+                    WithTooltip(label) {
                         IconButton(onClick = session::switchHandwritingToKeyboard) {
-                            Icon(Icons.Rounded.Keyboard, contentDescription = strings.text("Switch to keyboard"), tint = palette.muted)
+                            InputMethodIcon(keyboard = true, label = label, tint = palette.muted)
                         }
                     }
                 }

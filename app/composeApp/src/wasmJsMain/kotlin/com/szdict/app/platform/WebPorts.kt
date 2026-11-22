@@ -3,6 +3,7 @@
 package com.szdict.app.platform
 
 import kotlinx.browser.localStorage
+import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
@@ -86,7 +87,9 @@ class WebClipboard(private val scope: CoroutineScope) : Clipboard {
 private fun jsOpen(url: String): Unit = js("{ window.open(url, '_blank', 'noopener,noreferrer'); }")
 
 class WebLinkOpener : LinkOpener {
-    override fun open(url: String) = jsOpen(url)
+    override fun open(url: String) {
+        if (url.startsWith("mailto:")) window.location.href = url else jsOpen(url)
+    }
 }
 
 private fun jsEncode(text: String): String = js("encodeURIComponent(text)")

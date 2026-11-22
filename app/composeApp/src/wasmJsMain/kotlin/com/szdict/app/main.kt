@@ -80,6 +80,7 @@ fun main() {
         settingsIsDestination = true,
         systemLocaleTag = ::browserLanguageTag,
         appVersion = WebBuild.VERSION_NAME,
+        appPlatform = AppPlatform.WEB,
     )
     val session = AppSession(env, scope)
     // Read before the history layer rewrites the URL.

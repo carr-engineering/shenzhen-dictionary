@@ -2,7 +2,6 @@ package com.szdict.app.ui.kit
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.OutlinedIconToggleButton
 import androidx.compose.runtime.Composable
@@ -47,11 +46,7 @@ fun PronunciationToggle(session: AppSession, modifier: Modifier = Modifier) {
             ),
             border = BorderStroke(1.dp, palette.border),
         ) {
-            Icon(
-                imageVector = if (shown) PinyinShownIcon else PinyinHiddenIcon,
-                contentDescription = null,
-                modifier = Modifier.size(21.dp),
-            )
+            PinyinIcon(shown = shown, modifier = Modifier.size(21.dp))
         }
     }
 }

@@ -33,10 +33,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
-import androidx.compose.material.icons.rounded.Draw
-import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -75,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.szdict.app.i18n.appStrings
 import com.szdict.app.ui.kit.InputMethodGate
+import com.szdict.app.ui.kit.InputMethodIcon
 import com.szdict.app.ui.kit.WithTooltip
 import com.szdict.app.ui.theme.LocalDictionaryPalette
 
@@ -154,11 +151,15 @@ internal fun SearchControl(
                 fieldWrapper = { InputMethodGate(it) },
                 leading = {
                     Box(Modifier.padding(start = 2.dp)) {
-                        ControlIcon(
-                            if (handwriting) Icons.Rounded.Keyboard else Icons.Rounded.Draw,
-                            strings.text(if (handwriting) "Switch to keyboard" else "Switch to handwriting"),
-                            palette.muted, onToggleInputMethod,
-                        )
+                        val label = strings.text(if (handwriting) "Switch to keyboard" else "Switch to handwriting")
+                        ControlIcon(label, onToggleInputMethod) {
+                            InputMethodIcon(
+                                keyboard = handwriting,
+                                label = label,
+                                tint = palette.muted,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
                     }
                 },
                 trailing = {
@@ -204,11 +205,18 @@ internal fun SearchControl(
 
 @Composable
 private fun ControlIcon(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+    ControlIcon(label, onClick) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun ControlIcon(label: String, onClick: () -> Unit, content: @Composable () -> Unit) {
     WithTooltip(label) {
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
             Surface(onClick = onClick, shape = CircleShape, color = Color.Transparent, modifier = Modifier.size(40.dp)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+                    content()
                 }
             }
         }

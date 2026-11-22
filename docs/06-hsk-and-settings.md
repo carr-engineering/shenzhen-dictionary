@@ -431,8 +431,9 @@ no Save button.
 version** of the active dataset (source versions + pipeline commit, `PIPE-166`), an explanatory
 paragraph, a button opening an **open-source library licences** dialog (`SET-043`), a `Privacy
 policy` link (`SET-090`), a `Data sources` heading, and one card per bundled data source or model
-(`SET-040`). Long-pressing the
-version opens the developer screen (`ARCH-171`); there is no other entry point to it.
+(`SET-040`). About & Attribution also credits the author and links to an email draft with a subject,
+greeting, app name, platform and version in the current UI language. Long-pressing the version opens
+the developer screen (`ARCH-171`); there is no other entry point to it.
 
 `SET-005` `[MUST]` Settings opens as a route pushed over the Search destination: a top bar with the
 `Settings` title and a back/up control. On compact layouts the bottom navigation bar is hidden while it is open (it covers the bar like any full-screen route); on medium and expanded layouts the rail stays, with Search selected. On Web, Settings is instead a top-level destination (`PROD-050`).

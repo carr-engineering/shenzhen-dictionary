@@ -71,6 +71,7 @@ internal object IosAppGraph {
             voiceAvailable = voice != null,
             systemLocaleTag = { NSLocale.preferredLanguages.firstOrNull() as? String ?: "en" },
             appVersion = IosBuild.VERSION_NAME,
+            appPlatform = AppPlatform.IOS,
         )
         AppSession(env, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)).also(::install)
     }

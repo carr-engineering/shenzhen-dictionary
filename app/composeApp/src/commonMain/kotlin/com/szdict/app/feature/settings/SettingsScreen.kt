@@ -191,6 +191,7 @@ fun SettingsScreen(session: AppSession, onBack: (() -> Unit)?, modifier: Modifie
                         style = MaterialTheme.typography.bodyMedium, color = palette.muted)
                     Text(strings.text("Dataset {0}", datasetVersion?.ifBlank { null } ?: "—"),
                         style = MaterialTheme.typography.bodyMedium, color = palette.muted)
+                    FeedbackNote(session)
                     Text(strings.text(AttributionIntro), style = MaterialTheme.typography.bodyMedium, color = palette.muted)
                 }
             }

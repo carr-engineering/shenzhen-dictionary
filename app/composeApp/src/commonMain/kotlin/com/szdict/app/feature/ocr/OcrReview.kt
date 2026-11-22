@@ -147,33 +147,35 @@ internal fun ReviewPhase(
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Box(Modifier.widthIn(max = ImagePaneMaxWidth).fillMaxSize()) {
             when (holder.viewMode) {
-                OcrViewMode.IMAGE -> OcrImageViewer(
-                    holder = holder,
-                    capture = capture,
-                    wheelEnabled = detailBesideImage || session.routes.isEmpty(),
-                    modifier = Modifier
-                        .fillMaxSize()
+                OcrViewMode.IMAGE -> Box(
+                    Modifier.fillMaxSize()
                         .padding(start = 16.dp, top = headerHeight + 8.dp, end = 16.dp, bottom = 12.dp + imageSheetInset)
                         .clip(MaterialTheme.shapes.large),
-                )
+                ) {
+                    OcrImageViewer(
+                        holder = holder,
+                        capture = capture,
+                        wheelEnabled = detailBesideImage || session.routes.isEmpty(),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    RecognitionProgress(
+                        holder,
+                        trackColor = Color.Black.copy(alpha = 0.35f),
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                }
                 OcrViewMode.TEXT -> Box(Modifier.fillMaxSize().padding(bottom = LocalSheetInset.current)) {
                     OcrTextList(session, holder, topPadding = headerHeight + 8.dp)
+                    RecognitionProgress(
+                        holder,
+                        trackColor = palette.border,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                            .padding(start = 16.dp, end = 16.dp, top = headerHeight + 8.dp)
+                            .clip(MaterialTheme.shapes.large),
+                    )
                 }
             }
 
-            if (holder.recognising) {
-                val download = holder.modelDownload
-                val indicator = Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = headerHeight + 8.dp)
-                    .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                Box(indicator, contentAlignment = Alignment.TopCenter) {
-                    if (download is ModelDownload.Failed || (download is ModelDownload.InProgress && download.fraction != null)) {
-                        ModelDownloadPanel(download, holder::retryModelDownload)
-                    } else {
-                        LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp), color = palette.accent, trackColor = palette.border)
-                    }
-                }
-            }
             val error = holder.recognitionError
             val message = when {
                 error != null -> strings.text(error.first) + (error.second?.let { ": $it" } ?: "")
@@ -267,6 +269,20 @@ private fun ReviewHeader(holder: OcrStateHolder, pickImage: () -> Unit, onHeight
 }
 
 /** CAM-134: `Downloading text recognition… 45%` with the size, or the failure with `Retry`. */
+@Composable
+private fun RecognitionProgress(holder: OcrStateHolder, trackColor: Color, modifier: Modifier = Modifier) {
+    if (!holder.recognising) return
+    val palette = LocalDictionaryPalette.current
+    val download = holder.modelDownload
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        if (download is ModelDownload.Failed || (download is ModelDownload.InProgress && download.fraction != null)) {
+            ModelDownloadPanel(download, holder::retryModelDownload)
+        } else {
+            LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp), color = palette.accent, trackColor = trackColor)
+        }
+    }
+}
+
 @Composable
 private fun ModelDownloadPanel(download: ModelDownload, onRetry: () -> Unit) {
     val strings = appStrings()

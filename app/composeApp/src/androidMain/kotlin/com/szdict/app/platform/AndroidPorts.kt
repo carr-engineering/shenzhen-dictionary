@@ -198,7 +198,9 @@ class AndroidTranslator(private val context: Context) : Translator {
 class AndroidLinkOpener(private val context: Context) : LinkOpener {
     override fun open(url: String) {
         runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val uri = Uri.parse(url)
+            val action = if (uri.scheme == "mailto") Intent.ACTION_SENDTO else Intent.ACTION_VIEW
+            context.startActivity(Intent(action, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 }

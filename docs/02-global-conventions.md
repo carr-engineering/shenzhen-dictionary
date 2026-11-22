@@ -723,6 +723,6 @@ announces its state. When shown, a character's or word's label includes its read
 the long edge of a modern phone in landscape) Search, HSK and Reading use a two-pane list-detail layout: the list or
 passage on one side, the top entry-detail route on the other. Below 760 the layout is single-pane and
 entry detail is pushed full screen. Window width is used, not screen width, so split screen and
-resized browser windows switch accordingly. Each pane applies its own maximum width (`GLB-067`), and
-the word-candidate sheet anchors to the pane holding the tapped text. `PROD-054`, `ENT-015`,
+resized browser windows switch accordingly. The panes share the area evenly up to 600 dp each and
+stay centred on wider windows. The word-candidate sheet anchors to the pane holding the tapped text. `PROD-054`, `ENT-015`,
 `ENT-019`, `SRCH-096` and `ARCH-051` reference this rule.

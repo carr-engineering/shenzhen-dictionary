@@ -227,7 +227,7 @@ a device needs a signing team, and the Associated Domains entitlement for Univer
   `iosApp/SZDict/Assets.xcassets/AppIcon.appiconset/icon-1024.png` from the Android launcher
   vectors; run it when they change (the PNG is committed). Likewise
   `./gradlew :composeApp:generateAppLogo` redraws the shared UI's logo (`ui/kit/AppLogo.kt`, an
-  `ImageVector` shown in the expanded rail header).
+  `ImageVector` of the two cards shown in the expanded rail header).
 - **Name.** "SZ Dict" where space is tight (home screen), "Shenzhen Dictionary" where there is room;
   深圳词典 / 深圳詞典 always in Chinese (`AppName.kt`, mirrored in `InfoPlist.strings`, the Android
   `app_name` strings and `index.html`; the PWA manifest reads it from `AppName.kt`).

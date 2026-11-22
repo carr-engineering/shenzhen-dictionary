@@ -221,30 +221,13 @@ class DetailStackTest {
         assertEquals(760.dp, TwoPaneMinWidth)
         assertFalse(fitsTwoPanes(740.dp))
 
-        // Narrowest two-pane (a landscape phone beside the rail): the list keeps its minimum width.
-        paneLayout(681.dp).let {
-            assertEquals(ListPaneMinWidth, it.list)
-            assertEquals(380.dp, it.detail)
-            assertEquals(0.dp, it.start)
-        }
-        // A wider one: about 43 % list.
-        paneLayout(1001.dp).let {
-            assertEquals(430.dp, it.list)
-            assertEquals(570.dp, it.detail)
-        }
-        // The list stops growing first, then the detail.
-        paneLayout(1401.dp).let {
-            assertEquals(ListPaneMaxWidth, it.list)
-            assertEquals(800.dp, it.detail)
-            assertEquals(0.dp, it.start)
-        }
-        // Beyond both maxima the pair is centred.
-        paneLayout(2301.dp).let {
-            assertEquals(ListPaneMaxWidth, it.list)
-            assertEquals(ReadablePaneWidth, it.detail)
-            assertEquals(400.dp, it.start)
-            assertEquals(1001.dp, it.detailStart)
-        }
+        // A landscape phone beside the rail, then a desktop window.
+        assertEquals(PaneLayout(0.dp, 340.dp, 340.dp), paneLayout(681.dp))
+        assertEquals(PaneLayout(0.dp, 500.dp, 500.dp), paneLayout(1001.dp))
+        // Both panes stop growing at the same width, and the pair stays centred.
+        val wide = paneLayout(2301.dp)
+        assertEquals(PaneLayout(550.dp, 600.dp, 600.dp), wide)
+        assertEquals(1151.dp, wide.detailStart)
     }
     @Test
     fun voiceOffersASecondPaneBeforeAnEntryIsSelected() {

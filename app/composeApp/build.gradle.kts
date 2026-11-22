@@ -770,20 +770,16 @@ val generateIosAppIcon by tasks.registering {
     }
 }
 
-// The app logo for the shared UI (the expanded rail header, ui/kit/RailHeader.kt): the tab icon — the
-// mark on a rounded square of the icon's paper — as a Compose ImageVector, so it is drawn crisply at
-// any size on every platform. Generated from the launcher vectors and committed; run
-// `./gradlew :composeApp:generateAppLogo` after they change.
+// Generate the rail logo as a Compose ImageVector from the launcher foreground.
+// Run `./gradlew :composeApp:generateAppLogo` after changing the foreground vector.
 val generateAppLogo by tasks.registering {
     val drawables = layout.projectDirectory.dir("src/androidMain/res/drawable")
     val iconForeground = drawables.file("ic_launcher_foreground.xml")
-    val iconBackground = drawables.file("ic_launcher_background.xml")
     val target = layout.projectDirectory.file("src/commonMain/kotlin/com/szdict/app/ui/kit/AppLogo.kt")
-    inputs.files(iconForeground, iconBackground)
+    inputs.file(iconForeground)
     outputs.file(target)
     doLast {
-        val corner = 0.22
-        val icon = WebIcon(readVectorDrawable(iconForeground.asFile), readVectorDrawable(iconBackground.asFile), markSize = 0.86, corner = corner)
+        val icon = WebIcon(readVectorDrawable(iconForeground.asFile), emptyList(), markSize = 0.92, corner = 0.0)
         fun number(value: Double) = "%.4f".format(Locale.ROOT, value).trimEnd('0').trimEnd('.').let { if (it == "-0") "0" else it }
         fun f(value: Number) = number(value.toDouble()) + "f"
         fun color(hex: String) = "Color(0xFF${hex.removePrefix("#").uppercase()})"

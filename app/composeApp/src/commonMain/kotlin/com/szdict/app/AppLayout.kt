@@ -34,16 +34,10 @@ internal fun wordSheetPeekHeight(maxHeight: Dp): Dp = maxHeight.coerceIn(0.dp, 2
 /** Narrowest window with the two-pane layout: a modern phone in landscape (long edge 760 dp and up) has it, a small one does not. */
 val TwoPaneMinWidth: Dp = 760.dp
 
-/** Share of the pane area the list takes, until its minimum or maximum. */
-private const val ListPaneShare = 0.43f
+/** Widest either pane grows in the balanced list-detail layout. */
+private val TwoPaneMaxWidth = 600.dp
 
-/** The list pane never gets narrower than this: cards still read at that width. */
-val ListPaneMinWidth: Dp = 300.dp
-
-/** Widest a list pane grows: beyond it cards only get longer lines. */
-val ListPaneMaxWidth: Dp = 600.dp
-
-/** Readable width of a detail pane and of every single-pane page (GLB-067). */
+/** Readable width of a single-pane page (GLB-067). */
 val ReadablePaneWidth: Dp = 900.dp
 
 /** Widest the OCR review grows: an image wants more room than text, but not a whole wide monitor. */
@@ -56,15 +50,11 @@ data class PaneLayout(val start: Dp, val list: Dp, val detail: Dp) {
 
 val PaneDivider: Dp = 1.dp
 
-/**
- * The list takes about 43 % of the width (at least [ListPaneMinWidth], at most [ListPaneMaxWidth]),
- * then the detail takes the rest up to the readable width; on wider windows the pair stays that size, centred (GLB-067).
- */
+/** Split the content evenly and centre the pair once both panes reach their width limit. */
 fun paneLayout(contentWidth: Dp): PaneLayout {
     val available = (contentWidth - PaneDivider).coerceAtLeast(0.dp)
-    val list = minOf(maxOf(available * ListPaneShare, ListPaneMinWidth), ListPaneMaxWidth, available)
-    val detail = minOf(available - list, ReadablePaneWidth)
-    return PaneLayout(start = (available - list - detail) / 2, list = list, detail = detail)
+    val pane = minOf(available / 2, TwoPaneMaxWidth)
+    return PaneLayout(start = available / 2 - pane, list = pane, detail = pane)
 }
 
 /** How the detail host moves from one stack to the next (ENT-016). */

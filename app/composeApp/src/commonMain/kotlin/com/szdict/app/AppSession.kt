@@ -51,9 +51,14 @@ class AppEnv(
     val settingsIsDestination: Boolean = false,
     val systemLocaleTag: () -> String = { "en" },
     val appVersion: String = "",
+    val appPlatform: AppPlatform = AppPlatform.ANDROID,
 ) {
     @Suppress("UNCHECKED_CAST")
     fun <T : Any> service(key: String): T? = services[key] as? T
+}
+
+enum class AppPlatform(val appLabel: String) {
+    ANDROID("Android app"), IOS("iOS app"), WEB("Web app"),
 }
 
 enum class Destination { SEARCH, OCR, VOICE, READING, HSK, SETTINGS }
