@@ -564,7 +564,7 @@ private fun GroupRow(group: WordGroup, sentence: Boolean, context: CardContext) 
         return
     }
     if (group.english) {
-        // SRCH-033a: a foreign word answered by the English side — the typed word, labelled, over its cards.
+        // SRCH-028: a foreign word answered by the English side — the typed word, labelled, over its cards.
         val palette = LocalDictionaryPalette.current
         Column(Modifier.padding(top = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),

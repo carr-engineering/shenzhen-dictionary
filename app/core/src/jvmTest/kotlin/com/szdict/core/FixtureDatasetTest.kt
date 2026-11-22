@@ -446,7 +446,7 @@ class FixtureDatasetTest {
         assertEquals("我", noise.groups().first().cards.first().headword)
     }
 
-    /** A fixture with Latin-containing headwords and English-side words for sentence mode (SRCH-033a/b). */
+    /** A fixture with Latin-containing headwords and English-side words for sentence mode (SRCH-028/b). */
     private val foreignDir: File by lazy {
         Fixture.standard().apply {
             entry("用", "用", "yong4", "to use", 60, 300000)

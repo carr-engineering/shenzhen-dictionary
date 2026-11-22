@@ -92,7 +92,7 @@ the identical rule (`DATA-076`).
 |------|-----------|------------------|
 | `EMPTY` | normalised query is empty | empty state (`SRCH-110`) |
 | `HANZI` | contains Hanzi and every other character is a space or `·` | Chinese text search |
-| `MIXED` | contains Hanzi **and** Latin/digits | Chinese pattern search |
+| `MIXED` | contains Hanzi **and** Latin/digits | Chinese text search with foreign-word groups (`SRCH-028`), pattern search (`SRCH-036`) and mixed combinations (`SRCH-069`) |
 | `ROMANISATION` | no Hanzi; has at least one token path (`SRCH-040`, `SRCH-050`, `SRCH-051`) — full, abbreviated, partial or literal syllables in any permitted mix | pronunciation search (+ combinations, `SRCH-060`) |
 | `LATIN` | no Hanzi; no token path | English search |
 
@@ -104,8 +104,10 @@ computed). Classification decides which side is *auto-selected* (`SRCH-024`), no
 
 `SRCH-022` `[MUST]` `MIXED` classification only proceeds to pattern search when every non-Hanzi
 character is a plausible romanisation character (`a-z`, tone digits, `'`, `·`, whitespace, `ü`,
-tone-marked vowel). Otherwise the query is treated as `HANZI` for the Chinese side (the Latin noise is
-ignored) and as English for the English side.
+tone-marked vowel). Otherwise pattern search and mixed combinations are skipped and `Starts with` /
+`Contains` use the query's Hanzi alone; the query runs as English for the English side. The Latin
+text is never dropped from the groups: every foreign word gets its own group (`SRCH-033`,
+`SRCH-028`).
 
 `SRCH-023` `[MUST]` In `MIXED` classification, each maximal Latin run is parsed as romanisation with the
 token rules of `SRCH-040`…`SRCH-051`, so full, abbreviated and literal syllables may all appear
@@ -173,15 +175,31 @@ regardless of script mode.
 
 ### 4.2 Chinese text (`HANZI`) search
 
-`SRCH-033` `[MUST]` The Chinese side for a Hanzi query produces, in this order:
-1. **Exact group** — if the whole query is an entry's headword (a Unicode-only character included,
-   `SRCH-079`), one group containing every entry (every reading) for that headword.
-2. **Segmented groups** — otherwise, the query is segmented into words (`TXT-010`) and each segment
-   becomes a group: matched segments carry their entries; consecutive unmatched segments merge into a
-   single *inert* group.
-3. **Pattern matches** (`MIXED` only) — see `SRCH-036`.
+`SRCH-033` `[MUST]` The Chinese side for a Hanzi or mixed query produces, in this order:
+1. **Exact group** — if the whole query (its matching key, with or without spaces) is an entry's
+   headword (a Unicode-only character included, `SRCH-079`), one group containing every entry (every
+   reading) for that headword. Its text is the whole display text, punctuation included (`你好！`).
+2. **Segmented groups** — otherwise, the display text is segmented in `FULL` mode (`TXT-010`,
+   `TXT-011`, `TXT-018`) and **every non-whitespace character belongs to exactly one group**, in text
+   order; only whitespace is skipped:
+   - a matched segment is a group carrying its entries — a headword covering a foreign word whole
+     included (`T恤`, `B超`, `卡拉OK`, `AA制`, `3C`);
+   - inside unmatched segments, each **foreign word** (`TXT-018`) is a group of its own (`SRCH-028`);
+   - each maximal run of **punctuation and symbols** — anything that is neither Hanzi (nor another
+     script's letter), nor part of a foreign word, nor whitespace — is a group of its own
+     (`SRCH-029`); adjacent punctuation without whitespace between it is one group (`。」`), with
+     whitespace between it is two;
+   - the remaining unmatched text (unmatched Hanzi, other scripts) merges with adjacent unmatched text
+     into a single *inert* group (`TXT-073`), even across whitespace, but never across a punctuation
+     or foreign-word group (`龘，龘` is three groups).
+3. **Pattern matches** (`MIXED` only) — see `SRCH-036`. When mixed combinations are shown (`SRCH-069`)
+   the section is split: exact-length matches (`SRCH-038`), then `Combinations`, then the longer
+   matches as an unlabelled continuation that reads `More matches` after the combinations.
 4. **Starts with** — headwords strictly longer than the query that begin with it.
 5. **Contains** — headwords containing the query at position 1 or later.
+
+`Starts with` and `Contains` are computed only when the query has no pattern (`HANZI`, or `MIXED`
+without a valid pattern, `SRCH-022`).
 
 In Cantonese mode, inside each of these groups and sections CC-Canto-sourced entries come before
 CC-CEDICT entries (`SRCH-076`): the exact group for 行 lists its readings that have CC-Canto senses
@@ -189,10 +207,38 @@ first, then any reading that carries only Mandarin senses.
 
 `SRCH-034` `[MUST]` A group whose text is longer than one character also carries its **sub-spans**:
 every dictionary word contained inside the group text, excluding the full span itself, ordered
-longest-first, then by start position, then by frequency rank, then by id.
+longest-first, then by start position, then by frequency rank, then by id. No sub-span starts or ends
+strictly inside a foreign word of the text (`TXT-018`): 卡拉OK has 卡拉 and OK inside, never O or K. The
+app applies this to precomputed `within` rows (`DATA-101`) as well as to rows computed on demand.
 
-`SRCH-035` `[MUST]` `isSentence` is true when there is more than one group, or when the single group
-is inert and there was no exact match. `isSentence` drives the segmented-passage card (`SRCH-100`) and
+`SRCH-028` `[MUST]` **Foreign-word groups.** A foreign word (`TXT-018`) not covered by a matched
+segment becomes one group whose text is the word as typed, filled by the first rule that yields
+entries:
+1. **Headword** — entries whose headword equals the word ignoring case (headword index, `DATA-071`)
+   or, when the word has joiners, the word with its joiners removed (`Wi-Fi` → `wifi`). A matched
+   group like any other.
+2. **English match** — unless the word is all digits or a single character: at most **3** entries
+   whose definitions contain the word as a whole word, retrieved and ranked by the English side
+   (`SRCH-045`…`SRCH-048`, `SRCH-070`; CC-Canto entries first in Cantonese mode) with **every** token
+   matched exactly (no prefix match of the last token) and, for a word of several tokens, contiguous
+   in one sense (`EN_PHRASE`): `BOM` never reaches `bomb`. Because the English index tokenises at
+   every non-ASCII letter (`Bomê` holds the token `bom`), the first 30 candidates are checked on
+   their sense text, where the word must stand between non-letters. The group is flagged `english`;
+   it is labelled `English match` (`SRCH-098`), its cards keep their own inside-words buttons and it
+   has no group-level sub-spans.
+3. **NO MATCH** — otherwise an inert group showing the whole word (`SRCH-098`).
+
+`我要看BOM表` → 我 · 要 · 看 · BOM (NO MATCH) · 表; `我用iPhone和WiFi` → 我 · 用 · iPhone (English
+match: 爱疯, 苹果手机) · 和 · WiFi (NO MATCH); `我想买3个苹果` → … 买 · 3 (NO MATCH) · 个 · 苹果.
+
+`SRCH-029` `[MUST]` **Punctuation groups.** A punctuation group (`SRCH-033`) is inert and flagged
+`punctuation`; it renders as a compact muted card **without** the `NO MATCH` label (`SRCH-098`). It
+never merges with an adjacent NO MATCH word or unmatched Hanzi: `hello,world 你好` → hello · , ·
+world · 你好; `你好！BOM。` → 你好 · ！ · BOM · 。. A punctuation string that is a headword (`·` inside
+马丁·路德·金) is a matched segment as before.
+
+`SRCH-035` `[MUST]` `isSentence` is true when there is more than one group — foreign-word and
+punctuation groups count — or when the single group is inert and there was no exact match. `isSentence` drives the segmented-passage card (`SRCH-100`) and
 the "Words" vs "Exact" category label.
 
 ### 4.3 Mixed Hanzi + pronunciation pattern search
@@ -356,11 +402,11 @@ served normally, and when it arrives the visible results refresh in place (`GLB-
 
 `SRCH-060` `[MUST]` **Trigger.** For a `ROMANISATION` query whose kept paths include one of at least
 **2** tokens, the Chinese side also proposes **combinations**: sequences of two or more dictionary
-words that together spell the whole query (`wxhn`, `woxihuanni` → 我 喜欢 你). Combinations are never
-computed for `HANZI`, `MIXED`, `LATIN` or blank queries.
+words that together spell the whole query (`wxhn`, `woxihuanni` → 我 喜欢 你). A `MIXED` query
+proposes them under `SRCH-069`. Combinations are never computed for `HANZI`, `LATIN` or blank queries.
 
 `SRCH-061` `[MUST]` **Lattice.** Nodes are letter-stream offsets that are token boundaries on a kept
-path. An edge `[i, j)` is a dictionary word of 1 to 6 syllables whose syllables match, per `SRCH-042`
+path (for a mixed query, item positions, `SRCH-069`). An edge `[i, j)` is a dictionary word of 1 to 6 syllables whose syllables match, per `SRCH-042`
 and **without** the prefix allowance, the tokens of a kept path spanning exactly `[i, j)`; a `PARTIAL`
 token may appear only on an edge that ends at the end of the query; `LITERAL` tokens form no edges.
 Edge candidates come from the first-letter index (`DATA-151`, already in unigram order) in the same
@@ -385,7 +431,7 @@ cover the whole query, in descending score, those within **4 nats** of the best 
 least **−6.5 nats per syllable** are shown (`contract/SCHEMA.md` note 22), grouped into rows
 (`SRCH-065`). Sequences are distinct by their displayed headwords under the active script. A sequence
 whose concatenated text equals the headword of an entry already matching the whole query (`EXACT` or
-`EXACT_TONELESS`) is dropped — it is already in the list (`nh` does not repeat 你好 as 你 + 好); a
+`EXACT_TONELESS`; for a mixed query the exact group and the exact-length pattern matches) is dropped — it is already in the list (`nh` does not repeat 你好 as 你 + 好); a
 whole-query match plays no other part (no bar, no smaller row count): a single-word lookup may show
 combinations (`jiudian` → 酒店 in the list and 九 点 as a combination). Whole-query single-word
 matches stay in the normal ranked list; combinations never enter the ranked list or the side's
@@ -420,6 +466,46 @@ decoder for a superseded query is cancelled (`GLB-041`). A decoder failure omits
 once the data is present. If the fetch fails, the group is omitted and the fetch is retried on a later
 qualifying query. Like every Web asset other than the dataset, the file is browser-cached but not
 guaranteed offline; offline without it the group is omitted.
+
+`SRCH-069` `[MUST]` **Mixed combinations.** A `MIXED` query also proposes combinations, in the same
+`Combinations` section and with the same chip, decoder, model, penalties, floor (−6.5 nats per
+syllable), margin (4 nats), pool (12) and grouping (≤ 3 rows × ≤ 4 alternatives) as `SRCH-062`…`SRCH-065`.
+- **Trigger.** Every Latin run parses as romanisation — full, abbreviated and partial-final tokens all
+  count (`SRCH-023`; `我j点q`) — the query has at least **2** items, and no foreign word (`TXT-018`) of
+  the typed text contains an uppercase letter (`BOM`, `KTV`, `CEO`, `iPhone`, `Xiang` disqualify the
+  whole query); a digit that is not a tone digit already fails the parse (`3个`).
+- **Lattice.** Positions are the query's items: each typed Hanzi is a **pinned** item; each Latin
+  run contributes its kept token paths as in `SRCH-061`. An edge is a dictionary word of 1…6
+  syllables, one per character, whose character equals each pinned item in its simplified or
+  traditional form and whose syllables match each token by `SRCH-042` (without the prefix
+  allowance; a partial token only at the end of the query); edges may cross run and Hanzi
+  boundaries. Candidates: token-only spans from the first-letter index (`SRCH-061`); spans with a
+  pinned Hanzi and tokens from the character posting list of the span's rarest pinned Hanzi (as
+  `SRCH-039`), checked on the entries' forms; spans of pinned Hanzi only from an exact headword
+  lookup. Each kind is one batched read. At most **M = 40** words per span, by combination unigram.
+  A word spelling the whole query is not an edge (it is a pattern match).
+- **Scoring.** As `SRCH-062`; a pinned Hanzi adds no penalty and counts as one syllable for the
+  per-syllable floor. The floor was measured on the mixed evaluation set (`contract/combinations-eval.json`
+  `mixed`, `mixed_neg`): it does not separate English words from pinyin in a sentence (−6.5: 31 % of
+  `mixed_neg` with combinations; −5.0: 17 % with recall@5 down from 94.5 % to 80.4 %), so it is kept.
+- **English words.** A Latin run that is a single word of the `english_word` table (`contract/SCHEMA.md`
+  note 19) is combined only through readings of full syllables or letters typed as words of their own
+  (as `SRCH-060` for an all-English query), and only when the most likely word spelling the whole run
+  is, by its segmentation unigram, at least **3** times as likely as the English word's share of the
+  English corpus; otherwise the query has no combinations (`women去哪儿` → 我们 去 哪儿; `这条路很long`
+  → none). Measured: ratio 1 leaves 6.7 % of `mixed_neg` with combinations, 3 leaves 3.9 % at the same
+  recall, 10 lowers recall.
+- **Output and placement.** A sequence spelling a headword of the exact group or of an exact-length
+  pattern match is dropped (`SRCH-063`). The section follows the groups and the exact-length pattern
+  matches and precedes the longer pattern matches (`SRCH-033`). Mandarin and Cantonese use the same
+  code. Examples: `九dian` → 九 · 点; `jiu 点` → 九 · 点; `我jiu点qu` → 我 · 九/就 · 点 · 去/取/曲/娶;
+  `我xiang去` → 我 · 想 · 去.
+- **Quality gate.** On the full Mandarin dataset (`CombinationQualityTest`, `contract/lm-quality.json`):
+  recall at 1 and 5 of the `mixed` test split at least the pure-pinyin phrase recall; the share of
+  `mixed_neg` sentences with any combination at most 4 % — the target is 2 %; the remaining cases
+  are abbreviation readings that are plausible Chinese (`ppt`, `pdf`), `logo` and `ban`.
+- **Reads.** Besides those of `SRCH-068`: one character-posting read, one headword read, one forms
+  read and one language-model entry read.
 
 `SRCH-068` `[MUST]` **Budget and tracing.** Abbreviated input and combinations are held to `PERF-025`
 (single-word results stay within `PERF-020`). The decoder stage is traced as `dict.lattice`
@@ -756,8 +842,11 @@ it is used for inside-words rows (`SRCH-105`), entry-detail related rows, and sh
 follows `GLB-120` in the same way as `SRCH-094` (space reserved when hidden), including the
 `No Cantonese reading` note.
 
-`SRCH-098` `[MUST]` **Inert rows** (unmatched text runs) render as a `bgSoft` card showing the run
-text in `muted` plus a small uppercase `NO MATCH` label. They are not tappable.
+`SRCH-098` `[MUST]` **Inert rows** (unmatched text runs and foreign words, `SRCH-028`) render as a
+`bgSoft` card showing the run text in `muted` plus a small uppercase `NO MATCH` label. A punctuation
+group (`SRCH-029`) renders as a compact `bgSoft` card sized to its text, in `muted`, without the label.
+Neither is tappable. An English-match group (`SRCH-028`) shows the typed word, with a small uppercase
+`English match` label in the section-label style (`英文匹配` / `英文相符`), above its cards.
 
 `SRCH-099` `[MUST]` **Sentence mode grouping:** when `isSentence` is true and a segment has more than
 one reading, those readings render as one card with internal hairline dividers rather than as separate
@@ -784,7 +873,9 @@ normalises it to a visible code-point start, and opens the word-candidate sheet 
 `SRCH-102` `[MUST]` Chinese-side sections, in order, each preceded by a small-caps section label with
 a count chip:
 - the groups themselves (unlabelled — the first category chip points at them);
-- `Hanzi + Pinyin pattern matches` (Cantonese: `Hanzi + Jyutping pattern matches`);
+- `Hanzi + Pinyin pattern matches` (Cantonese: `Hanzi + Jyutping pattern matches`) — for a `MIXED`
+  query with combinations its exact-length matches, then `Combinations` (`SRCH-069`), then the longer
+  pattern matches under `More matches`;
 - `Starts with 「X」`;
 - `Contains 「X」 elsewhere`;
 - `Related matches` — everything ranked into the side that no earlier section claimed.
@@ -972,8 +1063,9 @@ query (empty state, no section indicator, inert pager).
 
 `SRCH-161` A query of only spaces is blank.
 
-`SRCH-162` Mixed query with unparseable Latin (`我qwrt`): pattern search is skipped; the Chinese side
-falls back to Hanzi handling of 我; the ignored token is not surfaced to the user.
+`SRCH-162` Mixed query with unparseable Latin (`我qwrt`): pattern search and mixed combinations are
+skipped; the groups are 我 and `qwrt` as a foreign word (`SRCH-028`: here NO MATCH), and `Starts with` /
+`Contains` use 我.
 
 `SRCH-163` A headword that is entirely non-Hanzi (`110`, `2019冠状病毒病`, `PO`) must be findable:
 digits and Latin participate in headword exact/prefix matching.

@@ -277,7 +277,7 @@ class RealDatasetTest {
         assertTrue(nh.none { c -> c.words.joinToString("") { it.headword } == "你好" })
     }
 
-    /** Groups as text: `|p` punctuation, `|-` NO MATCH, `|e` English match (SRCH-033a/b). */
+    /** Groups as text: `|p` punctuation, `|-` NO MATCH, `|e` English match (SRCH-028/b). */
     private suspend fun groups(dict: Dictionary, q: String): List<String> =
         dict.search(q, s).chinese.sections.first { it.kind == SectionKind.GROUPS }.groups.map { g ->
             g.text + when {
@@ -290,7 +290,7 @@ class RealDatasetTest {
 
     @Test
     fun sentenceModeMixed() = real { dict ->
-        // Every non-whitespace character in one group; foreign words atomic (SRCH-033, SRCH-033a/b).
+        // Every non-whitespace character in one group; foreign words atomic (SRCH-033, SRCH-028/b).
         assertEquals(listOf("我", "要", "看", "BOM|-", "表"), groups(dict, "我要看BOM表"))
         assertEquals(listOf("他", "是", "CEO|e"), groups(dict, "他是CEO"))
         assertEquals(listOf("发", "个", "email|e", "给", "我"), groups(dict, "发个email给我"))

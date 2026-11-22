@@ -695,7 +695,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         val tapIndex = starts.indexOf(at)
         class Span(val start: Int, val end: Int, val key: String)
         val spans = ArrayList<Span>()
-        // TXT-011: in FULL mode no span starts or ends strictly inside a foreign word.
+        // TXT-018: in FULL mode no span starts or ends strictly inside a foreign word.
         val window = text.substring(starts.first(), starts.last()).cps()
         val inner = if (passage.segmentation == SegmentationMode.FULL && TextClass.hasWordChar(window)) {
             // Classified over the window plus one code point on each side, so the edges are judged in context.

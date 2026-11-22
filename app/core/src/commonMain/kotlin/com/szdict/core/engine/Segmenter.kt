@@ -43,7 +43,7 @@ internal class Segmenter(private val store: DictionaryStore) {
         for (i in cps.indices) offsets[i + 1] = offsets[i] + cpLen(cps[i])
         val maxLen = store.maxWordLen.coerceAtLeast(1)
         val runs = runs(cps, mode)
-        // TXT-011: in FULL mode a foreign word (Latin letters and digits) is atomic: no span starts or
+        // TXT-018: in FULL mode a foreign word (Latin letters and digits) is atomic: no span starts or
         // ends strictly inside it, and an unmatched one is one unknown unit. foreignEnd[i] is the end of
         // the foreign word starting at i (else i + 1).
         val inner: BooleanArray?

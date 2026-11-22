@@ -38,10 +38,10 @@ data class WordGroup(
     val insideCount: Int,
     /**
      * A foreign word without a headword whose [cards] are English-side whole-word matches
-     * (SRCH-033a): shown under the typed word with an `English match` label.
+     * (SRCH-028): shown under the typed word with an `English match` label.
      */
     val english: Boolean = false,
-    /** A run of punctuation or symbols (SRCH-033b): [inert], rendered compact and muted without `NO MATCH`. */
+    /** A run of punctuation or symbols (SRCH-029): [inert], rendered compact and muted without `NO MATCH`. */
     val punctuation: Boolean = false,
 )
 

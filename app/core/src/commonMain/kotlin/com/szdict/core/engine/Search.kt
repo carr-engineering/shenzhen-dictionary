@@ -19,7 +19,7 @@ internal class SectionOut(val kind: SectionKind, val key: String, val labelArg: 
 
 /**
  * One group of the Chinese side (SRCH-033): [english] when its entries were found through the
- * English side for a foreign word (SRCH-033a), [punctuation] for a punctuation run (SRCH-033b).
+ * English side for a foreign word (SRCH-028), [punctuation] for a punctuation run (SRCH-029).
  */
 internal class GroupOut(
     val text: String, val start: Int, val length: Int, val inert: Boolean, val ids: List<Int>,
@@ -274,7 +274,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
     }
 
     /**
-     * The groups of sentence mode (SRCH-033 item 2, SRCH-033a, SRCH-033b): every non-whitespace
+     * The groups of sentence mode (SRCH-033 item 2, SRCH-028, SRCH-029): every non-whitespace
      * character in exactly one group, in text order. A matched segment is a group; inside unmatched
      * segments a foreign word is a group of its own (its headword, else up to three English-side
      * whole-word matches, else NO MATCH), a punctuation run is a punctuation group, and unmatched
@@ -335,7 +335,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         flushText()
         if (foreign.isEmpty()) return@coroutineScope out
 
-        // SRCH-033a (a): a headword equal to the word ignoring case, or with its joiners removed. One batched read.
+        // SRCH-028 (a): a headword equal to the word ignoring case, or with its joiners removed. One batched read.
         fun folded(w: String) = normalizeNfkc(w).lowercase()
         fun bare(w: String) = folded(w).filter { !TextClass.isJoiner(it.code) }
         val keys = LinkedHashSet<String>()
@@ -466,7 +466,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
     }
 
     /**
-     * SRCH-033a (b): the entries whose definitions hold [word] as whole words — every token exact
+     * SRCH-028 (b): the entries whose definitions hold [word] as whole words — every token exact
      * (no prefix match) and, for several tokens, contiguous in one sense (`EN_PHRASE`) — in the
      * English side's order (CC-Canto first in Cantonese mode), at most [limit].
      */
@@ -1029,9 +1029,9 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         const val K_BEST = 8
         const val BEAM = 18.0
         const val PHRASE_CHECK = 600
-        /** English-side entries shown for a foreign word without a headword (SRCH-033a). */
+        /** English-side entries shown for a foreign word without a headword (SRCH-028). */
         const val ENGLISH_MATCHES = 3
-        /** English-side entries whose sense text is checked for the whole word (SRCH-033a). */
+        /** English-side entries whose sense text is checked for the whole word (SRCH-028). */
         const val WHOLE_WORD_CHECK = 30
     }
 }

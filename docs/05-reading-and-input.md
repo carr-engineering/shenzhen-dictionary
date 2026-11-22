@@ -17,8 +17,20 @@ interlinear readings).
 
 `TXT-011` `[MUST]` Segmentation operates on **runs**. In `HANZI` mode a run is a maximal sequence of
 Hanzi; in `FULL` mode a run is a maximal sequence of non-whitespace characters. Search's Chinese side
-uses `FULL` (so punctuation and Latin inside a pasted query participate); Reading, OCR and Voice use
-`HANZI` (so surrounding prose and English words are skipped).
+uses `FULL` for every Hanzi or mixed query (so punctuation and Latin inside a pasted query
+participate, `SRCH-033`), never `HANZI`; Reading, OCR and Voice use `HANZI` (so surrounding prose and
+English words are skipped).
+
+`TXT-018` `[MUST]` **Foreign words are atomic** (`FULL` mode). A *foreign word* is a maximal run of
+Latin letters and digits — after the folding of `SRCH-010` step 1, so full-width forms and Latin
+letters with diacritics count — in which the joiners `'`, `’`, `-`, `.` and `_` stay only when they
+stand directly between two letters or digits (`don't`, `Wi-Fi`, `3.5`, `e-mail`; `a--b` is two words
+and two hyphens). Whitespace separates foreign words (`hello world` is two). No dictionary span —
+segmentation edge (lattice `TXT-012`/`TXT-026`, unigram DAG and greedy `TXT-013` alike), span
+candidate (`TXT-020`) or sub-span (`SRCH-034`) — may start or end strictly inside a foreign word, so
+`iPhone` is never read as `iP` + `hone`, while a headword covering the word whole still matches
+(`T恤`, `B超`, `卡拉OK`, `AA制`, `3C`). An unmatched foreign word is one unknown unit, scored once with the
+unknown-character penalty, and becomes one unmatched segment. `HANZI`-mode runs hold no foreign words.
 
 `TXT-012` `[MUST]` **With frequency data (preferred): a DAG maximum-likelihood segmentation.**
 Scanning the run right-to-left, `score[i] = max over lengths L of (logProb(word) + score[i+L])`, where
@@ -72,7 +84,8 @@ rather than an opaque engine-side id, removing a whole class of staleness bugs.
 `TXT-020` `[MUST]` Tapping index `i` in a passage produces every dictionary word that **covers** `i`:
 for every start `s` in `[max(runStart, i - (maxWordLen - 1)), i]` and every length `L` such that
 `s + L > i` and `s + L <= runEnd` and `L <= maxWordLen` (`maxWordLen` as in `TXT-012`), the substring
-`[s, s+L)` if it is a dictionary headword. Unicode-only character entries (`DATA-190`) are headwords
+`[s, s+L)` if it is a dictionary headword and, in `FULL` mode, starts and ends outside any foreign
+word (`TXT-018`). Unicode-only character entries (`DATA-190`) are headwords
 for this purpose, so such a character is covered: tappable with candidates, and included in stepping
 (`TXT-033`). Among candidates they sort after dictionary entries at the same span (`SRCH-079`). A
 character is **covered** when this set is non-empty.
@@ -404,10 +417,11 @@ every word.
 `TXT-071` A supplementary-plane Hanzi is one tappable unit and its highlight covers both UTF-16 units.
 
 `TXT-072` A passage containing only punctuation produces one inert group and, in Search, `isSentence`
-true with a single inert row.
+true with a single inert row (a Search query of only punctuation is blank, `SRCH-160`).
 
 `TXT-073` Adjacent unmatched segments merge into one inert group; a matched segment between them splits
-them.
+them. In Search a foreign word or a punctuation run also splits them: each is a group of its own
+(`SRCH-028`, `SRCH-029`), so `龘，龘` is three groups and `龘龘` one.
 
 `TXT-074` A text whose analysis fails leaves the draft intact, shows the error, and lets the user retry
 by editing.

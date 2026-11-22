@@ -85,7 +85,7 @@ internal fun IntArray.cpString(from: Int = 0, to: Int = size): String {
 }
 
 /**
- * Character classes of sentence mode (TXT-011, SRCH-033): whitespace, foreign-word characters
+ * Character classes of sentence mode (TXT-018, SRCH-028, SRCH-029): whitespace, foreign-word characters
  * (Latin letters and digits, full-width forms included, plus the joiners `'` `’` `-` `.` `_` when
  * directly between two of them), text (Hanzi, radical and stroke forms, letters of other scripts)
  * and punctuation (everything else: punctuation, symbols, emoji).
@@ -129,7 +129,7 @@ internal object TextClass {
     /**
      * Code-point boundaries strictly inside a foreign word: `inner[i]` (0..n) is true when code
      * points `i - 1` and `i` both belong to the same foreign word. No dictionary span may start or
-     * end at such a boundary (TXT-011).
+     * end at such a boundary (TXT-018).
      */
     fun innerBoundaries(cps: IntArray, classes: IntArray = classify(cps)): BooleanArray {
         val inner = BooleanArray(cps.size + 1)
