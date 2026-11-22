@@ -184,6 +184,12 @@ internal object RomanParser {
 /** One item of a mixed Hanzi + pronunciation pattern (SRCH-036). */
 internal class PatternItem(val hanzi: Int, val tok: Tok?)
 
+/**
+ * One part of a mixed query in text order (SRCH-069): a typed Hanzi ([hanzi] > 0) or a Latin run
+ * with its kept token paths ([paths], literal-free) and its matching-key text ([run]).
+ */
+internal class MixedPart(val hanzi: Int, val run: String, val paths: List<RomanPath>, val breaks: IntArray = IntArray(0))
+
 internal class Classified(
     val kind: QueryKind,
     val key: String,
@@ -192,6 +198,8 @@ internal class Classified(
     val roman: RomanParse?,
     /** MIXED with a valid pattern: up to 8 pattern alternatives with their token cost. */
     val patterns: List<Pair<List<PatternItem>, Double>>,
+    /** MIXED with a valid pattern: the query's parts in order, for mixed combinations (SRCH-069). */
+    val parts: List<MixedPart> = emptyList(),
 ) {
     val hasTone: Boolean get() = roman?.hasTone == true || patterns.any { p -> p.first.any { it.tok?.tone ?: 0 != 0 } }
     /** The key with spaces removed. */
@@ -215,12 +223,14 @@ internal object Classifier {
         // MIXED: split into Hanzi items and Latin runs.
         val cps = key.cps()
         var alternatives: List<Pair<List<PatternItem>, Double>> = listOf(emptyList<PatternItem>() to 0.0)
+        val parts = ArrayList<MixedPart>()
         var valid = true
         var i = 0
         while (i < cps.size && valid) {
             val cp = cps[i]
             if (isHanzi(cp)) {
                 alternatives = alternatives.map { (items, cost) -> (items + PatternItem(cp, null)) to cost }
+                parts.add(MixedPart(cp, "", emptyList()))
                 i++
                 continue
             }
@@ -233,6 +243,7 @@ internal object Classifier {
                 val paths = parse?.paths.orEmpty().ifEmpty { singleAbbrev(run, inv, abbrevPenalty) }
                 if (paths.isEmpty()) valid = false
                 else {
+                    parts.add(MixedPart(0, run, paths.filter { !it.hasLiteral }, parse?.breaks ?: IntArray(0)))
                     val next = ArrayList<Pair<List<PatternItem>, Double>>()
                     for ((items, cost) in alternatives) for (p in paths) {
                         if (next.size >= 8) break
@@ -246,7 +257,7 @@ internal object Classifier {
             i = j
         }
         val patterns = if (valid) alternatives.filter { it.first.size >= 2 }.sortedBy { it.second }.take(8) else emptyList()
-        return Classified(QueryKind.MIXED, key, display, null, patterns)
+        return Classified(QueryKind.MIXED, key, display, null, patterns, if (patterns.isEmpty()) emptyList() else parts)
     }
 
     private fun singleAbbrev(run: String, inv: Inventory, abbrevPenalty: Double): List<RomanPath> =

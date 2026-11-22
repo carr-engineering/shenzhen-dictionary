@@ -43,6 +43,25 @@ internal class Segmenter(private val store: DictionaryStore) {
         for (i in cps.indices) offsets[i + 1] = offsets[i] + cpLen(cps[i])
         val maxLen = store.maxWordLen.coerceAtLeast(1)
         val runs = runs(cps, mode)
+        // TXT-011: in FULL mode a foreign word (Latin letters and digits) is atomic: no span starts or
+        // ends strictly inside it, and an unmatched one is one unknown unit. foreignEnd[i] is the end of
+        // the foreign word starting at i (else i + 1).
+        val inner: BooleanArray?
+        val unitEnd: IntArray
+        if (mode == SegmentationMode.FULL && TextClass.hasWordChar(cps)) {
+            val classes = TextClass.classify(cps)
+            inner = TextClass.innerBoundaries(cps, classes)
+            unitEnd = IntArray(cps.size) { it + 1 }
+            var i = cps.size - 1
+            while (i >= 0) {
+                if (inner[i + 1]) unitEnd[i] = unitEnd[i + 1]
+                i--
+            }
+        } else {
+            inner = null
+            unitEnd = IntArray(cps.size) { it + 1 }
+        }
+        fun admissible(s: Int, e: Int) = inner == null || (!inner[s] && !inner[e])
         val allHits = HashMap<String, List<HeadHit>>()
         val logp = HashMap<String, Double>()
         val lattice = forceStrategy == 0 && store.hasFrequency && store.hasBigram && store.lmReady()
@@ -88,9 +107,9 @@ internal class Segmenter(private val store: DictionaryStore) {
         for ((rs, re) in runs) {
             for (i in rs until re) {
                 val lim = minOf(maxLen, re - i)
-                val row = Array(lim) { lookupKey(cps.cpString(i, i + it + 1)) }
+                val row = Array(lim) { if (admissible(i, i + it + 1)) lookupKey(cps.cpString(i, i + it + 1)) else NO_KEY }
                 keys[i] = row
-                pending.addAll(row)
+                for (k in row) if (k !== NO_KEY) pending.add(k)
                 if (pending.size >= BATCH_KEYS) flush()
             }
         }
@@ -103,7 +122,9 @@ internal class Segmenter(private val store: DictionaryStore) {
         val covered = BooleanArray(cps.size)
 
         fun wordHits(i: Int, len: Int): List<HeadHit>? {
-            val hs = allHits[keys[i]!![len - 1]] ?: return null
+            val row = keys[i]!!
+            if (len > row.size) return null
+            val hs = allHits[row[len - 1]] ?: return null
             return if (len == 1 || hs.any { it.proj.segmentable }) hs else null
         }
 
@@ -133,11 +154,14 @@ internal class Segmenter(private val store: DictionaryStore) {
                     if (word >= 0 && p + len < n) lefts.add(word)
                 }
                 for (p in 0 until n) {
-                    val lim = minOf(maxLen, n - p)
+                    if (inner != null && inner[rs + p]) continue
+                    val unit = unitEnd[rs + p] - rs - p // the unknown unit at p: one character or a whole foreign word
+                    val lim = maxOf(minOf(maxLen, n - p), unit)
                     for (len in 1..lim) {
+                        if (!admissible(rs + p, rs + p + len)) continue
                         val hs = wordHits(rs + p, len)
                         if (hs == null) {
-                            if (len == 1) add(p, 1, -1, unknown, false)
+                            if (len == unit) add(p, unit, -1, unknown, false)
                             continue
                         }
                         // One edge per distinct language-model word of the span (乾: 干 / 乾).
@@ -169,11 +193,16 @@ internal class Segmenter(private val store: DictionaryStore) {
                 val word = IntArray(r.n) { -1 }
                 val best = LatticeDecoder.decode(r.n + 1, r.edges, bigrams, 1, LATTICE_BEAM) { ctx.ensureActive() }.firstOrNull()
                 if (best == null) {
-                    for (p in 0 until r.n) wordLen[p] = if (wordHits(r.rs + p, 1) != null) 1 else -1
+                    var p = 0
+                    while (p < r.n) {
+                        val unit = unitEnd[r.rs + p] - r.rs - p
+                        wordLen[p] = if (wordHits(r.rs + p, unit) != null) unit else -unit
+                        p += unit
+                    }
                 } else {
                     for (e in best.edges) {
                         val p = r.start[e.payload]
-                        wordLen[p] = if (r.matched[e.payload]) r.length[e.payload] else -1
+                        wordLen[p] = if (r.matched[e.payload]) r.length[e.payload] else -r.length[e.payload]
                         word[p] = e.word
                     }
                 }
@@ -188,13 +217,19 @@ internal class Segmenter(private val store: DictionaryStore) {
                 for (p in n - 1 downTo 0) {
                     var best = Double.NEGATIVE_INFINITY
                     var bestLen = -1
-                    val lim = minOf(maxLen, n - p)
+                    if (inner != null && inner[rs + p]) {
+                        score[p] = best
+                        continue
+                    }
+                    val unit = unitEnd[rs + p] - rs - p
+                    val lim = maxOf(minOf(maxLen, n - p), unit)
                     for (len in 1..lim) {
+                        if (!admissible(rs + p, rs + p + len)) continue
                         val hs = wordHits(rs + p, len)
                         val s: Double
                         var matched = true
                         if (hs == null) {
-                            if (len > 1) continue
+                            if (len != unit) continue
                             s = unknown
                             matched = false
                         } else if (hs.all { it.proj.isUnihan }) {
@@ -205,7 +240,7 @@ internal class Segmenter(private val store: DictionaryStore) {
                         val total = s + score[p + len]
                         if (total >= best) { // ties prefer the longer word
                             best = total
-                            bestLen = if (matched) len else -1
+                            bestLen = if (matched) len else -len
                         }
                     }
                     score[p] = best
@@ -214,14 +249,15 @@ internal class Segmenter(private val store: DictionaryStore) {
             } else {
                 var p = 0
                 while (p < n) {
+                    val unit = unitEnd[rs + p] - rs - p
                     var len = minOf(maxLen, n - p)
-                    while (len >= 2 && wordHits(rs + p, len) == null) len--
-                    if (len >= 2) {
+                    while (len >= 1 && (!admissible(rs + p, rs + p + len) || wordHits(rs + p, len) == null)) len--
+                    if (len >= 1) {
                         wordLen[p] = len
                         p += len
                     } else {
-                        wordLen[p] = if (wordHits(rs + p, 1) != null) 1 else -1
-                        p++
+                        wordLen[p] = -unit
+                        p += unit
                     }
                 }
             }
@@ -245,8 +281,8 @@ internal class Segmenter(private val store: DictionaryStore) {
                     segments.add(PassageSegment(offsets[rs + p], offsets[rs + p + len] - offsets[rs + p], true, pick.proj.id, Reading.EMPTY, false))
                     p += len
                 } else {
-                    var q = p + 1
-                    while (q < n && wordLen[q] < 0) q++
+                    var q = p + maxOf(1, -len)
+                    while (q < n && wordLen[q] < 0) q += -wordLen[q]
                     segments.add(PassageSegment(offsets[rs + p], offsets[rs + q] - offsets[rs + p], false, -1, Reading.EMPTY, false))
                     p = q
                 }
@@ -255,7 +291,7 @@ internal class Segmenter(private val store: DictionaryStore) {
             for (i in rs until re) {
                 val lim = minOf(maxLen, re - i)
                 for (len in lim downTo 1) {
-                    if (allHits[keys[i]!![len - 1]] != null) {
+                    if (keys[i]!![len - 1] !== NO_KEY && allHits[keys[i]!![len - 1]] != null) {
                         for (c in i until i + len) covered[c] = true
                         break // shorter words at this start add no further coverage
                     }
@@ -278,6 +314,8 @@ internal class Segmenter(private val store: DictionaryStore) {
 
     companion object {
         const val UNKNOWN_SCORE = -20.0
+        /** Key of a span that may not be a word (it starts or ends inside a foreign word); never looked up. */
+        private val NO_KEY = String(charArrayOf('\u0000'))
         private const val BATCH_KEYS = 6000
         private const val LATTICE_BEAM = 40.0
 

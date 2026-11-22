@@ -84,6 +84,78 @@ internal fun IntArray.cpString(from: Int = 0, to: Int = size): String {
     return sb.toString()
 }
 
+/**
+ * Character classes of sentence mode (TXT-011, SRCH-033): whitespace, foreign-word characters
+ * (Latin letters and digits, full-width forms included, plus the joiners `'` `’` `-` `.` `_` when
+ * directly between two of them), text (Hanzi, radical and stroke forms, letters of other scripts)
+ * and punctuation (everything else: punctuation, symbols, emoji).
+ */
+internal object TextClass {
+    const val SPACE = 0
+    const val WORD = 1
+    const val TEXT = 2
+    const val PUNCT = 3
+
+    fun isSpace(cp: Int): Boolean = cp == 0x3000 || (cp < 0x10000 && cp.toChar().isWhitespace())
+
+    /** A Latin letter or digit after NFKC folding (SRCH-010): ASCII, full-width forms, Latin letters with diacritics. */
+    fun isWordChar(cp: Int): Boolean = when {
+        cp < 0x80 -> cp in 'a'.code..'z'.code || cp in 'A'.code..'Z'.code || cp in '0'.code..'9'.code
+        cp in 0xC0..0x24F -> cp != 0xD7 && cp != 0xF7
+        cp in 0x1E00..0x1EFF -> true
+        cp in 0xFF10..0xFF19 || cp in 0xFF21..0xFF3A || cp in 0xFF41..0xFF5A -> true
+        else -> false
+    }
+
+    fun isJoiner(cp: Int): Boolean = cp == '\''.code || cp == 0x2019 || cp == '-'.code || cp == '.'.code || cp == '_'.code
+
+    private fun base(cp: Int): Int = when {
+        isSpace(cp) -> SPACE
+        isWordChar(cp) -> WORD
+        isHanzi(cp) || cp in 0x2E80..0x2EFF || cp in 0x31C0..0x31EF -> TEXT
+        cp < 0x10000 && cp.toChar().isLetterOrDigit() -> TEXT
+        else -> PUNCT
+    }
+
+    /** The class of every code point; a joiner directly between two word characters is [WORD]. */
+    fun classify(cps: IntArray): IntArray {
+        val out = IntArray(cps.size) { base(cps[it]) }
+        for (i in 1 until cps.size - 1) {
+            if (isJoiner(cps[i]) && isWordChar(cps[i - 1]) && isWordChar(cps[i + 1])) out[i] = WORD
+        }
+        return out
+    }
+
+    /**
+     * Code-point boundaries strictly inside a foreign word: `inner[i]` (0..n) is true when code
+     * points `i - 1` and `i` both belong to the same foreign word. No dictionary span may start or
+     * end at such a boundary (TXT-011).
+     */
+    fun innerBoundaries(cps: IntArray, classes: IntArray = classify(cps)): BooleanArray {
+        val inner = BooleanArray(cps.size + 1)
+        for (i in 1 until cps.size) if (classes[i - 1] == WORD && classes[i] == WORD) inner[i] = true
+        return inner
+    }
+
+    /** True when [cps] holds a foreign-word character at all (a fast path for the checks above). */
+    fun hasWordChar(cps: IntArray): Boolean = cps.any { isWordChar(it) }
+
+    /** Keeps the (start, length, id) triples of [rows] whose span starts and ends on admissible boundaries of [headword]. */
+    fun admissibleRows(rows: IntArray, headword: String): IntArray {
+        val cps = headword.cps()
+        if (!hasWordChar(cps)) return rows
+        val inner = innerBoundaries(cps)
+        val out = ArrayList<Int>(rows.size)
+        for (i in 0 until rows.size - 2 step 3) {
+            val s = rows[i]
+            val e = s + rows[i + 1]
+            if (s in inner.indices && e in inner.indices && (inner[s] || inner[e])) continue
+            out.add(rows[i]); out.add(rows[i + 1]); out.add(rows[i + 2])
+        }
+        return if (out.size == rows.size) rows else out.toIntArray()
+    }
+}
+
 /** Tone carried by a tone-marked vowel (1–4), with its base letter; 0 when [c] is not one (SRCH-010 step 6). */
 internal fun toneMarkOf(c: Char): Int {
     val i = TONE_VOWELS.indexOf(c)

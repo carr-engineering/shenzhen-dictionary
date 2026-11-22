@@ -446,6 +446,103 @@ class FixtureDatasetTest {
         assertEquals("我", noise.groups().first().cards.first().headword)
     }
 
+    /** A fixture with Latin-containing headwords and English-side words for sentence mode (SRCH-033a/b). */
+    private val foreignDir: File by lazy {
+        Fixture.standard().apply {
+            entry("用", "用", "yong4", "to use", 60, 300000)
+            entry("和", "和", "he2", "and; with", 20, 600000)
+            entry("穿", "穿", "chuan1", "to wear; to put on", 900, 20000)
+            entry("看", "看", "kan4", "to look at; to see", 50, 300000)
+            entry("表", "表", "biao3", "table; chart; list", 700, 30000)
+            entry("上網", "上网", "shang4 wang3", "to go online", 1200, 9000)
+            entry("IP", "IP", "I P", "Internet Protocol address", 3000, 500)
+            entry("K", "K", "K", "thousand (abbr.)", 9000)
+            entry("OK", "OK", "O K", "okay", 4000, 200)
+            entry("卡拉", "卡拉", "ka3 la1", "Kara (name)", 8000)
+            entry("卡拉OK", "卡拉OK", "ka3 la1 O K", "karaoke", 5000)
+            entry("物料清單", "物料清单", "wu4 liao4 qing1 dan1", "bill of materials (BOM)", 7000)
+            entry("炸彈", "炸弹", "zha4 dan4", "bomb", 3000)
+            entry("蘋果手機", "苹果手机", "ping2 guo3 shou3 ji1", "iPhone", 6000)
+            entry("無線網", "无线网", "wu2 xian4 wang3", "wireless network; Wi-Fi", 6500)
+        }.build()
+    }
+
+    @Test
+    fun sentenceModeForeignWords() = with(foreignDir) { dict ->
+        suspend fun groups(q: String) = dict.search(q, s).groups().map { g ->
+            g.text + when {
+                g.punctuation -> "|p"
+                g.inert -> "|-"
+                g.english -> "|e:" + g.cards.joinToString(",") { it.headword }
+                else -> ""
+            }
+        }
+        // Every non-whitespace character in exactly one group; a foreign word is atomic (no iP + hone).
+        assertEquals(listOf("我", "用", "iPhone|e:苹果手机", "和", "WiFi|-"), groups("我用iPhone和WiFi"))
+        assertEquals(listOf("用", "Wi-Fi|e:无线网", "上网"), groups("用Wi-Fi上网"))
+        // A headword covering the Latin part whole still matches (T恤, 卡拉OK); the word itself as a headword (IP).
+        assertEquals(listOf("我", "穿", "T恤"), groups("我穿T恤"))
+        assertEquals(listOf("我", "用", "ip"), groups("我用ip"))
+        assertEquals(listOf("看", "卡拉OK"), groups("看卡拉OK"))
+        // English match by whole word only: BOM finds the bill of materials, never `bomb`.
+        assertEquals(listOf("我", "看", "BOM|e:物料清单", "表"), groups("我看BOM表"))
+        val bom = dict.search("我看BOM表", s).groups()[2]
+        assertTrue(!bom.inert && bom.english && bom.insideOf == null)
+        // NO MATCH for a word with neither; digits and single letters skip the English side.
+        assertEquals(listOf("我", "uiu|-"), groups("我uiu"))
+        assertEquals(listOf("我", "3|-", "个|-"), groups("我3个"))
+        assertEquals(listOf("我", "3.5|-"), groups("我3.5"))
+        // Whitespace separates foreign words; joiners stay inside only between letters or digits.
+        assertEquals(listOf("hello|e:你好", "world|e:世界", "你好"), groups("hello world 你好"))
+        assertEquals(listOf("我", "don't|-"), groups("我don't"))
+        assertEquals(listOf("我", "ok", "-|p"), groups("我ok-"))
+        // Sub-spans never cut a foreign word: 卡拉OK has 卡拉 and OK inside, not K.
+        val ktv = dict.search("卡拉OK", s).groups().single()
+        assertEquals(listOf("卡拉OK"), ktv.cards.map { it.headword })
+        assertEquals(listOf("卡拉", "OK"), dict.insideWords(ktv.insideOf!!, s).map { it.card.headword })
+        // Passage taps in sentence mode offer no span inside a foreign word.
+        val r = dict.search("我用ipx和", s)
+        val spans = dict.spansAt(r.chinese.passage!!, 2, s)
+        assertTrue(spans.candidates.none { it.card.headword == "IP" }, spans.candidates.map { it.card.headword }.toString())
+    }
+
+    @Test
+    fun sentenceModePunctuation() = with(foreignDir) { dict ->
+        suspend fun groups(q: String) = dict.search(q, s).groups().map { g -> g.text + if (g.punctuation) "|p" else if (g.inert) "|-" else "" }
+        // Punctuation is its own group, never merged with a NO MATCH word or unmatched Hanzi.
+        assertEquals(listOf("你好", "！|p", "BOM", "。|p"), groups("你好！BOM。"))
+        assertEquals(listOf("hello", ",|p", "world", "你好"), groups("hello,world 你好"))
+        assertEquals(listOf("你好", "！|p", "uiu|-", "。|p"), groups("你好！uiu。"))
+        // Adjacent punctuation without whitespace is one card; whitespace separates.
+        assertEquals(listOf("你好", "。」|p", "我"), groups("你好。」我"))
+        assertEquals(listOf("你好", "。|p", "」|p", "我"), groups("你好。 」我"))
+        // Unmatched Hanzi still merge (TXT-073), but not across punctuation or a foreign word.
+        assertEquals(listOf("龘龘|-"), groups("龘龘"))
+        assertEquals(listOf("龘|-", "，|p", "龘|-"), groups("龘，龘"))
+        assertEquals(listOf("龘|-", "uiu|-", "龘|-"), groups("龘uiu龘"))
+        assertTrue(dict.search("你好！", s).chinese.sections.first().groups.single().let { !it.inert && it.text == "你好！" }) // exact group as before
+    }
+
+    @Test
+    fun mixedCombinations() = with { dict ->
+        // SRCH-069: a typed Hanzi is a pinned item; the Latin runs give their token paths.
+        val combos = dict.search("我xiang去", s).combos()
+        assertTrue(listOf("我", "想去") in combos || listOf("我", "想", "去") in combos, combos.toString())
+        assertTrue(combos.flatten().none { it.isEmpty() })
+        val abbr = dict.search("我x去", s).combos()
+        assertTrue(abbr.isNotEmpty() && abbr.all { it.first() == "我" && it.joinToString("") == "我想去" }, abbr.toString())
+        assertEquals(dict.search("wo想qu", s).combos().map { it.joinToString("") }.toSet(), setOf("我想去"))
+        // Uppercase Latin is a word, not pinyin: no combinations for the whole query.
+        assertTrue(dict.search("我XIANG去", s).combos().isEmpty())
+        assertTrue(dict.search("我Xiang去", s).combos().isEmpty())
+        // The groups are unaffected by combinations; an exact-length pattern match is never repeated.
+        assertEquals(listOf("想去"), dict.search("想q", s).heads(SectionKind.PATTERN))
+        assertTrue(dict.search("想q", s).combos().none { it.joinToString("") == "想去" })
+        // Combinations sit after the groups and the exact-length pattern matches.
+        val kinds = dict.search("我xiang去", s).chinese.sections.map { it.kind }
+        assertTrue(kinds.indexOf(SectionKind.COMBINATIONS) > kinds.indexOf(SectionKind.GROUPS), kinds.toString())
+    }
+
     @Test
     fun entryDetailAndRelated() = with { dict ->
         val id = dict.search("喜欢", s).groups().single().cards.single().id

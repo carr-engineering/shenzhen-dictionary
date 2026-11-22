@@ -15,6 +15,13 @@ internal object Combinations {
     /** Lowest log-probability per syllable of a shown sequence. */
     const val FLOOR_PER_SYLLABLE = -6.5
     /**
+     * Mixed queries (SRCH-069): a Latin run that is one English word is combined only when a word
+     * spelling the run is at least this many times as likely (its unigram) as the English word's share
+     * of the English corpus. Measured on contract/combinations-eval.json `mixed` / `mixed_neg`: 1 keeps
+     * 6.7 % of the negatives, 3 keeps 3.9 % at the same recall, 10 costs recall.
+     */
+    const val ENGLISH_RATIO = 3.0
+    /**
      * Lowest share of a sequence in the probability mass of the candidates (exp(score - best) / sum).
      * 0 = off. A general junk reducer measured at 0.05 (fewer single-word lookups with combinations,
      * slightly lower recall); not applied.
@@ -78,13 +85,15 @@ internal object Combinations {
      * one, at or above [FLOOR_PER_SYLLABLE] per syllable and, when [minShare] > 0, holds at least that
      * share of the candidates' probability mass. No whole-query word takes part.
      */
-    fun <T> select(candidates: List<T>, score: (T) -> Double, syllables: (T) -> Int, minShare: Double = MIN_SHARE): List<T> {
+    fun <T> select(
+        candidates: List<T>, score: (T) -> Double, syllables: (T) -> Int, minShare: Double = MIN_SHARE, floor: Double = FLOOR_PER_SYLLABLE,
+    ): List<T> {
         if (candidates.isEmpty()) return emptyList()
         val best = score(candidates[0])
         val mass = if (minShare > 0.0) candidates.sumOf { exp(score(it) - best) } else 1.0
         return candidates.filter { c ->
             val s = score(c)
-            s >= best - MARGIN && s >= FLOOR_PER_SYLLABLE * syllables(c) && (minShare <= 0.0 || exp(s - best) / mass >= minShare)
+            s >= best - MARGIN && s >= floor * syllables(c) && (minShare <= 0.0 || exp(s - best) / mass >= minShare)
         }
     }
 

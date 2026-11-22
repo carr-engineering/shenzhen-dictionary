@@ -41,6 +41,7 @@ import com.szdict.core.api.SearchSection
 import com.szdict.core.api.SearchSide
 import com.szdict.core.api.SectionKind
 import com.szdict.core.api.SegmentationMode
+import com.szdict.core.engine.TextClass
 import com.szdict.core.api.Sense
 import com.szdict.core.api.SettingsCodec
 import com.szdict.core.api.SideResult
@@ -179,6 +180,8 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         val c: Classified, val script: Script, val options: SearchOptions, val result: SearchResult, val wholeIds: IntArray, val needsCombos: Boolean,
         /** Every word of the query is a common English word (SCHEMA note 19). */
         val englishWords: Boolean = false,
+        /** Mixed query: exact-length rows at the head of the PATTERN section, after which combinations go (SRCH-069). */
+        val patternExact: Int = 0,
     )
 
     private fun refOf(c: Candidate) = RowRef(c.proj.id, if (c.alt) c.altNote else -1, if (c.alt && c.altNote < 0) c.altKey else null, c.mandarinRow, if (c.mandarinRow) c.sense else -1)
@@ -216,7 +219,11 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         if (zh.groups.isNotEmpty()) {
             val groups = zh.groups.map { g ->
                 val cs = g.ids.mapNotNull { byRef[RowRef(it)] }
-                WordGroup(g.text, g.start, g.length, g.inert || cs.isEmpty(), cs, cs.firstOrNull()?.id, cs.firstOrNull()?.insideCount ?: 0)
+                // An English-side group is not one headword: its cards keep their own inside-words buttons.
+                WordGroup(
+                    g.text, g.start, g.length, g.inert || cs.isEmpty(), cs, cs.firstOrNull()?.id?.takeIf { !g.english },
+                    if (g.english) 0 else cs.firstOrNull()?.insideCount ?: 0, english = g.english && cs.isNotEmpty(), punctuation = g.punctuation,
+                )
             }
             zhSections.add(SearchSection(SectionKind.GROUPS, "g", null, groups.sumOf { it.cards.size }, groups = groups))
         }
@@ -242,9 +249,15 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
             else -> forced
         }
         val result = SearchResult(query, c.key, c.display, c.kind, script, side, chinese, english, false, generation)
-        val needs = options.combinations && c.kind == QueryKind.ROMANISATION && c.roman?.paths?.any { it.tokens.size >= 2 } == true && store.lmReady()
-        val whole = zh.sections.firstOrNull { it.kind == SectionKind.MATCHES }?.rows?.let { rows -> IntArray(rows.size) { rows[it].proj.id } } ?: IntArray(0)
-        return Base(c, script, options, result, whole, needs, allEnglish)
+        val needs = options.combinations && store.lmReady() &&
+            ((c.kind == QueryKind.ROMANISATION && c.roman?.paths?.any { it.tokens.size >= 2 } == true) || engine.mixedCombinable(c))
+        val whole = if (c.kind == QueryKind.MIXED) {
+            // SRCH-069: the exact group and the exact-length pattern matches.
+            val pattern = zh.sections.firstOrNull { it.kind == SectionKind.PATTERN }?.rows.orEmpty().take(zh.patternExact)
+            val exactGroup = if (zh.isSentence) emptyList() else zh.groups.flatMap { it.ids }
+            (exactGroup + pattern.map { it.proj.id }).distinct().toIntArray()
+        } else zh.sections.firstOrNull { it.kind == SectionKind.MATCHES }?.rows?.let { rows -> IntArray(rows.size) { rows[it].proj.id } } ?: IntArray(0)
+        return Base(c, script, options, result, whole, needs, allEnglish, zh.patternExact)
     }
 
     /**
@@ -286,13 +299,17 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
     /** The engine's combinations of [query] (grouped rows and the flat kept list), for evaluation. */
     internal suspend fun combinationsOf(query: String, script: Script): CombosOut {
         val base = searchBase(query, script, SearchOptions())
-        return if (base.needsCombos) engine.combinations(base.c.roman!!, base.script, base.wholeIds, base.englishWords) else CombosOut.EMPTY
+        return if (base.needsCombos) combos(base) else CombosOut.EMPTY
     }
+
+    private suspend fun combos(base: Base): CombosOut =
+        if (base.c.kind == QueryKind.MIXED) engine.mixedCombinations(base.c, base.script, base.wholeIds)
+        else engine.combinations(base.c.roman!!, base.script, base.wholeIds, base.englishWords)
 
     private suspend fun withCombinations(base: Base): SearchResult {
         // SRCH-066: a decoder failure omits the group silently.
         val combos: List<ComboOut> = try {
-            engine.combinations(base.c.roman!!, base.script, base.wholeIds, base.englishWords).rows
+            combos(base).rows
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -309,8 +326,29 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         if (list.isEmpty()) return base.result
         val zh = base.result.chinese
         val sections = ArrayList(zh.sections)
-        val at = sections.indexOfFirst { it.kind == SectionKind.MATCHES }.let { if (it < 0) 0 else it + 1 }
-        sections.add(at, SearchSection(SectionKind.COMBINATIONS, "k", null, list.size, combinations = list))
+        val combinations = SearchSection(SectionKind.COMBINATIONS, "k", null, list.size, combinations = list)
+        if (base.c.kind == QueryKind.MIXED) {
+            // SRCH-069: after the groups and the exact-length pattern matches, before the longer ones,
+            // which continue as `More matches`.
+            val p = sections.indexOfFirst { it.kind == SectionKind.PATTERN }
+            when {
+                p < 0 -> sections.add(sections.indexOfFirst { it.kind == SectionKind.GROUPS } + 1, combinations)
+                base.patternExact <= 0 -> sections.add(p, combinations)
+                base.patternExact >= sections[p].refs.size -> sections.add(p + 1, combinations)
+                else -> {
+                    val s = sections[p]
+                    val k = base.patternExact
+                    val head = s.copy(count = k, cards = s.cards.take(k), refs = s.refs.take(k))
+                    val tail = SearchSection(SectionKind.MORE_MATCHES, "xm", null, s.refs.size - k, s.cards.drop(k), s.refs.drop(k))
+                    sections[p] = head
+                    sections.add(p + 1, combinations)
+                    sections.add(p + 2, tail)
+                }
+            }
+        } else {
+            val at = sections.indexOfFirst { it.kind == SectionKind.MATCHES }.let { if (it < 0) 0 else it + 1 }
+            sections.add(at, combinations)
+        }
         return base.result.copy(chinese = zh.copy(sections = sections))
     }
 
@@ -657,8 +695,20 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         val tapIndex = starts.indexOf(at)
         class Span(val start: Int, val end: Int, val key: String)
         val spans = ArrayList<Span>()
+        // TXT-011: in FULL mode no span starts or ends strictly inside a foreign word.
+        val window = text.substring(starts.first(), starts.last()).cps()
+        val inner = if (passage.segmentation == SegmentationMode.FULL && TextClass.hasWordChar(window)) {
+            // Classified over the window plus one code point on each side, so the edges are judged in context.
+            val before = if (starts.first() > 0) text.substring(0, starts.first()).cps().lastOrNull() else null
+            val after = if (starts.last() < text.length) text.codePointAtIndex(starts.last()) else null
+            val ctx = (listOfNotNull(before) + window.toList() + listOfNotNull(after)).toIntArray()
+            val all = TextClass.innerBoundaries(ctx)
+            val off = if (before != null) 1 else 0
+            BooleanArray(window.size + 1) { all[it + off] }
+        } else null
         for (i in 0..tapIndex) for (j in tapIndex + 1 until starts.size) {
             if (j - i > maxLen) break
+            if (inner != null && (inner[i] || inner[j])) continue
             spans.add(Span(starts[i], starts[j], Segmenter.lookupKey(text.substring(starts[i], starts[j]))))
         }
         val hits = store.headwordExact(spans.map { it.key }.toSet())

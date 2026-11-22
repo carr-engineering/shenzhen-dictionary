@@ -196,7 +196,7 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
                 out.add(start); out.add(len); out.add(p.id)
             }
         }
-        return out.toIntArray()
+        return com.szdict.core.engine.TextClass.admissibleRows(out.toIntArray(), text)
     }
 
     /**
@@ -205,6 +205,19 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
      * (schema version 1); otherwise computed with one batched headword lookup for all entries (DATA-102).
      */
     suspend fun withinRows(entries: Collection<EntryRow>, ranked: Boolean = true): Map<Int, IntArray> {
+        val raw = withinRowsUnfiltered(entries, ranked)
+        // SRCH-034: no row starts or ends strictly inside a foreign word of the headword (卡拉OK has no O or K).
+        if (raw.isEmpty() || entries.none { com.szdict.core.engine.TextClass.hasWordChar(it.simp.cps()) }) return raw
+        val byId = entries.associateBy { it.id }
+        val out = HashMap<Int, IntArray>(raw.size * 2)
+        for ((id, rows) in raw) {
+            val kept = byId[id]?.let { com.szdict.core.engine.TextClass.admissibleRows(rows, it.simp) } ?: rows
+            if (kept.isNotEmpty()) out[id] = kept
+        }
+        return out
+    }
+
+    private suspend fun withinRowsUnfiltered(entries: Collection<EntryRow>, ranked: Boolean): Map<Int, IntArray> {
         val wanted = entries.filter { it.charCount >= 2 && !it.isUnihan }
         if (wanted.isEmpty()) return emptyMap()
         val precomputed = if (store.hasWithinTable) store.within(wanted.map { it.id }) else emptyMap()
