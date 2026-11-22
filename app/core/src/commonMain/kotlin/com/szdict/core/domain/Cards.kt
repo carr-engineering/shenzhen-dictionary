@@ -376,7 +376,13 @@ internal class CardBuilder(private val store: DictionaryStore, private val audio
             for (n in m.body.notes) notes.add(NoteLine(n.kind, labels[n.label.ifEmpty { n.kind }] ?: Label.missing(n.kind), n.lineText(script)))
         }
         val head = e.headword(script)
-        val alternates = (if (merged && group != null && group.variants.isNotEmpty()) group.variants else listOf(e.alternate(script))).filter { it != head }
+        val alternates = if (merged && script == Script.SIMPLIFIED) {
+            // Installed datasets omit the shared headword from merge_group.variants. Read every
+            // Traditional form from the members, including an identical form in a mixed list.
+            members.map { it.trad }.distinct().takeUnless { it == listOf(head) }.orEmpty()
+        } else {
+            (group?.variants?.takeIf { merged && it.isNotEmpty() } ?: listOf(e.alternate(script))).filter { it != head }
+        }
         val matchedAlt = when {
             ref.altOrdinal >= 0 -> e.body.alt.getOrNull(ref.altOrdinal)?.toAlt(ref.altOrdinal, labels)
             ref.altKey != null -> e.body.alt.withIndex().firstOrNull { (_, a) -> Romanisation.parseCanonical(a.c).first.joinToString(" ") == ref.altKey }?.let { it.value.toAlt(it.index, labels) }

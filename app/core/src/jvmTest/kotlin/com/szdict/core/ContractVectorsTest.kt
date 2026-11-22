@@ -171,7 +171,11 @@ class ContractVectorsTest {
                     val members = keys(g.jsonObject["members"])
                     val card = cards.first { it.naturalKey in members }
                     assertEquals(members.toSet(), memberKeys(dict, listOf(card), script).toSet(), "$id members")
-                    assertEquals(g.jsonObject["variants"]!!.strings().filter { it != card.headword }, card.alternateForms, "$id variants")
+                    val forms = if (script == Script.SIMPLIFIED) {
+                        g.jsonObject["members"]!!.jsonArray.map { it.jsonObject.str("trad") }.distinct()
+                            .takeUnless { it == listOf(card.headword) }.orEmpty()
+                    } else g.jsonObject["variants"]!!.strings().filter { it != card.headword }
+                    assertEquals(forms, card.alternateForms, "$id variants")
                     assertTrue(dict.entryDetail(card.id, script).merged)
                 }
             }

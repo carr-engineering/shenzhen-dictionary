@@ -224,8 +224,11 @@ detail route. Tapping a word inside a detail pushes another route. Back pops one
 widths the list-detail two-pane layout applies (`GLB-125`), and a close action clears the whole
 stack. Full rules: `ENT-010`…`ENT-018`.
 
-`PROD-055` `[MUST]` Switching primary destination clears the entry-detail stack, dismisses any
-open word-candidate sheet, and closes the handwriting sheet.
+`PROD-055` `[MUST]` Switching primary destination dismisses any open word-candidate sheet and closes
+the handwriting sheet. Each two-pane destination retains its entry-detail stack, including each
+visit's tab and scroll position, for when the user returns through primary navigation. Single-pane
+navigation clears the stack on a destination switch. The outgoing and incoming layouts fade as a
+whole when switching destinations.
 
 `PROD-056` `[MUST]` Back-navigation precedence, innermost first:
 1. an open word-candidate bottom sheet dismisses (restoring the handwriting sheet if it hid it);

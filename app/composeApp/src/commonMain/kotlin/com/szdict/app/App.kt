@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -86,6 +87,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -154,27 +156,27 @@ fun App(session: AppSession) {
             }
             BoxWithConstraints(Modifier.fillMaxSize().background(palette.bg).then(watchPress)) {
                 val windowWidth = maxWidth
+                val windowHeight = maxHeight
                 val navigation = navigationStyle(windowWidth)
                 val compact = navigation == NavigationStyle.BOTTOM_BAR
                 val wordSheetOpen = session.wordSheet != null
                 val topRoute = session.routes.lastOrNull()
-                val isOcr = session.destination == Destination.OCR
-                val wordDialog = !isOcr && navigation == NavigationStyle.EXPANDED_RAIL && maxHeight >= 460.dp
-                val twoPane = usesTwoPanes(windowWidth, maxHeight, session.destination, wordSheetOpen, topRoute is DetailRoute.Entry)
+                val wordDialogAvailable = navigation == NavigationStyle.EXPANDED_RAIL && windowHeight >= 460.dp
+                val twoPane = usesTwoPanes(windowWidth, windowHeight, session.destination, wordSheetOpen, topRoute is DetailRoute.Entry)
+                val sidePaneDestinations = remember(windowWidth, windowHeight) {
+                    Destination.entries.filterTo(mutableSetOf()) {
+                        usesTwoPanes(windowWidth, windowHeight, it, wordChoicesOpen = false, entryOpen = true)
+                    }
+                }
+                val selectDestination: (Destination) -> Unit = { session.selectDestination(it, sidePaneDestinations) }
                 val destinations = remember(session.env.voiceAvailable, session.env.settingsIsDestination) {
                     navigationDestinations(session.env.voiceAvailable, session.env.settingsIsDestination)
                 }
-                var wordSheetHeight by remember { mutableStateOf(0.dp) }
                 var handwritingHeight by remember { mutableStateOf(0.dp) }
-                if (session.wordSheet == null) wordSheetHeight = 0.dp
                 if (!session.handwritingVisible) handwritingHeight = 0.dp
                 val imeVisible = imeVisible()
                 val fullScreenRoute = topRoute != null && (!twoPane || topRoute !is DetailRoute.Entry)
-                // A full-screen detail route (an entry in single pane, Settings and its pages) covers the bottom bar; it returns when the route closes.
-                val coversNavigation = fullScreenRoute
-                // OCR reserves space for the sheet within the preview area above the navigation bar.
-                val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !coversNavigation &&
-                    (!wordSheetOpen || isOcr)
+                val showBottomBar = compact && !imeVisible && !session.handwritingVisible && !fullScreenRoute && !wordSheetOpen
 
                 // A route that covers the destination takes the focus away from it: no caret handle,
                 // keyboard or handwriting sheet of a covered field survives or comes back (GLB-059).
@@ -211,118 +213,38 @@ fun App(session: AppSession) {
                     Row(Modifier.weight(1f).fillMaxWidth()) {
                         when (navigation) {
                             NavigationStyle.BOTTOM_BAR -> Unit
-                            NavigationStyle.RAIL -> AppRail(destinations, session.destination, session::selectDestination)
-                            NavigationStyle.EXPANDED_RAIL -> AppExpandedRail(destinations, session.destination, session::selectDestination)
+                            NavigationStyle.RAIL -> AppRail(destinations, session.destination, selectDestination)
+                            NavigationStyle.EXPANDED_RAIL -> AppExpandedRail(destinations, session.destination, selectDestination)
                         }
                         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
-                            val panes = paneLayout(maxWidth)
-                            val wordsOnRight = twoPane && !fullScreenRoute
-                            val wordInset = if (wordDialog) 0.dp else wordSheetHeight
-                            val destinationInset = maxOf(handwritingHeight, if (wordsOnRight) 0.dp else wordInset)
-                            val detailInset = maxOf(handwritingHeight, wordInset)
-                            val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
-                            val sheetMaxHeight = maxHeight - topInset
-                            val imageSheetInset = if (isOcr && wordSheetOpen && !wordsOnRight && !fullScreenRoute) {
-                                wordSheetPeekHeight(sheetMaxHeight)
-                            } else 0.dp
-                            CompositionLocalProvider(LocalSheetInset provides destinationInset) {
-                                val stateHolder = rememberSaveableStateHolder()
-                                // Saved state of the detail routes, keyed per visit (GLB-051).
-                                val routeStates = rememberSaveableStateHolder()
-                                // Popping a route releases its saved state (GLB-052).
-                                val liveRoutes = session.routes.map { it.key }
-                                val knownRoutes = remember { HashSet<Long>() }
-                                SideEffect {
-                                    knownRoutes.filter { it !in liveRoutes }.forEach { routeStates.removeState("route-$it") }
-                                    knownRoutes.clear()
-                                    knownRoutes.addAll(liveRoutes)
-                                }
-                                // A covered destination is neither focusable nor read by a screen reader.
-                                val covered = if (fullScreenRoute) {
-                                    Modifier.focusProperties { canFocus = false }.clearAndSetSemantics { }
-                                } else Modifier
-                                // Wide windows: each pane keeps a readable width and the pair is centred (GLB-067).
-                                Row(Modifier.fillMaxSize().then(covered)) {
-                                    Spacer(Modifier.width(if (twoPane) panes.start else 0.dp))
-                                    Box((if (twoPane) Modifier.width(panes.list) else Modifier.weight(1f)).fillMaxHeight()) {
-                                        // A short fade through between destinations; each keeps its saved state.
-                                        AnimatedContent(
-                                            targetState = session.destination,
-                                            transitionSpec = { destinationFade() },
-                                            modifier = Modifier.fillMaxSize(),
-                                            label = "destination",
-                                        ) { destination ->
-                                            stateHolder.SaveableStateProvider("dest-$destination-${session.dataGeneration}") {
-                                                when (destination) {
-                                                    Destination.SEARCH -> SearchScreen(session, twoPane)
-                                                    Destination.OCR -> OcrScreen(
-                                                        session, imageSheetInset = imageSheetInset, detailBesideImage = wordsOnRight,
-                                                    )
-                                                    Destination.VOICE -> VoiceScreen(session)
-                                                    Destination.READING -> ReadingScreen(session)
-                                                    Destination.HSK -> HskScreen(session)
-                                                    Destination.SETTINGS -> SettingsScreen(session, onBack = null)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if (twoPane) {
-                                        Box(Modifier.width(PaneDivider).fillMaxHeight().background(palette.border))
-                                        // The right-pane sheet is already offering entries to select.
-                                        Box(Modifier.width(panes.detail).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                                            if (!wordSheetOpen || wordDialog) {
-                                                Text(
-                                                    strings.text("Select an entry to see its detail"),
-                                                    color = palette.muted,
-                                                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                                // One host at one place in the composition, laid out over the side pane
-                                // or the whole screen: a route keeps its tab and scroll when a rotation
-                                // moves it between the two (GLB-050). It stays over the side pane while
-                                // the last entry fades out of it.
-                                val lastTop = remember { arrayOfNulls<DetailRoute>(1) }
-                                if (topRoute != null) lastTop[0] = topRoute
-                                val hostRoute = topRoute ?: lastTop[0]
-                                val sidePane = twoPane && (hostRoute == null || hostRoute is DetailRoute.Entry)
-                                CompositionLocalProvider(LocalSheetInset provides detailInset) {
-                                    DetailHost(
-                                        session, routeStates, twoPane,
-                                        if (sidePane) Modifier.align(Alignment.TopStart).offset(x = panes.detailStart).width(panes.detail).fillMaxHeight()
-                                        else Modifier.fillMaxSize(),
-                                    )
-                                }
+                            val destinationStates = rememberSaveableStateHolder()
+                            val routeStates = rememberSaveableStateHolder()
+                            // Only permanently removed visits lose their saved tabs and scroll.
+                            val liveRoutes = session.liveRouteKeys()
+                            val knownRoutes = remember { HashSet<Long>() }
+                            SideEffect {
+                                (knownRoutes - liveRoutes).forEach { routeStates.removeState("route-$it") }
+                                knownRoutes.clear()
+                                knownRoutes.addAll(liveRoutes)
                             }
-                            StatusBarScrim(Modifier.align(Alignment.TopCenter))
-                            session.wordSheet?.let { request ->
-                                val sheetModifier = when {
-                                    wordDialog -> {
-                                        val density = LocalDensity.current
-                                        val middle = with(density) { (windowWidth - maxWidth / 2).toPx() }
-                                        // Pin across from the clicked glyph so it stays reachable for a second click.
-                                        val placeOnLeft = remember(middle) { (lastPress[0]?.x ?: 0f) >= middle }
-                                        val inset = if (wordsOnRight && twoPane) panes.start + 16.dp else 16.dp
-                                        val side = if (placeOnLeft) Alignment.TopStart else Alignment.TopEnd
-                                        Modifier.align(side).padding(
-                                            top = topInset + 8.dp,
-                                            start = if (placeOnLeft) inset else 0.dp,
-                                            end = if (placeOnLeft) 0.dp else inset,
-                                        ).widthIn(max = 460.dp)
-                                    }
-                                    wordsOnRight -> Modifier.align(Alignment.BottomStart)
-                                        .absoluteOffset(x = panes.detailStart).width(panes.detail)
-                                    else -> Modifier.align(Alignment.BottomCenter)
-                                }
-                                WordSheet(
-                                    session = session,
-                                    request = request,
-                                    maxHeight = sheetMaxHeight,
-                                    asDialog = wordDialog,
-                                    onVisibleHeight = { wordSheetHeight = it },
-                                    modifier = sheetModifier,
+                            val current = DestinationLayoutState(
+                                session.routes.toList(), session.wordSheet, handwritingHeight, session.dataGeneration,
+                            )
+                            AnimatedContent(
+                                targetState = session.destination,
+                                transitionSpec = { destinationFade() },
+                                modifier = Modifier.fillMaxSize(),
+                                label = "destination",
+                            ) { destination ->
+                                val active = destination == session.destination
+                                // A departing destination keeps its last layout until the fade ends,
+                                // including OCR's side pane and its open word sheet.
+                                val last = remember { arrayOf(current) }
+                                val layout = if (active) current else last[0]
+                                SideEffect { if (active) last[0] = current }
+                                DestinationContent(
+                                    session, destination, layout, active, windowWidth, windowHeight,
+                                    wordDialogAvailable, lastPress, destinationStates, routeStates,
                                 )
                             }
                             // "Switch to keyboard" in the handwriting sheet: the platform input session restarts
@@ -352,7 +274,7 @@ fun App(session: AppSession) {
                     // that frame instead of animating out next to it.
                     if (compact) {
                         AnimatedVisibility(showBottomBar) {
-                            AppBottomBar(destinations, session.destination, session::selectDestination)
+                            AppBottomBar(destinations, session.destination, selectDestination)
                         }
                     }
                 }
@@ -371,14 +293,142 @@ fun App(session: AppSession) {
     }
 }
 
+private data class DestinationLayoutState(
+    val routes: List<DetailRoute>,
+    val wordSheet: WordSheetRequest?,
+    val handwritingHeight: Dp,
+    val generation: Int,
+)
+
+/** The full layout fades as a unit when changing primary destination. */
+@Composable
+private fun BoxWithConstraintsScope.DestinationContent(
+    session: AppSession,
+    destination: Destination,
+    layout: DestinationLayoutState,
+    active: Boolean,
+    windowWidth: Dp,
+    windowHeight: Dp,
+    wordDialogAvailable: Boolean,
+    lastPress: Array<Offset?>,
+    destinationStates: SaveableStateHolder,
+    routeStates: SaveableStateHolder,
+) {
+    val palette = LocalDictionaryPalette.current
+    val strings = appStrings()
+    val contentWidth = maxWidth
+    val panes = paneLayout(contentWidth)
+    val isOcr = destination == Destination.OCR
+    val wordDialog = !isOcr && wordDialogAvailable
+    val wordSheetOpen = layout.wordSheet != null
+    val topRoute = layout.routes.lastOrNull()
+    val twoPane = usesTwoPanes(windowWidth, windowHeight, destination, wordSheetOpen, topRoute is DetailRoute.Entry)
+    val fullScreenRoute = topRoute != null && (!twoPane || topRoute !is DetailRoute.Entry)
+    val wordsOnRight = twoPane && !fullScreenRoute
+    var wordSheetHeight by remember { mutableStateOf(0.dp) }
+    if (!wordSheetOpen) wordSheetHeight = 0.dp
+    val wordInset = if (wordDialog) 0.dp else wordSheetHeight
+    val destinationInset = maxOf(layout.handwritingHeight, if (wordsOnRight) 0.dp else wordInset)
+    val detailInset = maxOf(layout.handwritingHeight, wordInset)
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
+    val sheetMaxHeight = maxHeight - topInset
+    val imageSheetInset = if (isOcr && wordSheetOpen && !wordsOnRight && !fullScreenRoute) {
+        wordSheetPeekHeight(sheetMaxHeight)
+    } else 0.dp
+    val hidden = Modifier.focusProperties { canFocus = false }.clearAndSetSemantics { }
+    val outgoing = if (active) Modifier else hidden.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+        }
+    }
+
+    Box(Modifier.fillMaxSize().then(outgoing)) {
+        CompositionLocalProvider(LocalSheetInset provides destinationInset) {
+            Row(Modifier.fillMaxSize().then(if (fullScreenRoute) hidden else Modifier)) {
+                Spacer(Modifier.width(if (twoPane) panes.start else 0.dp))
+                Box((if (twoPane) Modifier.width(panes.list) else Modifier.weight(1f)).fillMaxHeight()) {
+                    destinationStates.SaveableStateProvider("dest-$destination-${layout.generation}") {
+                        when (destination) {
+                            Destination.SEARCH -> SearchScreen(session, twoPane)
+                            Destination.OCR -> OcrScreen(session, imageSheetInset = imageSheetInset, detailBesideImage = wordsOnRight)
+                            Destination.VOICE -> VoiceScreen(session)
+                            Destination.READING -> ReadingScreen(session)
+                            Destination.HSK -> HskScreen(session)
+                            Destination.SETTINGS -> SettingsScreen(session, onBack = null)
+                        }
+                    }
+                }
+                if (twoPane) {
+                    Box(Modifier.width(PaneDivider).fillMaxHeight().background(palette.border))
+                    Box(Modifier.width(panes.detail).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        if (!wordSheetOpen || wordDialog) {
+                            Text(
+                                strings.text("Select an entry to see its detail"),
+                                color = palette.muted,
+                                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // The host stays in the same composition across a resize and while the last entry fades out.
+        val lastTop = remember { arrayOfNulls<DetailRoute>(1) }
+        if (topRoute != null) lastTop[0] = topRoute
+        val hostRoute = topRoute ?: lastTop[0]
+        val sidePane = twoPane && (hostRoute == null || hostRoute is DetailRoute.Entry)
+        CompositionLocalProvider(LocalSheetInset provides detailInset) {
+            DetailHost(
+                session, layout.routes, routeStates, twoPane,
+                if (sidePane) Modifier.align(Alignment.TopStart).offset(x = panes.detailStart).width(panes.detail).fillMaxHeight()
+                else Modifier.fillMaxSize(),
+            )
+        }
+        StatusBarScrim(Modifier.align(Alignment.TopCenter))
+        layout.wordSheet?.let { request ->
+            val sheetModifier = when {
+                wordDialog -> {
+                    val density = LocalDensity.current
+                    val middle = with(density) { (windowWidth - contentWidth / 2).toPx() }
+                    // Pin across from the clicked glyph so it stays reachable for a second click.
+                    val placeOnLeft = remember(middle) { (lastPress[0]?.x ?: 0f) >= middle }
+                    val inset = if (wordsOnRight) panes.start + 16.dp else 16.dp
+                    val side = if (placeOnLeft) Alignment.TopStart else Alignment.TopEnd
+                    Modifier.align(side).padding(
+                        top = topInset + 8.dp,
+                        start = if (placeOnLeft) inset else 0.dp,
+                        end = if (placeOnLeft) 0.dp else inset,
+                    ).widthIn(max = 460.dp)
+                }
+                wordsOnRight -> Modifier.align(Alignment.BottomStart)
+                    .absoluteOffset(x = panes.detailStart).width(panes.detail)
+                else -> Modifier.align(Alignment.BottomCenter)
+            }
+            WordSheet(
+                session = session,
+                request = request,
+                maxHeight = sheetMaxHeight,
+                asDialog = wordDialog,
+                onVisibleHeight = { wordSheetHeight = it },
+                modifier = sheetModifier,
+            )
+        }
+    }
+}
+
 /**
  * Hosts the detail stack: the top route, over the whole screen in single-pane and for the
  * Settings-family routes, over the side pane for entries in two-pane (the caller sizes it).
  */
 @Composable
-private fun DetailHost(session: AppSession, stateHolder: SaveableStateHolder, twoPane: Boolean, modifier: Modifier = Modifier) {
+private fun DetailHost(
+    session: AppSession,
+    routes: List<DetailRoute>,
+    stateHolder: SaveableStateHolder,
+    twoPane: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val palette = LocalDictionaryPalette.current
-    val routes = session.routes.toList()
     val shown: DetailRoute? = routes.lastOrNull()
     val previous = remember { arrayOf(routes) }
     val motion = remember { arrayOf(RouteMotion.FORWARD) }

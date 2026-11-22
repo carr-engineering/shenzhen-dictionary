@@ -259,13 +259,13 @@ sheet; closing the word sheet restores it (`HW-020`).
 ### 6. Reading destination
 
 `TXT-050` `[MUST]` The Reading destination contains, top to bottom:
-- a multi-line outlined text field (minimum 4 lines) with the placeholder
-  `Paste or type a Chinese passage…`, carrying the input-method button (`HW-003`) as a trailing icon
-  button;
-- a wrapping button row: `Paste` (filled accent, disabled when the clipboard has no usable text),
-  `Clear` (outlined, disabled when the draft is blank), the pronunciation toggle (`GLB-120`), and,
-  to the right of these, the script-conversion split button (`TXT-081`; disabled while the draft is
-  blank);
+- a multi-line outlined text field (4–8 lines before scrolling) with the placeholder
+  `Paste or type a Chinese passage…`. The padding scrolls with the text. A translucent fade appears
+  at an edge when more text lies beyond it;
+- the first wrapping action row with `Paste` (filled accent, disabled when the clipboard has no usable
+  text), `Clear` (outlined, disabled when the draft is blank), and the input-method button (`HW-003`);
+- the second wrapping action row with the pronunciation toggle (`GLB-120`) and the script-conversion
+  split button (`TXT-081`; disabled while the draft is blank);
 - optional status text (clipboard message, `Reading…`, or an error);
 - when analysed: the passage card (`TXT-030`, with interlinear readings `TXT-034`) and the sentence
   action row (`MED-020`): play/stop, translate — an external hand-off per `MED-030`…`MED-033`
@@ -894,7 +894,8 @@ image pixels and hit-tests the recognised symbols:
   non-whitespace code point.
 
 `CAM-066` `[MUST]` Selecting a character opens the word-candidate sheet for that (line, offset)
-(`TXT-040`). The selection highlight moves immediately, before the lookup resolves.
+(`TXT-040`). The selection highlight moves immediately, before the lookup resolves. The bottom
+navigation hides while the sheet is open and returns when it closes.
 
 `CAM-067` `[MUST]` Stepping to the previous/next character from the sheet header moves to the nearest
 covered character (`GLB-058`, `TXT-033`) in reading order, crossing line boundaries, and also
@@ -1099,7 +1100,8 @@ type: what it inserts is ordinary text, classified like typed text (`SRCH-001`).
 `HW-002` `[MUST]` The current input method is one global value, `keyboard` or `handwriting`, shared by
 both fields and persisted across launches as `input_method` (`SET-019`, default `keyboard`).
 
-`HW-003` `[MUST]` **Input-method button.** Each field carries a trailing icon button. Its icon shows
+`HW-003` `[MUST]` **Input-method button.** An icon button is in the Search field and the first
+Reading action row. Its icon shows
 the method a tap switches **to** (a pen while the keyboard is current, a keyboard while handwriting is
 current), labelled `Switch to handwriting` / `Switch to keyboard`. **Every tap** switches the current
 method to the other one, persists it, focuses the field and **shows** the new method — the soft

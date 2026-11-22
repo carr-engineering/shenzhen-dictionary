@@ -43,9 +43,6 @@ import androidx.compose.ui.unit.dp
 import com.szdict.app.ui.kit.scrollUnderControls
 import kotlin.math.roundToInt
 
-/** Clear space between the query and the floating controls. */
-private val ControlGap = 8.dp
-
 /** The query scrolls behind the leading and trailing controls while the caret stays between them. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -72,14 +69,12 @@ internal fun SearchField(
     var leadingWidth by remember { mutableIntStateOf(0) }
     var trailingWidth by remember { mutableIntStateOf(0) }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val gapPx = with(density) { ControlGap.toPx() }
-    val startPx = leadingWidth + gapPx
-    val endPx = trailingWidth + gapPx
+    val startPx = leadingWidth.toFloat()
+    val endPx = trailingWidth.toFloat()
     val startPadding: Dp = with(density) { startPx.toDp() }
     val endPadding: Dp = with(density) { endPx.toDp() }
 
-    // The caret window for any bring-into-view request the field makes itself (focus, IME): the same
-    // window as the padding, so a request never parks the caret under a button or against the edge.
+    // Bring-into-view requests from focus and the IME use the same window as the text insets.
     val bringIntoView = remember(startPx, endPx) { CaretWindow(startPx, endPx) }
 
     BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
@@ -106,7 +101,7 @@ internal fun SearchField(
         }
 
         Box(
-            Modifier.fillMaxWidth().scrollUnderControls(startPadding, if (trailingWidth > 0) endPadding else 0.dp),
+            Modifier.fillMaxWidth().scrollUnderControls(startPadding, endPadding),
         ) {
             CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoView) {
                 Box(Modifier.fillMaxWidth().horizontalScroll(scroll)) {

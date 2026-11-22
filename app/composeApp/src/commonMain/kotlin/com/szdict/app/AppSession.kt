@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.szdict.app.platform.AudioPlayer
@@ -179,6 +180,7 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
         dataGeneration++
         // Entry ids are dataset-scoped (ENT-093); Settings stays open over the refreshed Search (SET-005).
         routes.removeAll { it is DetailRoute.Entry }
+        retainedEntryStacks.clear()
         closeWordSheet(userDismissed = false)
         handwritingVisible = false   // HW-024
         stopPlayback()
@@ -191,20 +193,33 @@ class AppSession(val env: AppEnv, val scope: CoroutineScope) {
     /** Incremented when the selected destination is tapped again (PROD-053); screens scroll to top. */
     val reselect = mutableStateOf(0 to Destination.SEARCH)
 
-    fun selectDestination(target: Destination) {
+    fun selectDestination(target: Destination, sidePaneDestinations: Set<Destination> = emptySet()) {
         if (target == destination) {
             reselect.value = (reselect.value.first + 1) to target
             return
         }
+        if (destination in sidePaneDestinations) {
+            val entries = routes.filterIsInstance<DetailRoute.Entry>()
+            if (entries.isNotEmpty()) retainedEntryStacks[destination] = entries
+        }
+        val retained = retainedEntryStacks.remove(target)
         destination = target
-        routes.clear()          // PROD-055
-        closeWordSheet()
+        routes.clear()
+        if (retained != null && target in sidePaneDestinations) routes.addAll(retained)
+        closeWordSheet(userDismissed = false)
         handwritingVisible = false
     }
 
     // ---- detail route stack (state, not a navigator: ARCH-042) ----
     val routes = mutableStateListOf<DetailRoute>()
+    private val retainedEntryStacks = mutableStateMapOf<Destination, List<DetailRoute.Entry>>()
     private var nextRouteKey = 1L
+
+    /** Visits in either the active stack or a side pane the user can return to. */
+    internal fun liveRouteKeys(): Set<Long> = buildSet {
+        routes.forEach { add(it.key) }
+        retainedEntryStacks.values.forEach { entries -> entries.forEach { add(it.key) } }
+    }
 
     /**
      * Shows an entry. A selection made outside the detail pane (a result card, an HSK card, a row

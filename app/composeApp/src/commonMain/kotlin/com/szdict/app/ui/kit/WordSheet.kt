@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,7 +86,10 @@ fun WordSheet(
     val peekPx = with(density) { wordSheetPeekHeight(maxHeight).toPx() }
     val height = remember { Animatable(0f) }
     if (!asDialog) {
-        LaunchedEffect(peekPx, maxPx) { height.animateTo(height.value.coerceIn(peekPx, maxPx)) }
+        // The available height changes on every frame of the bottom bar's exit. Clamp to it
+        // without restarting the sheet's opening animation when the peek height is unchanged.
+        SideEffect { height.updateBounds(lowerBound = 0f, upperBound = maxPx) }
+        LaunchedEffect(peekPx) { if (height.value < peekPx) height.animateTo(peekPx) }
         LaunchedEffect(height.value) { onVisibleHeight(with(density) { height.value.toDp() }) }
     }
 
@@ -127,7 +131,7 @@ fun WordSheet(
         }
         scope.launch {
             height.animateTo(target)
-            if (target == 0f) session.closeWordSheet()
+            if (target == 0f && session.wordSheet?.owner == request.owner) session.closeWordSheet()
         }
     }
     val dragState = rememberDraggableState { delta -> dragBy(delta) }

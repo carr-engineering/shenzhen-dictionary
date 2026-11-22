@@ -420,6 +420,26 @@ class FixtureDatasetTest {
     }
 
     @Test
+    fun traditionalFormsIncludeTheHeadwordOnlyAsPartOfAMixedList() {
+        val dir = Fixture().apply {
+            val face = entry("面", "面", "mian4", "face", mergeSimp = 1)
+            val flour = entry("麵", "面", "mian4", "flour", mergeSimp = 1)
+            val variant = entry("麪", "面", "mian4", "noodles", mergeSimp = 1)
+            // Legacy data lists only forms that differ from the Simplified headword.
+            mergeGroup(1, listOf(face, flour, variant), listOf("麵", "麪"))
+            entry("山", "山", "shan1", "mountain")
+        }.build()
+
+        with(dir) { dict ->
+            val merged = dict.search("面", s).groups().single().cards.single()
+            assertEquals(3, merged.memberIds.size)
+            assertEquals(listOf("面", "麵", "麪"), merged.alternateForms)
+            assertEquals(merged.alternateForms, dict.entryDetail(merged.id, s).card.alternateForms)
+            assertTrue(dict.search("山", s).groups().single().cards.single().alternateForms.isEmpty())
+        }
+    }
+
+    @Test
     fun redirectsShowTheTargetSenses() = with { dict ->
         val t = Script.TRADITIONAL
         val card = dict.search("裏", t).groups().single().cards.single()

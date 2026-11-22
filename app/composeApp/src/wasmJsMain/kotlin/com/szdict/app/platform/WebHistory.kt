@@ -148,8 +148,9 @@ class WebHistory(private val session: AppSession) {
                     return
                 }
             }
-            // The app went back to exactly the previous entry (back arrow, close): so does the browser.
-            shapes[index - 1] == state.shape -> {
+            // A pop within one destination can match the previous history entry. Reselecting a
+            // different destination can restore the same route keys but is a new visit in history.
+            shown.destination == state.shape.destination && shapes[index - 1] == state.shape -> {
                 index--
                 jsBack()
                 return

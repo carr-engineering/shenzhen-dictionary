@@ -86,6 +86,53 @@ class DetailStackTest {
     }
 
     @Test
+    fun twoPaneDestinationsRestoreSeparateStacksWithTheSameVisitKeys() = runTest {
+        val session = session()
+        val sidePanes = setOf(Destination.HSK, Destination.READING)
+        session.selectDestination(Destination.HSK, sidePanes)
+        session.openEntry(1)
+        session.openEntry(2, nested = true)
+        val hskRoutes = session.routes.toList()
+        val passage = AnalysedPassage.empty("你好", DictMode.MANDARIN, SegmentationMode.HANZI, 0L)
+        session.openWordSheet(WordSheetRequest("hsk", passage, 0, DictMode.MANDARIN))
+
+        session.selectDestination(Destination.READING, sidePanes)
+        assertTrue(session.routes.isEmpty())
+        assertNull(session.wordSheet)
+        assertEquals(hskRoutes.map { it.key }.toSet(), session.liveRouteKeys())
+        session.openEntry(3)
+        val readingRoute = session.routes.single()
+
+        session.selectDestination(Destination.HSK, sidePanes)
+        assertSame(hskRoutes[1], session.routes.last())
+        assertTrue(session.popRoute(hskRoutes[1].key))
+        assertSame(hskRoutes[0], session.routes.single())
+        assertEquals(setOf(hskRoutes[0].key, readingRoute.key), session.liveRouteKeys())
+
+        session.selectDestination(Destination.READING, sidePanes)
+        assertSame(readingRoute, session.routes.single())
+    }
+
+    @Test
+    fun compactNavigationAndModeChangesDoNotRestoreSavedDetails() = runTest {
+        val session = session()
+        val sidePanes = setOf(Destination.HSK, Destination.READING)
+        session.selectDestination(Destination.HSK, sidePanes)
+        session.openEntry(1)
+        session.selectDestination(Destination.READING, sidePanes)
+        session.selectDestination(Destination.HSK)
+        assertTrue(session.liveRouteKeys().isEmpty())
+
+        session.openEntry(2)
+        session.selectDestination(Destination.READING, sidePanes)
+        session.openEntry(3)
+        session.updateSettings { it.copy(dictionaryMode = DictMode.CANTONESE) }
+        assertTrue(session.liveRouteKeys().isEmpty())
+        session.selectDestination(Destination.HSK, sidePanes)
+        assertTrue(session.routes.isEmpty())
+    }
+
+    @Test
     fun selectingTheEntryOnTopKeepsItsVisitAndDropsWhatWasUnderIt() = runTest {
         val session = session()
         session.openEntry(1)

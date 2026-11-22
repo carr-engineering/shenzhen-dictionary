@@ -692,7 +692,9 @@ and two separate cards appear.
 
 `SRCH-082` `[MUST]` A merged card:
 - shows the shared headword and reading once;
-- shows all distinct alternate forms joined by ` · ` in place of the single alternate form;
+- shows distinct alternate forms joined by ` · ` in place of the single alternate form. In Simplified
+  mode, the Traditional list includes a form identical to the headword whenever the list also contains
+  a different form. A sole Traditional form identical to the headword is omitted;
 - concatenates the members' definitions into one numbered list, ordered by member (members with more
   direct definitions first, original order breaking ties), **de-duplicating** identical definition
   text across members;

@@ -109,7 +109,9 @@ fun OcrScreen(
         if (reselect.second == Destination.OCR && reselect.first != initialReselect) holder.backToInput()
     }
     // CAM-100: after the word sheet, Back returns from a review (or a decode spinner/error) to the input screen.
-    BackHandler(enabled = (holder.inReview || holder.galleryPending) && session.wordSheet == null && session.routes.isEmpty()) {
+    val canGoBackToInput = session.destination == Destination.OCR && (holder.inReview || holder.galleryPending) &&
+        session.wordSheet == null && session.routes.isEmpty()
+    BackHandler(enabled = canGoBackToInput) {
         holder.backToInput()
     }
     // CAM-134: the first time the destination is opened starts the recogniser's one-time download (Web).
