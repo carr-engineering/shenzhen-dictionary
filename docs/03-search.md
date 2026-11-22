@@ -474,6 +474,12 @@ syllable), margin (4 nats), pool (12) and grouping (≤ 3 rows × ≤ 4 alternat
   count (`SRCH-023`; `我j点q`) — the query has at least **2** items, and no foreign word (`TXT-018`) of
   the typed text contains an uppercase letter (`BOM`, `KTV`, `CEO`, `iPhone`, `Xiang` disqualify the
   whole query); a digit that is not a tone digit already fails the parse (`3个`).
+- **Foreign-word groups are left out.** When at least one mixed combination is shown, the
+  combinations have read every Latin run as romanisation, so the groups of the query's foreign
+  words (`SRCH-028` — headword, English match or `NO MATCH`) are removed from the groups section
+  and from the side's count (`九dian` shows the group 九 and the combination 九 · 点, no `dian`
+  card). Hanzi and punctuation groups stay, as does the passage card. Without a shown combination
+  the foreign-word groups stay.
 - **Lattice.** Positions are the query's items: each typed Hanzi is a **pinned** item; each Latin
   run contributes its kept token paths as in `SRCH-061`. An edge is a dictionary word of 1…6
   syllables, one per character, whose character equals each pinned item in its simplified or

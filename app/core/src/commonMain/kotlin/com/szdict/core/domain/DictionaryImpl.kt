@@ -222,7 +222,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
                 // An English-side group is not one headword: its cards keep their own inside-words buttons.
                 WordGroup(
                     g.text, g.start, g.length, g.inert || cs.isEmpty(), cs, cs.firstOrNull()?.id?.takeIf { !g.english },
-                    if (g.english) 0 else cs.firstOrNull()?.insideCount ?: 0, english = g.english && cs.isNotEmpty(), punctuation = g.punctuation,
+                    if (g.english) 0 else cs.firstOrNull()?.insideCount ?: 0, english = g.english && cs.isNotEmpty(), punctuation = g.punctuation, foreignWord = g.foreign,
                 )
             }
             zhSections.add(SearchSection(SectionKind.GROUPS, "g", null, groups.sumOf { it.cards.size }, groups = groups))
@@ -326,6 +326,16 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
         if (list.isEmpty()) return base.result
         val zh = base.result.chinese
         val sections = ArrayList(zh.sections)
+        var hidden = 0
+        if (base.c.kind == QueryKind.MIXED) {
+            // SRCH-069: the combinations read every foreign word as romanisation, so their groups are left out.
+            val g = sections.indexOfFirst { it.kind == SectionKind.GROUPS }
+            if (g >= 0 && sections[g].groups.any { it.foreignWord }) {
+                val kept = sections[g].groups.filter { !it.foreignWord }
+                hidden = sections[g].count - kept.sumOf { it.cards.size }
+                if (kept.isEmpty()) sections.removeAt(g) else sections[g] = sections[g].copy(count = kept.sumOf { it.cards.size }, groups = kept)
+            }
+        }
         val combinations = SearchSection(SectionKind.COMBINATIONS, "k", null, list.size, combinations = list)
         if (base.c.kind == QueryKind.MIXED) {
             // SRCH-069: after the groups and the exact-length pattern matches, before the longer ones,
@@ -349,7 +359,7 @@ internal class DictionaryImpl(private val store: DictionaryStore, override val g
             val at = sections.indexOfFirst { it.kind == SectionKind.MATCHES }.let { if (it < 0) 0 else it + 1 }
             sections.add(at, combinations)
         }
-        return base.result.copy(chinese = zh.copy(sections = sections))
+        return base.result.copy(chinese = zh.copy(count = zh.count - hidden, sections = sections))
     }
 
     override suspend fun search(query: String, script: Script, options: SearchOptions): SearchResult = guard {

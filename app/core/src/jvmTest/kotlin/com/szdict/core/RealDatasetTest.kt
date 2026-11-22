@@ -324,6 +324,12 @@ class RealDatasetTest {
         // A run that is a common English word needs a far likelier Chinese reading (men, he), unlike women.
         assertEquals(emptyList(), rows(dict, "这条路很long"))
         assertEquals(listOf("我们 去 哪儿"), rows(dict, "women去哪儿"))
+        // With a combination shown, the foreign-word groups it read as pinyin are left out; without one they stay.
+        assertEquals(listOf("九"), groups(dict, "九dian"))
+        assertEquals(listOf("点"), groups(dict, "jiu 点"))
+        assertEquals(listOf("我", "点"), groups(dict, "我jiu点qu"))
+        assertEquals(listOf("我", "点"), groups(dict, "我j点q"))
+        assertTrue(groups(dict, "这条路很long").any { it.startsWith("long") })
         // Placed after the groups (and exact-length pattern matches).
         val sections = dict.search("我jiu点qu", s).chinese.sections.map { it.kind }
         assertTrue(sections.indexOf(SectionKind.COMBINATIONS) > sections.indexOf(SectionKind.GROUPS), sections.toString())

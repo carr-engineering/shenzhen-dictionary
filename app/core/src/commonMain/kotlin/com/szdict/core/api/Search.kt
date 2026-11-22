@@ -43,6 +43,8 @@ data class WordGroup(
     val english: Boolean = false,
     /** A run of punctuation or symbols (SRCH-029): [inert], rendered compact and muted without `NO MATCH`. */
     val punctuation: Boolean = false,
+    /** A foreign-word group (SRCH-028), whatever it resolved to; left out when combinations read the word as romanisation (SRCH-069). */
+    val foreignWord: Boolean = false,
 )
 
 /**

@@ -19,11 +19,12 @@ internal class SectionOut(val kind: SectionKind, val key: String, val labelArg: 
 
 /**
  * One group of the Chinese side (SRCH-033): [english] when its entries were found through the
- * English side for a foreign word (SRCH-028), [punctuation] for a punctuation run (SRCH-029).
+ * English side for a foreign word (SRCH-028), [punctuation] for a punctuation run (SRCH-029),
+ * [foreign] for any foreign-word group (hidden once a combination read the word as romanisation, SRCH-069).
  */
 internal class GroupOut(
     val text: String, val start: Int, val length: Int, val inert: Boolean, val ids: List<Int>,
-    val english: Boolean = false, val punctuation: Boolean = false,
+    val english: Boolean = false, val punctuation: Boolean = false, val foreign: Boolean = false,
 )
 
 internal class ChineseOut(
@@ -306,7 +307,9 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
                 flushText()
                 val sub = text.substring(seg.start, seg.end)
                 val hits = analysis.hitsFor(sub).map { it.proj }.distinctBy { it.id }.sortedWith(projOrder)
-                out.add(GroupOut(sub, seg.start, seg.length, false, Ranking.dedupeMerged(hits, script) { it }.map { it.id }))
+                // A matched segment that is exactly one foreign word (a Latin headword such as `Q`, `OK`) is a foreign-word group too.
+                val word = (seg.start until seg.end).all { cls16[it] == TextClass.WORD }
+                out.add(GroupOut(sub, seg.start, seg.length, false, Ranking.dedupeMerged(hits, script) { it }.map { it.id }, foreign = word))
                 continue
             }
             var i = seg.start
@@ -322,7 +325,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
                     TextClass.WORD -> {
                         flushText()
                         foreign.add(out.size)
-                        out.add(GroupOut(text.substring(i, j), i, j - i, true, emptyList()))
+                        out.add(GroupOut(text.substring(i, j), i, j - i, true, emptyList(), foreign = true))
                     }
                     TextClass.PUNCT -> {
                         flushText()
@@ -348,7 +351,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
             val direct = (hits[w].orEmpty() + hits[folded(w)].orEmpty()).ifEmpty { hits[bare(w)].orEmpty() }
             if (direct.isNotEmpty()) {
                 val ps = direct.map { it.proj }.distinctBy { it.id }.sortedWith(projOrder)
-                out[idx] = GroupOut(w, g.start, g.length, false, Ranking.dedupeMerged(ps, script) { it }.map { it.id })
+                out[idx] = GroupOut(w, g.start, g.length, false, Ranking.dedupeMerged(ps, script) { it }.map { it.id }, foreign = true)
             } else if (w.cpCount() > 1 && folded(w).any { it.isLetter() }) {
                 // (b) the English side, whole words only; a word of digits alone, or a single letter, skips it.
                 english[idx] = async { englishWhole(folded(w), script, ENGLISH_MATCHES) }
@@ -357,7 +360,7 @@ internal class SearchEngine(private val store: DictionaryStore, private val segm
         for ((idx, job) in english) {
             val ids = job.await()
             val g = out[idx]
-            if (ids.isNotEmpty()) out[idx] = GroupOut(g.text, g.start, g.length, false, ids, english = true)
+            if (ids.isNotEmpty()) out[idx] = GroupOut(g.text, g.start, g.length, false, ids, english = true, foreign = true)
         }
         out
     }
