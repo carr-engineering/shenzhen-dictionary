@@ -1,5 +1,5 @@
 # The dataset snapshot the release workflow builds from (ci/fetch-build-inputs.sh). Written by
 # ci/publish-build-inputs.sh; commit it to ship the new data with the next release.
 BUILD_INPUTS_URL=https://github.com/carr-engineering/shenzhen-dictionary/releases/download/build-inputs
-DATASET_ASSET=dataset-2026.10.09_e921095.tar.gz
-DATASET_SHA256=d6ac50856e1be06ef90d80e98537a1ba3b32902162dded93f971b31b192c61fa
+DATASET_ASSET=dataset-2026.10.09_6a90bce.tar.gz
+DATASET_SHA256=2a67e643337d19d25a120c343e48365b14421f1d8d34911744f99c80ae245fc7
