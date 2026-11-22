@@ -277,6 +277,58 @@ class RealDatasetTest {
         assertTrue(nh.none { c -> c.words.joinToString("") { it.headword } == "你好" })
     }
 
+    /** Groups as text: `|p` punctuation, `|-` NO MATCH, `|e` English match (SRCH-033a/b). */
+    private suspend fun groups(dict: Dictionary, q: String): List<String> =
+        dict.search(q, s).chinese.sections.first { it.kind == SectionKind.GROUPS }.groups.map { g ->
+            g.text + when {
+                g.punctuation -> "|p"
+                g.inert -> "|-"
+                g.english -> "|e"
+                else -> ""
+            }
+        }
+
+    @Test
+    fun sentenceModeMixed() = real { dict ->
+        // Every non-whitespace character in one group; foreign words atomic (SRCH-033, SRCH-033a/b).
+        assertEquals(listOf("我", "要", "看", "BOM|-", "表"), groups(dict, "我要看BOM表"))
+        assertEquals(listOf("他", "是", "CEO|e"), groups(dict, "他是CEO"))
+        assertEquals(listOf("发", "个", "email|e", "给", "我"), groups(dict, "发个email给我"))
+        assertEquals(listOf("请", "给", "我", "hello|e", "world|e", "的", "翻译"), groups(dict, "请给我hello world的翻译"))
+        assertEquals(listOf("我", "用", "iPhone|e", "和", "WiFi|-"), groups(dict, "我用iPhone和WiFi"))
+        assertEquals(listOf("今天", "去", "KTV|e", "唱歌"), groups(dict, "今天去KTV唱歌"))
+        assertEquals(listOf("我", "穿", "T恤"), groups(dict, "我穿T恤"))
+        assertEquals(listOf("你好", "！|p", "BOM|-", "。|p"), groups(dict, "你好！BOM。"))
+        assertEquals(listOf("hello|e", ",|p", "world|e", "你好"), groups(dict, "hello,world 你好"))
+        assertEquals(listOf("我", "想", "买", "3|-", "个", "苹果"), groups(dict, "我想买3个苹果"))
+        assertEquals(listOf("用", "Wi-Fi|-", "上网"), groups(dict, "用Wi-Fi上网"))
+        // English matches are whole words: an English-side group for iPhone holds 苹果手机, never a `bomb` for BOM.
+        val iphone = dict.search("我用iPhone和WiFi", s).chinese.sections.first().groups[2]
+        assertTrue(iphone.cards.size in 1..3 && iphone.cards.any { it.headword == "苹果手机" }, iphone.cards.map { it.headword }.toString())
+        val r = dict.search("我要看BOM表", s)
+        assertTrue(r.chinese.isSentence && r.chinese.passage != null)
+        assertTrue(dict.search("卡拉OK", s).chinese.sections.first().groups.single().cards.any { it.headword == "卡拉OK" })
+    }
+
+    @Test
+    fun mixedCombinations() = real { dict ->
+        // SRCH-069: typed Hanzi pinned, Latin runs read as pinyin (full, abbreviated, partial).
+        assertEquals(listOf("九 点"), rows(dict, "九dian"))
+        assertEquals(listOf("九 点"), rows(dict, "jiu 点"))
+        assertEquals(listOf("我 九/就 点 去/取/曲/娶"), rows(dict, "我jiu点qu"))
+        assertEquals(listOf("我 想 去"), rows(dict, "我xiang去"))
+        val jq = rows(dict, "我j点q")
+        assertTrue(jq.isNotEmpty() && jq.all { it.startsWith("我 ") } && jq.any { "九" in it || "就" in it || "几点" in it }, jq.toString())
+        // Uppercase, digits and English words are not pinyin here.
+        for (q in listOf("我要看BOM表", "他是CEO", "今天去KTV唱歌", "我用iPhone和WiFi", "发个email给我", "我想买3个苹果", "我Jiu点qu")) assertEquals(emptyList(), rows(dict, q), q)
+        // A run that is a common English word needs a far likelier Chinese reading (men, he), unlike women.
+        assertEquals(emptyList(), rows(dict, "这条路很long"))
+        assertEquals(listOf("我们 去 哪儿"), rows(dict, "women去哪儿"))
+        // Placed after the groups (and exact-length pattern matches).
+        val sections = dict.search("我jiu点qu", s).chinese.sections.map { it.kind }
+        assertTrue(sections.indexOf(SectionKind.COMBINATIONS) > sections.indexOf(SectionKind.GROUPS), sections.toString())
+    }
+
     @Test
     fun english() = real { dict ->
         val r = dict.search("graduate student", s)
@@ -491,6 +543,8 @@ class RealDatasetTest {
         time("search wo shi yi g (combinations)", 20) { dict.search("wo shi yi g", s) }
         time("search wo jiu dian qu (combinations)", 20) { dict.search("wo jiu dian qu", s) }
         time("search jintiantianqihenhao (combinations)", 20) { dict.search("jintiantianqihenhao", s) }
+        time("search 我jiu点qu (mixed combinations)", 20) { dict.search("我jiu点qu", s) }
+        time("search 45-character mixed sentence", 20) { dict.search("我们下午三点在会议室开会，有问题请发email给我或者打电话给老王，谢谢大家的配合和支持！", s) }
         time("search x", 10) { dict.search("x", s) }
         time("search 你好", 20) { dict.search("你好", s) }
         time("search graduate student", 20) { dict.search("graduate student", s) }

@@ -28,6 +28,9 @@ import kotlin.test.assertTrue
  * inputs with any combination, single-word lookups with combinations and their rows "unattested"
  * (not a substring of any sentence of the sentences pack — a proxy for junk), and on all phrase
  * queries the share whose gold sequence is covered by a grouped row (SRCH-065) and the grouped rows.
+ * Mixed Hanzi + pinyin queries (SRCH-069): recall at 1 / 3 / 5 of the `mixed` test split, which must
+ * not fall below the pure-pinyin phrase recall, and the share of `mixed_neg` sentences (one embedded
+ * English word) with any combination, whose offenders are printed.
  */
 class CombinationQualityTest {
     private val out: File? = System.getProperty("szdict.datasetDir")?.let(::File)?.takeIf { File(it, "mandarin.db").isFile }
@@ -88,7 +91,7 @@ class CombinationQualityTest {
                 )
             }
             try {
-                val phrase = Acc(); val word = Acc(); val neg = Acc(); val stress = Acc(); val allPhrase = Acc()
+                val phrase = Acc(); val word = Acc(); val neg = Acc(); val stress = Acc(); val allPhrase = Acc(); val mixed = Acc(); val mixedNeg = Acc()
                 for (it in eval["items"]!!.jsonArray) {
                     val o = it.jsonObject
                     val py = o["py"]!!.jsonArray.map { p -> p.jsonPrimitive.content }
@@ -133,6 +136,28 @@ class CombinationQualityTest {
                         if (zh in s.flat.take(5)) stress.r5++
                     }
                 }
+                for (it in eval["mixed"]?.jsonArray.orEmpty()) {
+                    val o = it.jsonObject
+                    if (o["split"]!!.jsonPrimitive.content != "test") continue
+                    val zh = o["zh"]!!.jsonPrimitive.content
+                    for (q in o["q"]!!.jsonArray.map { p -> p.jsonPrimitive.content }) {
+                        val s = shown(q)
+                        mixed.n++
+                        if (zh in s.flat.take(1)) mixed.r1++
+                        if (zh in s.flat.take(3)) mixed.r3++
+                        if (zh in s.flat.take(5)) mixed.r5++
+                    }
+                }
+                val offenders = ArrayList<String>()
+                for (q in eval["mixed_neg"]?.jsonArray.orEmpty()) {
+                    val text = q.jsonPrimitive.content
+                    val s = shown(text)
+                    mixedNeg.n++
+                    if (s.flat.isNotEmpty()) {
+                        mixedNeg.any++
+                        offenders.add("$text -> ${s.flat.first()}")
+                    }
+                }
                 val m = linkedMapOf(
                     "phrase_r1" to phrase.pct(phrase.r1), "phrase_r3" to phrase.pct(phrase.r3), "phrase_r5" to phrase.pct(phrase.r5),
                     "phrase_rows" to phrase.avg(phrase.rows), "phrase_unattested_rows" to phrase.avg(phrase.unatt),
@@ -140,11 +165,17 @@ class CombinationQualityTest {
                     "negatives_with_combinations" to neg.pct(neg.any), "negative_rows" to neg.avg(neg.rows),
                     "stress_r1" to stress.pct(stress.r1), "stress_r3" to stress.pct(stress.r3), "stress_r5" to stress.pct(stress.r5),
                     "grouped_gold_covered" to allPhrase.pct(allPhrase.covered), "grouped_rows" to allPhrase.avg(allPhrase.gRows),
+                    "mixed_r1" to mixed.pct(mixed.r1), "mixed_r3" to mixed.pct(mixed.r3), "mixed_r5" to mixed.pct(mixed.r5),
+                    "mixed_negatives_with_combinations" to mixedNeg.pct(mixedNeg.any),
                 )
                 println("COMBINATION QUALITY (test split: ${phrase.n} phrase queries, ${word.n} single-word queries, ${neg.n} negatives, ${stress.n} stress queries; grouped on ${allPhrase.n} phrase queries)")
                 for ((k, v) in m) println("  %-28s %7.2f".format(k, v))
+                println("  mixed queries: ${mixed.n}, mixed negatives: ${mixedNeg.n}; negatives with combinations:")
+                for (o in offenders) println("    $o")
                 gate ?: return@runBlocking
                 val fails = ArrayList<String>()
+                // Mixed input pins characters: its recall must not fall below pure pinyin's.
+                if (mixed.n > 0) for (k in listOf("1", "5")) if (m["mixed_r$k"]!! < m["phrase_r$k"]!!) fails.add("mixed_r$k ${"%.2f".format(m["mixed_r$k"])} < phrase_r$k ${"%.2f".format(m["phrase_r$k"])}")
                 for ((k, lim) in gate["min"]?.jsonObject.orEmpty()) if (m[k]!! < lim.jsonPrimitive.double) fails.add("$k ${"%.2f".format(m[k])} < ${lim.jsonPrimitive.double}")
                 for ((k, lim) in gate["max"]?.jsonObject.orEmpty()) if (m[k]!! > lim.jsonPrimitive.double) fails.add("$k ${"%.2f".format(m[k])} > ${lim.jsonPrimitive.double}")
                 assertTrue(fails.isEmpty(), "combination quality gate: $fails")
