@@ -156,6 +156,14 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v5
       - run: ci/fetch-build-inputs.sh
+      # The OCR models of the Android app (PP-OCR, ONNX): downloaded from ModelScope, the recogniser
+      # repacked with uv; byte-identical to the evaluated files (SHA-256 checked by the script).
+      - uses: actions/cache@v4
+        with:
+          path: app/recognition/build/ocr2-models
+          key: ocr2-${{ hashFiles('app/recognition/tools/fetch_ocr2_models.sh', 'app/recognition/tools/pack_ocr2_recogniser.py') }}
+      - uses: astral-sh/setup-uv@v6
+      - run: sh app/recognition/tools/fetch_ocr2_models.sh
       - run: VOICE_TARGETS=android app/tools/fetch-voice-model.sh
       - name: Build
         working-directory: app

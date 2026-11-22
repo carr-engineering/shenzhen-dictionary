@@ -83,21 +83,34 @@
 
     // The store worker starts with the page, beside the download of the app's code, and begins to
     // open — on a first visit, to download — the dataset the page is about to ask for (PERF-060).
-    // Its events are kept until the app is there to read them.
-    try {
-        var mode = /^\/yue(\/|$)/.test(location.pathname) ? 'cantonese' : /^\/zh(\/|$)/.test(location.pathname) ? 'mandarin' : null;
-        try { mode = mode || localStorage.getItem('szdict.setting.dictionary_mode'); } catch (e) {}
-        var worker = new Worker('sqlite-worker.js', { type: 'module' });
-        var events = [];
-        worker.addEventListener('message', function (event) { if (event.data && event.data.id === -1) events.push(event.data); });
-        worker.postMessage({ warm: 'data/' + (mode === 'cantonese' ? 'cantonese' : 'mandarin') + '.db' });
-        window.szdictStore = { worker: worker, events: events };
-    } catch (e) { /* the app starts its own worker */ }
+    // Its events are kept until the app is there to read them. It is started only once the page
+    // knows it will not reload for a service-worker update: only one worker can hold the stored
+    // datasets, and a page that is about to go away must not hold them (sqlite-worker.js).
+    var storeStarted = false;
+    function startStore() {
+        if (storeStarted) return;
+        storeStarted = true;
+        try {
+            var mode = /^\/yue(\/|$)/.test(location.pathname) ? 'cantonese' : /^\/zh(\/|$)/.test(location.pathname) ? 'mandarin' : null;
+            try { mode = mode || localStorage.getItem('szdict.setting.dictionary_mode'); } catch (e) {}
+            var worker = new Worker('sqlite-worker.js', { type: 'module' });
+            var events = [];
+            worker.addEventListener('message', function (event) { if (event.data && event.data.id === -1) events.push(event.data); });
+            worker.postMessage({ warm: 'data/' + (mode === 'cantonese' ? 'cantonese' : 'mandarin') + '.db' });
+            window.szdictStore = { worker: worker, events: events };
+            // Leaving the page (reload, navigation, closing) ends the worker at once, so the next
+            // page opens the stored datasets instead of waiting for them or downloading them again.
+            window.addEventListener('pagehide', function () { worker.terminate(); });
+            // A page restored from the back/forward cache has no store any more: start it afresh.
+            window.addEventListener('pageshow', function (event) { if (event.persisted) location.reload(); });
+        } catch (e) { /* the app starts its own worker */ }
+    }
 
     var started = false;
     function boot() {
         if (started) return;
         started = true;
+        startStore();
         var script = document.createElement('script');
         script.src = 'szdict.js';
         document.body.appendChild(script);

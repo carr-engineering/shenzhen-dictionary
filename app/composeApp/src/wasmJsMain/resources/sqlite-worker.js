@@ -9,7 +9,20 @@
 // afterwards, a newer version is downloaded and verified beside the one in use, and one write of
 // the pointer file makes it the version the next visit opens (the old file is deleted then).
 // Where OPFS cannot be used (unsupported, or held by another tab) the file is loaded into memory
-// for this page instead.
+// for this page instead: copied from the tab that holds the store when there is one, downloaded
+// otherwise.
+//
+// Keeping what is stored (a visit must not download the dataset again):
+// - The pool's files can be open in one worker only. The worker that holds the pool holds the Web
+//   Lock "szdict-store" for its whole life; a new worker waits for it, so a reload, a navigation or
+//   the reload of a service-worker update does not race the previous page's worker. The start page
+//   also ends its worker when the page is hidden (index.html), which frees both at once.
+// - Opening the pool is retried while the previous holder lets go, and a failed opening never
+//   deletes the stored files (sqlite-wasm's default is to remove the pool directory when its
+//   initialisation fails: `preserveOnInitFailure`).
+// - Files the pointer file does not name are deleted only when the pointer file was read; when it
+//   cannot be read, a stored file whose name carries the manifest's SHA-256 is verified and adopted
+//   instead of being downloaded again.
 //
 // Besides protocol responses the worker posts events with id -1:
 //   { evt: "download", file, loaded, total, done, error?, background }   progress of a fetch
@@ -23,6 +36,13 @@ const MANIFEST_URL = 'data/manifest.json';
 const POINTER_FILE = 'szdict-datasets.json';
 const FIRST_CHECK_MS = 4000;
 const RECHECK_MS = 6 * 60 * 60 * 1000;
+const STORE_LOCK = 'szdict-store';
+/** How long a new worker waits for the previous holder of the store (a page being unloaded) to end. */
+const LOCK_WAIT_MS = 4000;
+/** Delays between attempts to open the pool while its files are still held elsewhere. */
+const POOL_RETRY_MS = [100, 250, 500, 1000, 2000];
+const SHARE_CHANNEL = 'szdict-store-share';
+const SHARE_WAIT_MS = 3000;
 
 let sqlite3 = null;
 let pool = null;
@@ -104,14 +124,23 @@ class Sha256 {
 
 // ---- the pointer file ----
 
+/**
+ * The installed files and whether the pointer file was read. A pointer file that is not there yet
+ * is a read of nothing; one that cannot be read or parsed is not trusted to say what to delete.
+ */
 async function readPointers() {
+  let file;
   try {
     const root = await navigator.storage.getDirectory();
-    const file = await (await root.getFileHandle(POINTER_FILE)).getFile();
-    const parsed = JSON.parse(await file.text());
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    file = await (await root.getFileHandle(POINTER_FILE)).getFile();
   } catch (e) {
-    return {};
+    return { pointers: {}, trusted: !!e && e.name === 'NotFoundError' };
+  }
+  try {
+    const parsed = JSON.parse(await file.text());
+    return parsed && typeof parsed === 'object' ? { pointers: parsed, trusted: true } : { pointers: {}, trusted: false };
+  } catch (e) {
+    return { pointers: {}, trusted: false };
   }
 }
 
@@ -128,8 +157,9 @@ async function writePointers() {
   } else {
     const access = await handle.createSyncAccessHandle();
     try {
-      access.truncate(0);
+      // Written over the old content and then cut to length: the file is never empty in between.
       access.write(bytes, { at: 0 });
+      access.truncate(bytes.byteLength);
       access.flush();
     } finally {
       access.close();
@@ -137,18 +167,107 @@ async function writePointers() {
   }
 }
 
+// ---- holding the store ----
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function opfsAvailable() {
+  return !!(self.navigator && navigator.storage && navigator.storage.getDirectory &&
+    self.FileSystemFileHandle && FileSystemFileHandle.prototype.createSyncAccessHandle);
+}
+
+let releaseStoreLock = () => {};
+
+/**
+ * Takes the Web Lock that says which worker holds the pool, and keeps it until this worker ends.
+ * True when it is held (or Web Locks are not supported); false when another worker kept it longer
+ * than a page takes to unload — another open tab.
+ */
+function takeStoreLock() {
+  if (!navigator.locks || !navigator.locks.request) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      if (controller) controller.abort();
+      resolve(false);
+    }, LOCK_WAIT_MS);
+    navigator.locks.request(STORE_LOCK, controller ? { signal: controller.signal } : {}, () => {
+      if (settled) return undefined;   // granted after giving up: let it go at once
+      settled = true;
+      clearTimeout(timer);
+      resolve(true);
+      return new Promise((release) => { releaseStoreLock = release; });
+    }).catch(() => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+}
+
+/** Opens the pool, retrying while the previous holder's handles are being released. */
+async function installPool() {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await sqlite3.installOpfsSAHPoolVfs({
+        name: 'szdict-pool',
+        directory: POOL_DIRECTORY,
+        initialCapacity: 16,
+        verbosity: 0,
+        // A failed opening must leave the stored datasets alone (the default deletes the pool) …
+        preserveOnInitFailure: true,
+        // … and be tried again rather than answered from the cached failure.
+        forceReinitIfPreviouslyFailed: true,
+      });
+    } catch (e) {
+      if (attempt >= POOL_RETRY_MS.length) throw e;
+      await sleep(POOL_RETRY_MS[attempt]);
+    }
+  }
+}
+
+/** The holder of the pool hands an installed file to a tab that could not open the pool. */
+function serveOtherTabs() {
+  let channel;
+  try { channel = new BroadcastChannel(SHARE_CHANNEL); } catch (e) { return; }
+  channel.onmessage = (event) => {
+    const request = event.data;
+    if (!request || request.type !== 'request' || !pool) return;
+    const installed = pointers[request.name];
+    if (!installed || (request.sha256 && installed.sha256 !== request.sha256)) return;
+    try {
+      const bytes = pool.exportFile(installed.file);
+      channel.postMessage({ type: 'file', id: request.id, name: request.name, sha256: installed.sha256, bytes });
+    } catch (e) { /* the asking tab downloads it */ }
+  };
+}
+
 const ready = (async () => {
   sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} });
-  try {
-    pool = await sqlite3.installOpfsSAHPoolVfs({ name: 'szdict-pool', directory: POOL_DIRECTORY, initialCapacity: 16, verbosity: 0 });
-    pointers = await readPointers();
-    // Whatever the pointer file does not name was never verified, or was replaced by an update.
-    const installed = new Set(Object.values(pointers).map((p) => p.file));
-    for (const stored of pool.getFileNames()) if (!installed.has(stored)) pool.unlink(stored);
-    for (const name of Object.keys(pointers)) if (!pool.getFileNames().includes(pointers[name].file)) delete pointers[name];
-  } catch (e) {
-    pool = null;
+  if (opfsAvailable() && await takeStoreLock()) {
+    try {
+      pool = await installPool();
+      const read = await readPointers();
+      pointers = read.pointers;
+      const stored = pool.getFileNames();
+      if (read.trusted) {
+        // Whatever the pointer file does not name was never verified, or was replaced by an update.
+        const installed = new Set(Object.values(pointers).map((p) => p && p.file));
+        for (const file of stored) if (!installed.has(file)) pool.unlink(file);
+      }
+      for (const name of Object.keys(pointers)) {
+        if (!pointers[name] || !stored.includes(pointers[name].file)) delete pointers[name];
+      }
+    } catch (e) {
+      pool = null;
+      releaseStoreLock();
+    }
   }
+  if (pool) serveOtherTabs();
   notify({ evt: 'storage', persistent: pool !== null });
 })();
 
@@ -206,11 +325,30 @@ function verify(name, wanted, size, digest) {
 }
 
 /**
+ * A stored file of the wanted version that no pointer names (the pointer file could not be read):
+ * its pointer entry when its content verifies, so it is used instead of downloaded again.
+ */
+function adoptStored(name, target, wanted) {
+  if (!wanted || !wanted.sha256 || !pool.getFileNames().includes(target)) return null;
+  try {
+    const bytes = pool.exportFile(target);
+    const hash = new Sha256();
+    hash.update(bytes);
+    verify(name, wanted, bytes.byteLength, hash.hex());
+    return { file: target, sha256: wanted.sha256, version: wanted.dataset_version || null };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
  * Downloads `name` into the pool beside whatever is installed and verifies it. Returns the pointer
  * entry of the new file; nothing refers to that file until the entry is written.
  */
 async function fetchIntoPool(name, wanted, background) {
   const target = '/' + name + '@' + (wanted && wanted.sha256 ? wanted.sha256.slice(0, 16) : 'unversioned');
+  const adopted = adoptStored(name, target, wanted);
+  if (adopted) return adopted;
   if (pool.getFileNames().includes(target)) pool.unlink(target);
   await pool.reserveMinimumCapacity(pool.getFileCount() + 4);
   const hash = new Sha256();
@@ -330,6 +468,54 @@ async function checkForUpdate() {
   }
 }
 
+// ---- without the pool: the file in memory for this page ----
+
+/**
+ * The installed file from the tab that holds the pool, verified like a download; null when no tab
+ * answers in time (none holds it, or it does not have this file).
+ */
+function fromHolder(name, wanted) {
+  let channel;
+  try { channel = new BroadcastChannel(SHARE_CHANNEL); } catch (e) { return Promise.resolve(null); }
+  const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return new Promise((resolve) => {
+    const finish = (bytes) => { clearTimeout(timer); channel.close(); resolve(bytes); };
+    const timer = setTimeout(() => finish(null), SHARE_WAIT_MS);
+    channel.onmessage = (event) => {
+      const reply = event.data;
+      if (!reply || reply.type !== 'file' || reply.id !== id || !(reply.bytes instanceof Uint8Array)) return;
+      const expected = wanted && wanted.sha256 ? wanted : { size: reply.bytes.byteLength, sha256: reply.sha256 };
+      try {
+        const hash = new Sha256();
+        hash.update(reply.bytes);
+        if (expected.sha256) verify(name, expected, reply.bytes.byteLength, hash.hex());
+        finish(reply.bytes);
+      } catch (e) {
+        finish(null);
+      }
+    };
+    channel.postMessage({ type: 'request', id, name, sha256: wanted && wanted.sha256 ? wanted.sha256 : null });
+  });
+}
+
+async function downloadToMemory(name, wanted) {
+  const parts = [];
+  const size = await download(name, wanted ? wanted.size : 0, false, async (chunk) => { parts.push(chunk); });
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) { bytes.set(part, at); at += part.byteLength; }
+  try {
+    const hash = new Sha256();
+    hash.update(bytes);
+    verify(name, wanted, size, hash.hex());
+  } catch (e) {
+    notify({ evt: 'download', file: name, loaded: size, total: size, done: true, error: String(e.message), background: false });
+    throw e;
+  }
+  notify({ evt: 'download', file: name, loaded: size, total: size, done: true, background: false });
+  return bytes;
+}
+
 // ---- the driver protocol ----
 
 /** Files this page has open, by name: an update installed meanwhile does not change them. */
@@ -347,20 +533,8 @@ async function open(name) {
     db = new sqlite3.oo1.DB(target, 'r', pool.vfsName);
   } else {
     const wanted = listed(await manifest(false), name);
-    const parts = [];
-    const size = await download(name, wanted ? wanted.size : 0, false, async (chunk) => { parts.push(chunk); });
-    const bytes = new Uint8Array(size);
-    let at = 0;
-    for (const part of parts) { bytes.set(part, at); at += part.byteLength; }
-    try {
-      const hash = new Sha256();
-      hash.update(bytes);
-      verify(name, wanted, size, hash.hex());
-    } catch (e) {
-      notify({ evt: 'download', file: name, loaded: size, total: size, done: true, error: String(e.message), background: false });
-      throw e;
-    }
-    notify({ evt: 'download', file: name, loaded: size, total: size, done: true, background: false });
+    const bytes = (await fromHolder(name, wanted)) || (await downloadToMemory(name, wanted));
+    const size = bytes.byteLength;
     const p = sqlite3.wasm.allocFromTypedArray(bytes);
     db = new sqlite3.oo1.DB();
     const rc = sqlite3.capi.sqlite3_deserialize(
